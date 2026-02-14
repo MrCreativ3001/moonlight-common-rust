@@ -6,7 +6,7 @@ license.workspace = true
 
 [workspace]
 package.version = "0.1.0"
-package.license = "Apache2"
+package.license = "GPL-3.0-or-later"
 members = ["moonlight-common-sys"]
 
 [workspace.dependencies]
