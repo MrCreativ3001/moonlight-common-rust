@@ -1,0 +1,111 @@
+[package]
+name = "moonlight-common"
+version.workspace = true
+edition = "2024"
+license = { workspace = true }
+
+[dependencies]
+bitflags = "2.9.1"
+num = "0.4.3"
+num-derive = "0.4.2"
+num-traits = "0.2.19"
+
+log = { workspace = true, optional = true }
+
+thiserror = { workspace = true }
+
+# Network
+uuid = { workspace = true, features = ["v4"], optional = true }
+hex = { workspace = true }
+url = { workspace = true, optional = true }
+roxmltree = { workspace = true, optional = true }
+form_urlencoded = { workspace = true, optional = true }
+
+# Network Reqwest backend
+reqwest = { workspace = true, features = ["default"], optional = true }
+bytes = { workspace = true, optional = true }
+
+# Network Hyper OpenSSL backend
+hyper = { workspace = true, features = ["http1", "client"], optional = true }
+hyper-openssl = { workspace = true, optional = true }
+hyper-util = { workspace = true, features = ["tokio"], optional = true }
+http-body-util = { workspace = true, optional = true }
+
+# Network Curl backend, Doesn't currently work on windows
+curl = { workspace = true, features = ["ssl"], optional = true }
+
+# Stream c
+moonlight-common-sys = { workspace = true, optional = true }
+printf-compat = { workspace = true, optional = true }
+
+# Stream proto
+# We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
+reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017" }
+
+# High
+tokio = { workspace = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "time",
+], optional = true }
+pem = { workspace = true, optional = true }
+openssl = { workspace = true }
+
+# Serde Serialization
+serde = { workspace = true, optional = true }
+
+# Proto
+# TODO: make this optional
+rusty_enet = { workspace = true }
+
+# TODO: this is only used in stream_std
+swap-buffer-queue = { version = "0.2.1", features = ["write"] }
+
+[features]
+default = ["high", "stream_std", "backend_reqwest"]
+
+# High level api
+high = ["network", "pair", "dep:log", "dep:tokio"]
+
+# Stream implementations
+stream_c = ["dep:moonlight-common-sys", "dep:log", "dep:printf-compat"]
+stream_proto = []
+stream_std = ["stream_proto"]
+
+# Pairing
+pair = ["network"]
+
+# Network
+network = [
+    "dep:url",
+    "dep:form_urlencoded",
+    "dep:roxmltree",
+    "dep:uuid",
+
+    "dep:pem",
+]
+# Reqwest Network Backend
+backend_reqwest = [
+    "dep:reqwest",
+    "reqwest/native-tls",
+    "dep:tokio",
+    "dep:bytes",
+    "dep:log",
+]
+# Hyper OpenSSL Network Backend
+backend_hyper_openssl = [
+    "dep:tokio",
+    "dep:hyper",
+    "dep:hyper-openssl",
+    "dep:hyper-util",
+    "dep:http-body-util",
+    "dep:bytes",
+    "dep:log",
+]
+# Curl Network Backend
+backend_curl = ["dep:curl"]
+
+serde = ["dep:serde"]
+
+[lints]
+workspace = true
