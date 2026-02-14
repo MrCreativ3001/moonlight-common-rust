@@ -2,7 +2,21 @@
 name = "moonlight-common"
 version.workspace = true
 edition = "2024"
-license = { workspace = true }
+license.workspace = true
+
+[workspace]
+package.version = "0.1.0"
+package.license = "Apache2"
+members = ["moonlight-common-sys"]
+
+[workspace.dependencies]
+moonlight-common-sys = { path = "./moonlight-common-sys" }
+openssl-sys = "0.9.111"
+openssl = "0.10.75"
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+unwrap_used = "warn"
 
 [dependencies]
 bitflags = "2.9.1"
@@ -10,53 +24,54 @@ num = "0.4.3"
 num-derive = "0.4.2"
 num-traits = "0.2.19"
 
-log = { workspace = true, optional = true }
+log = "0.4.29"
 
-thiserror = { workspace = true }
+thiserror = "2.0.18"
 
 # Network
-uuid = { workspace = true, features = ["v4"], optional = true }
-hex = { workspace = true }
-url = { workspace = true, optional = true }
-roxmltree = { workspace = true, optional = true }
-form_urlencoded = { workspace = true, optional = true }
+uuid = { version = "0", features = ["v4"], optional = true }
+hex = "0.4.3"
+url = { version = "2.5.8", optional = true }
+roxmltree = { version = "0.21.1", optional = true }
+form_urlencoded = { version = "1.2.2", optional = true }
 
 # Network Reqwest backend
-reqwest = { workspace = true, features = ["default"], optional = true }
-bytes = { workspace = true, optional = true }
+reqwest = { version = "0.12.28", features = ["default"], optional = true }
+bytes = { version = "1.11.1", optional = true }
 
 # Network Hyper OpenSSL backend
-hyper = { workspace = true, features = ["http1", "client"], optional = true }
-hyper-openssl = { workspace = true, optional = true }
-hyper-util = { workspace = true, features = ["tokio"], optional = true }
-http-body-util = { workspace = true, optional = true }
+hyper = { version = "1.8.1", features = ["http1", "client"], optional = true }
+hyper-openssl = { version = "0.10.2", optional = true }
+hyper-util = { version = "0.1.20", features = ["tokio"], optional = true }
+http-body-util = { version = "0.1.3", optional = true }
 
 # Network Curl backend, Doesn't currently work on windows
-curl = { workspace = true, features = ["ssl"], optional = true }
+curl = { version = "0.4.49", features = ["ssl"], optional = true }
 
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
-printf-compat = { workspace = true, optional = true }
+# TODO: move this into the sys crate because this requires nightly -> this crate doesn't need nightly, only this feature needs nightly
+printf-compat = { version = "0.3.1", optional = true }
 
 # Stream proto
 # We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
 reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017" }
 
 # High
-tokio = { workspace = true, features = [
+tokio = { version = "1.49.0", features = [
     "rt",
     "rt-multi-thread",
     "time",
 ], optional = true }
-pem = { workspace = true, optional = true }
+pem = { version = "3.0.6", optional = true }
 openssl = { workspace = true }
 
 # Serde Serialization
-serde = { workspace = true, optional = true }
+serde = { version = "1.0.228", optional = true }
 
 # Proto
 # TODO: make this optional
-rusty_enet = { workspace = true }
+rusty_enet = "0.4.0"
 
 # TODO: this is only used in stream_std
 swap-buffer-queue = { version = "0.2.1", features = ["write"] }
@@ -65,10 +80,10 @@ swap-buffer-queue = { version = "0.2.1", features = ["write"] }
 default = ["high", "stream_std", "backend_reqwest"]
 
 # High level api
-high = ["network", "pair", "dep:log", "dep:tokio"]
+high = ["network", "pair", "dep:tokio"]
 
 # Stream implementations
-stream_c = ["dep:moonlight-common-sys", "dep:log", "dep:printf-compat"]
+stream_c = ["dep:moonlight-common-sys", "dep:printf-compat"]
 stream_proto = []
 stream_std = ["stream_proto"]
 
@@ -90,7 +105,6 @@ backend_reqwest = [
     "reqwest/native-tls",
     "dep:tokio",
     "dep:bytes",
-    "dep:log",
 ]
 # Hyper OpenSSL Network Backend
 backend_hyper_openssl = [
@@ -100,7 +114,6 @@ backend_hyper_openssl = [
     "dep:hyper-util",
     "dep:http-body-util",
     "dep:bytes",
-    "dep:log",
 ]
 # Curl Network Backend
 backend_curl = ["dep:curl"]

@@ -2,10 +2,10 @@
 name = "moonlight-common-sys"
 version.workspace = true
 edition = "2024"
-license = { workspace = true }
+license.workspace = true
 
 [dependencies]
-openssl-sys = { workspace = true }
+openssl-sys.workspace = true
 
 [features]
 default = ["vendored", "openssl-sys/vendored"]
@@ -17,5 +17,5 @@ crypto = []
 vendored = ["dep:cmake"]
 
 [build-dependencies]
-bindgen = { workspace = true }
-cmake = { workspace = true, optional = true }
+bindgen = "0.72.1"
+cmake = { version = "0.1.57", optional = true }

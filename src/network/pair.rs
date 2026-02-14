@@ -2,7 +2,7 @@
 //! - https://games-on-whales.github.io/wolf/stable/protocols/http-pairing.html
 
 use roxmltree::Document;
-use uuid::fmt::Hyphenated;
+use uuid::adapter::Hyphenated;
 
 use crate::{
     SALT_LENGTH,

@@ -1,7 +1,6 @@
 use std::fmt::Write as _;
 
 use roxmltree::Document;
-use uuid::fmt::Hyphenated;
 
 use crate::network::{
     ApiError, ClientInfo,
@@ -103,7 +102,7 @@ async fn inner_launch_host<C: RequestClient>(
 ) -> Result<C::Text, ApiError<C::Error>> {
     let mut query_params = DynamicQueryParams::default();
 
-    let mut uuid_bytes = [0; Hyphenated::LENGTH];
+    let mut uuid_bytes = [0; _];
     info.add_query_params(&mut uuid_bytes, &mut query_params);
 
     let launch_params = form_urlencoded::parse(launch_url_query_parameters.as_bytes());

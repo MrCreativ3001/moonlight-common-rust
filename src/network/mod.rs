@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use log::warn;
 use roxmltree::{Document, Error, Node};
 use thiserror::Error;
-use uuid::{Uuid, fmt::Hyphenated};
+use uuid::{Uuid, adapter::Hyphenated};
 
 use crate::{
     PairStatus, ParseServerStateError, ParseServerVersionError, ServerState, ServerType,
@@ -84,7 +84,7 @@ impl<'a> ClientInfo<'a> {
     ) {
         query_params.push((Cow::Borrowed("uniqueid"), Cow::Borrowed(self.unique_id)));
 
-        self.uuid.as_hyphenated().encode_lower(uuid_bytes);
+        self.uuid.to_hyphenated_ref().encode_lower(uuid_bytes);
         let uuid_str = str::from_utf8(uuid_bytes).expect("uuid string");
 
         query_params.push((Cow::Borrowed("uuid"), Cow::Borrowed(uuid_str)));
@@ -198,7 +198,7 @@ pub async fn host_info<C: RequestClient>(
 ) -> Result<HostInfo, ApiError<C::Error>> {
     let mut query_params = LocalQueryParams::<2>::default();
 
-    let mut uuid_bytes = [0; Hyphenated::LENGTH];
+    let mut uuid_bytes = [0; _];
     if let Some(info) = info {
         info.add_query_params(&mut uuid_bytes, &mut query_params);
     }
@@ -304,7 +304,7 @@ pub async fn host_app_list<C: RequestClient>(
 ) -> Result<ServerAppListResponse, ApiError<C::Error>> {
     let mut query_params = LocalQueryParams::<2>::default();
 
-    let mut uuid_bytes = [0; Hyphenated::LENGTH];
+    let mut uuid_bytes = [0; _];
     info.add_query_params(&mut uuid_bytes, &mut query_params);
 
     let response = client
@@ -353,7 +353,7 @@ pub async fn host_app_box_art<C: RequestClient>(
     // Assets: https://github.com/moonlight-stream/moonlight-android/blob/master/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java#L721
     let mut query_params = LocalQueryParams::<{ 2 + 3 }>::default();
 
-    let mut uuid_bytes = [0; Hyphenated::LENGTH];
+    let mut uuid_bytes = [0; _];
     info.add_query_params(&mut uuid_bytes, &mut query_params);
 
     let mut appid_buffer = [0u8; _];
@@ -378,7 +378,7 @@ pub async fn host_cancel<C: RequestClient>(
 ) -> Result<bool, ApiError<C::Error>> {
     let mut query_params: LocalQueryParams<'_, 2> = LocalQueryParams::default();
 
-    let mut uuid_bytes = [0; Hyphenated::LENGTH];
+    let mut uuid_bytes = [0; _];
     info.add_query_params(&mut uuid_bytes, &mut query_params);
 
     let response = client
