@@ -1,5 +1,7 @@
 [target.x86_64-pc-windows-gnu]
 pre-build = [
+    # -- Overwrite the openssl finder so we just don't do anything (it'll just error out even though we have the lib)
+    "echo \"\" > $(cmake --system-information | grep CMAKE_ROOT | cut -d'\"' -f2)/Modules/FindOpenSSL.cmake",
     # -- Set required Windows flags in toolchain for moonlight-common-c compilation
     "echo 'set(CMAKE_C_FLAGS \"${CMAKE_C_FLAGS} -D_WIN32_WINNT=0x0600 -DHAS_PQOS_FLOWID -DHAS_QOS_FLOWID\")' >> /opt/toolchain.cmake",
     "echo 'set(CMAKE_CXX_FLAGS \"${CMAKE_CXX_FLAGS} -D_WIN32_WINNT=0x0600 -DHAS_PQOS_FLOWID -DHAS_QOS_FLOWID\")' >> /opt/toolchain.cmake",
@@ -13,4 +15,6 @@ pre-build = [
     "cp -r /tmp/mingw-w64-master/mingw-w64-headers/include/. \"$CROSS_SYSROOT/include/\"",
     # Cleanup only what we created
     "rm -rf /tmp/mingw-w64.zip /tmp/mingw-w64-master",
+    # For some reason the stdbool.h is not in the include path
+    "ln -s /usr/lib/gcc/x86_64-w64-mingw32/$($CROSS_TOOLCHAIN_PREFIX\"gcc\"$CROSS_TOOLCHAIN_SUFFIX -dumpversion)/include/stdbool.h $CROSS_SYSROOT/include/stdbool.h",
 ]

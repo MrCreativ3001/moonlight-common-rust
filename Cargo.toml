@@ -4,8 +4,8 @@ package.license = "GPL-3.0-or-later"
 members = ["./", "moonlight-common-sys", "examples/*"]
 
 [workspace.dependencies]
-moonlight-common = { path = "./", default-features = false }
-moonlight-common-sys = { path = "./moonlight-common-sys", default-features = false }
+moonlight-common = { path = "./" }
+moonlight-common-sys = { path = "./moonlight-common-sys" }
 
 openssl-sys = { version = "0.9.109", default-features = false }
 openssl = { version = "0.10.73", default-features = false }
