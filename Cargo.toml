@@ -1,22 +1,24 @@
-[package]
-name = "moonlight-common"
-version.workspace = true
-edition = "2024"
-license.workspace = true
-
 [workspace]
 package.version = "0.1.0"
 package.license = "GPL-3.0-or-later"
-members = ["moonlight-common-sys"]
+members = ["./", "moonlight-common-sys", "examples/*"]
 
 [workspace.dependencies]
-moonlight-common-sys = { path = "./moonlight-common-sys" }
-openssl-sys = "0.9.111"
-openssl = "0.10.75"
+moonlight-common = { path = "./", default-features = false }
+moonlight-common-sys = { path = "./moonlight-common-sys", default-features = false }
+
+openssl-sys = { version = "0.9.109", default-features = false }
+openssl = { version = "0.10.73", default-features = false }
 
 [workspace.lints.clippy]
 too_many_arguments = "allow"
 unwrap_used = "warn"
+
+[package]
+name = "moonlight-common"
+edition = "2024"
+version.workspace = true
+license.workspace = true
 
 [dependencies]
 bitflags = "2.9.1"
@@ -73,7 +75,7 @@ serde = { version = "1.0.228", optional = true }
 # TODO: make this optional
 rusty_enet = "0.4.0"
 
-# TODO: this is only used in stream_std
+# TODO: use ringbuffer instead
 swap-buffer-queue = { version = "0.2.1", features = ["write"] }
 
 [features]

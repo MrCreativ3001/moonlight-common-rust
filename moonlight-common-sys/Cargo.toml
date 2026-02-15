@@ -11,6 +11,7 @@ openssl-sys.workspace = true
 default = ["vendored", "openssl-sys/vendored"]
 
 # Moonlight Features
+# TODO: remove this
 crypto = []
 
 # Vendored
