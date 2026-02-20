@@ -75,9 +75,6 @@ serde = { version = "1.0.228", optional = true }
 # TODO: make this optional
 rusty_enet = "0.4.0"
 
-# TODO: use ringbuffer instead
-swap-buffer-queue = { version = "0.2.1", features = ["write"] }
-
 [features]
 default = ["high", "stream_std", "backend_reqwest"]
 

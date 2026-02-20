@@ -2,7 +2,7 @@
 pre-build = [
     # -- Overwrite the openssl finder so we just don't do anything (it'll just error out even though we have the lib)
     "echo \"\" > $(cmake --system-information | grep CMAKE_ROOT | cut -d'\"' -f2)/Modules/FindOpenSSL.cmake",
-    # -- Set required Windows flags in toolchain for moonlight-common-c compilation
+    # -- Set required Windows flags for mingw64 headers for moonlight-common-c compilation to work
     "echo 'set(CMAKE_C_FLAGS \"${CMAKE_C_FLAGS} -D_WIN32_WINNT=0x0600 -DHAS_PQOS_FLOWID -DHAS_QOS_FLOWID\")' >> /opt/toolchain.cmake",
     "echo 'set(CMAKE_CXX_FLAGS \"${CMAKE_CXX_FLAGS} -D_WIN32_WINNT=0x0600 -DHAS_PQOS_FLOWID -DHAS_QOS_FLOWID\")' >> /opt/toolchain.cmake",
     # -- Overwrite system MinGW-w64 headers with latest version

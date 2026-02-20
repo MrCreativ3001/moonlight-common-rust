@@ -10,12 +10,6 @@ use std::{
 };
 
 use log::trace;
-use swap_buffer_queue::{
-    Queue, SynchronizedQueue,
-    buffer::VecBuffer,
-    error::{TryDequeueError, TryEnqueueError},
-    write::WriteArrayBuffer,
-};
 use thiserror::Error;
 
 use crate::stream::{
@@ -32,11 +26,14 @@ use crate::stream::{
         },
         video::{VideoStream, VideoStreamInput, VideoStreamOutput},
     },
+    std::ringbuffer::RingBuffer,
     video::{ColorSpace, VideoDecodeUnit, VideoDecoder},
 };
 
 // TODO: move decoders into different thread because the network thread NEEDS to be quick to avoid packet losses by the underlying buffer dropping packets
 // TODO: maybe take a look at this? https://crates.io/crates/swap-buffer-queue
+
+mod ringbuffer;
 
 #[derive(Debug, Error)]
 pub enum MoonlightStreamError {
@@ -143,26 +140,16 @@ fn udp_receive_thread(socket: Arc<UdpSocket>, sender: Sender<Input>) {
     }
 }
 
-const UDP_QUEUE_HEADER: usize = size_of::<usize>();
-const UDP_QUEUE_BUFFER_LEN: usize = size_of::<usize>() + 4096;
 fn udp_queue_receive_thread(
     socket: Arc<UdpSocket>,
-    queue: Arc<SynchronizedQueue<WriteArrayBuffer<UDP_QUEUE_BUFFER_LEN>>>,
+    queue: Arc<RingBuffer>,
+    max_packet_size: usize,
 ) {
+    let mut buffer = vec![0; max_packet_size];
     loop {
-        match queue.try_enqueue((UDP_QUEUE_BUFFER_LEN, |buffer: &mut [u8]| {
-            let (len, addr) = socket
-                .recv_from(&mut buffer[UDP_QUEUE_HEADER..UDP_QUEUE_BUFFER_LEN])
-                .unwrap();
+        let len = socket.recv(&mut buffer).unwrap();
 
-            buffer[0..UDP_QUEUE_HEADER].copy_from_slice(&len.to_be_bytes());
-        })) {
-            Ok(_) => {}
-            Err(TryEnqueueError::InsufficientCapacity(_)) => {}
-            Err(TryEnqueueError::Closed(_)) => {
-                return;
-            }
-        }
+        queue.push(&buffer[0..len]);
     }
 }
 
@@ -473,9 +460,12 @@ fn video_thread(
     // TODO: get the video information
 ) {
     let mut started = false;
-    let queue = Arc::new(SynchronizedQueue::<WriteArrayBuffer<UDP_QUEUE_BUFFER_LEN>>::new());
+    // TODO: max packet size
+    let max_packet_size = 4096;
+    let mut buffer = vec![0; max_packet_size];
+    let queue = Arc::new(RingBuffer::new(100, max_packet_size));
 
-    udp_queue_receive_thread(socket, queue.clone());
+    udp_queue_receive_thread(socket, queue.clone(), max_packet_size);
 
     loop {
         let timeout = match video_stream.poll_output().unwrap() {
@@ -523,34 +513,15 @@ fn video_thread(
             continue;
         };
 
-        match queue.dequeue_timeout(duration) {
-            Ok(buffer) => {
-                #[allow(clippy::unwrap_used)]
-                let len = usize::from_be_bytes(
-                    *buffer[0..UDP_QUEUE_HEADER]
-                        .as_array::<UDP_QUEUE_HEADER>()
-                        .unwrap(),
-                );
-                let slice = &buffer[0..len];
+        if let Some(len) = queue.pop(&mut buffer, Some(duration)) {
+            let slice = &buffer[0..len];
 
-                video_stream
-                    .handle_input(VideoStreamInput::Receive {
-                        now: Instant::now(),
-                        data: slice,
-                    })
-                    .unwrap();
-            }
-            Err(TryDequeueError::Empty | TryDequeueError::Conflict) => {
-                video_stream
-                    .handle_input(VideoStreamInput::Timeout(Instant::now()))
-                    .unwrap();
-            }
-            Err(TryDequeueError::Pending) => {
-                todo!()
-            }
-            Err(TryDequeueError::Closed) => {
-                todo!()
-            }
+            video_stream
+                .handle_input(VideoStreamInput::Receive {
+                    now: Instant::now(),
+                    data: slice,
+                })
+                .unwrap();
         }
     }
 }
