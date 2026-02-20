@@ -33,7 +33,7 @@ pub enum MoonlightError {
 }
 
 #[cfg(feature = "network")]
-pub mod network;
+pub mod http;
 
 #[cfg(feature = "high")]
 pub mod high;
@@ -49,10 +49,19 @@ pub mod mac;
 #[error("failed to parse the state of the server")]
 pub struct ParseServerStateError;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ServerState {
     Busy,
     Free,
+}
+
+impl ServerState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Free => "SUNSHINE_SERVER_FREE",
+            Self::Busy => "SUNSHINE_SERVER_BUSY",
+        }
+    }
 }
 
 impl FromStr for ServerState {

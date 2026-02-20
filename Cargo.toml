@@ -76,7 +76,8 @@ serde = { version = "1.0.228", optional = true }
 rusty_enet = "0.4.0"
 
 [features]
-default = ["high", "stream_std", "backend_reqwest"]
+#default = ["high", "stream_std", "backend_reqwest"]
+default = ["network", "stream_proto"]
 
 # High level api
 high = ["network", "pair", "dep:tokio"]
@@ -89,7 +90,7 @@ stream_std = ["stream_proto"]
 # Pairing
 pair = ["network"]
 
-# Network
+# Network, TODO: rename to http, maybe don't even have this as a feature?
 network = [
     "dep:url",
     "dep:form_urlencoded",

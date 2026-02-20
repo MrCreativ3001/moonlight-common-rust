@@ -5,8 +5,8 @@ use reqwest::{Certificate, Client, ClientBuilder, Identity};
 use thiserror::Error;
 use url::{ParseError, Url};
 
-use crate::network::{
-    ApiError,
+use crate::http::{
+    ParseError,
     backend::{DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT},
     request_client::{QueryParamsRef, RequestClient, RequestError},
 };
@@ -22,7 +22,7 @@ pub enum ReqwestError {
     #[error("{0}")]
     UrlParse(#[from] ParseError),
 }
-pub type ReqwestApiError = ApiError<ReqwestError>;
+pub type ReqwestApiError = ParseError<ReqwestError>;
 
 impl RequestError for ReqwestError {
     fn is_connect(&self) -> bool {

@@ -8,7 +8,7 @@ use num_derive::FromPrimitive;
 
 use crate::{
     ServerVersion,
-    network::ApolloPermissions,
+    http::host_info::ApolloPermissions,
     stream::{
         audio::AudioConfig,
         bindings::{

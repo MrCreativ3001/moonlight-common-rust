@@ -6,11 +6,7 @@ use uuid::adapter::Hyphenated;
 
 use crate::{
     SALT_LENGTH,
-    network::{
-        ApiError, ClientInfo, PairStatus,
-        request_client::{LocalQueryParams, QueryBuilder, RequestClient, query_param},
-        xml_child_paired, xml_child_text, xml_root_node,
-    },
+    http::{ClientInfo, PairStatus, ParseError},
 };
 
 #[derive(Debug, Clone)]
@@ -31,7 +27,7 @@ pub async fn host_pair1<C: RequestClient>(
     http_hostport: &str,
     info: ClientInfo<'_>,
     request: ClientPairRequest1<'_>,
-) -> Result<HostPairResponse1, ApiError<C::Error>> {
+) -> Result<HostPairResponse1, ParseError<C::Error>> {
     let mut query_params = LocalQueryParams::<{ 2 + 7 }>::default();
 
     let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -52,7 +48,7 @@ pub async fn host_pair1<C: RequestClient>(
     let response = client
         .send_http_request_text_response(http_hostport, "pair", &query_params)
         .await
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
     let doc = Document::parse(response.as_ref())?;
     let root = xml_root_node(&doc)?;
@@ -65,7 +61,7 @@ pub async fn host_pair1<C: RequestClient>(
 
             Some(String::from_utf8(value)?)
         }
-        Err(ApiError::DetailNotFound("plaincert")) => None,
+        Err(ParseError::DetailNotFound("plaincert")) => None,
         Err(err) => return Err(err),
     };
 
@@ -89,7 +85,7 @@ pub async fn host_pair2<C: RequestClient>(
     http_hostport: &str,
     info: ClientInfo<'_>,
     request: ClientPairRequest2<'_>,
-) -> Result<HostPairResponse2, ApiError<C::Error>> {
+) -> Result<HostPairResponse2, ParseError<C::Error>> {
     let mut query_params = LocalQueryParams::<{ 2 + 3 }>::default();
 
     let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -104,7 +100,7 @@ pub async fn host_pair2<C: RequestClient>(
     let response = client
         .send_http_request_text_response(http_hostport, "pair", &query_params)
         .await
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
     let doc = Document::parse(response.as_ref())?;
     let root = xml_root_node(&doc)?;
@@ -135,7 +131,7 @@ pub async fn host_pair3<C: RequestClient>(
     http_hostport: &str,
     info: ClientInfo<'_>,
     request: ClientPairRequest3<'_>,
-) -> Result<HostPairResponse3, ApiError<C::Error>> {
+) -> Result<HostPairResponse3, ParseError<C::Error>> {
     let mut query_params = LocalQueryParams::<{ 2 + 3 }>::default();
 
     let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -150,7 +146,7 @@ pub async fn host_pair3<C: RequestClient>(
     let response = client
         .send_http_request_text_response(http_hostport, "pair", &query_params)
         .await
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
     let doc = Document::parse(response.as_ref())?;
     let root = xml_root_node(&doc)?;
@@ -180,7 +176,7 @@ pub async fn host_pair4<C: RequestClient>(
     http_hostport: &str,
     info: ClientInfo<'_>,
     request: ClientPairRequest4<'_>,
-) -> Result<HostPairResponse4, ApiError<C::Error>> {
+) -> Result<HostPairResponse4, ParseError<C::Error>> {
     let mut query_params = LocalQueryParams::<{ 2 + 3 }>::default();
 
     let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -198,7 +194,7 @@ pub async fn host_pair4<C: RequestClient>(
     let response = client
         .send_http_request_text_response(http_hostport, "pair", &query_params)
         .await
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
     let doc = Document::parse(response.as_ref())?;
     let root = xml_root_node(&doc)?;
@@ -222,7 +218,7 @@ pub async fn host_pair5<C: RequestClient>(
     https_hostport: &str,
     info: ClientInfo<'_>,
     request: ClientPairRequest5<'_>,
-) -> Result<ServerPairResponse5, ApiError<C::Error>> {
+) -> Result<ServerPairResponse5, ParseError<C::Error>> {
     let mut query_params = LocalQueryParams::<{ 2 + 3 }>::default();
 
     let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -235,7 +231,7 @@ pub async fn host_pair5<C: RequestClient>(
     let response = client
         .send_https_request_text_response(https_hostport, "pair", &query_params)
         .await
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
     let doc = Document::parse(response.as_ref())?;
     let root = xml_root_node(&doc)?;
@@ -249,7 +245,7 @@ pub async fn host_unpair<C: RequestClient>(
     client: &mut C,
     http_hostport: &str,
     info: ClientInfo<'_>,
-) -> Result<(), ApiError<C::Error>> {
+) -> Result<(), ParseError<C::Error>> {
     let mut query_params = LocalQueryParams::<2>::default();
 
     let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -258,7 +254,7 @@ pub async fn host_unpair<C: RequestClient>(
     client
         .send_http_request_text_response(http_hostport, "unpair", &query_params)
         .await
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
     Ok(())
 }

@@ -13,12 +13,12 @@ use uuid::Uuid;
 
 use crate::{
     Error, MoonlightError, PairPin, PairStatus, ServerState, ServerVersion,
-    mac::MacAddress,
-    network::{
-        ApiError, ApolloPermissions, App, ClientAppBoxArtRequest, ClientInfo, DEFAULT_UNIQUE_ID,
-        HostInfo, ServerAppListResponse, host_app_box_art, host_app_list, host_cancel, host_info,
-        pair::host_unpair, request_client::RequestClient,
+    http::{
+        ApolloPermissions, App, ClientAppBoxArtRequest, ClientInfo, DEFAULT_UNIQUE_ID,
+        HostInfoResponse, ParseError, ServerAppListResponse, host_app_box_art, host_app_list,
+        host_cancel, host_info, pair::host_unpair, request_client::RequestClient,
     },
+    mac::MacAddress,
     pair::{ClientAuth, PairError, PairSuccess, host_pair},
     stream::video::ServerCodecModeSupport,
 };
@@ -50,7 +50,7 @@ pub enum HostError<RequestError> {
     #[error("this action requires pairing")]
     NotPaired,
     #[error("{0}")]
-    Api(#[from] ApiError<RequestError>),
+    Api(#[from] ParseError<RequestError>),
     #[error("{0}")]
     Pair(#[from] PairError<RequestError>),
     #[error("{0}")]
@@ -77,7 +77,7 @@ pub struct MoonlightHost<Client> {
     address: String,
     http_port: u16,
     tried_connect: bool,
-    cache_info: Option<HostInfo>,
+    cache_info: Option<HostInfoResponse>,
     // Paired
     paired: Option<Paired>,
 }
@@ -101,7 +101,7 @@ where
     ) -> Result<Self, HostError<C::Error>> {
         Ok(Self {
             client: C::with_defaults()
-                .map_err(|err| HostError::Api(ApiError::RequestClient(err)))?,
+                .map_err(|err| HostError::Api(ParseError::RequestClient(err)))?,
             client_unique_id: unique_id.unwrap_or_else(|| DEFAULT_UNIQUE_ID.to_string()),
             address,
             http_port,
@@ -122,7 +122,7 @@ where
         format!("{}:{}", self.address, self.http_port)
     }
 
-    async fn host_info(&mut self) -> Result<&HostInfo, HostError<C::Error>> {
+    async fn host_info(&mut self) -> Result<&HostInfoResponse, HostError<C::Error>> {
         let has_cache = self.cache_info.is_some();
         let mut https_port = None;
 
@@ -257,7 +257,7 @@ where
             &client_auth.certificate,
             server_certificate,
         )
-        .map_err(ApiError::RequestClient)?;
+        .map_err(ParseError::RequestClient)?;
 
         self.paired = Some(Paired {
             client_private_key: client_auth.private_key.clone(),
@@ -289,7 +289,7 @@ where
     }
 
     pub fn clear_pairing_info(&mut self) -> Result<(), HostError<C::Error>> {
-        self.client = C::with_defaults().map_err(ApiError::RequestClient)?;
+        self.client = C::with_defaults().map_err(ParseError::RequestClient)?;
         self.paired = None;
 
         Ok(())
@@ -328,7 +328,7 @@ where
             uuid: Uuid::new_v4(),
         };
 
-        let mut client = C::with_defaults_long_timeout().map_err(ApiError::RequestClient)?;
+        let mut client = C::with_defaults_long_timeout().map_err(ParseError::RequestClient)?;
 
         let PairSuccess {
             server_certificate,
@@ -482,7 +482,7 @@ mod stream {
 
     use crate::{
         high::{HostError, MoonlightHost, StreamConfigError},
-        network::{
+        http::{
             ClientInfo,
             launch::{ClientStreamRequest, host_launch, host_resume},
             request_client::RequestClient,

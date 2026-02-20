@@ -14,23 +14,23 @@ struct Inner {
     tail: usize,
     len: usize,
     capacity: usize,
-    max_packet: usize,
+    max_packet_size: usize,
 }
 
 impl RingBuffer {
-    pub fn new(capacity: usize, max_packet: usize) -> Self {
+    pub fn new(capacity: usize, max_packet_size: usize) -> Self {
         assert!(capacity > 0);
-        assert!(max_packet > 0);
+        assert!(max_packet_size > 0);
 
         Self {
             inner: Mutex::new(Inner {
-                buffer: vec![0u8; capacity * max_packet],
+                buffer: vec![0u8; capacity * max_packet_size],
                 lengths: vec![0usize; capacity],
                 head: 0,
                 tail: 0,
                 len: 0,
                 capacity,
-                max_packet,
+                max_packet_size,
             }),
             not_empty: Condvar::new(),
             not_full: Condvar::new(),
@@ -39,14 +39,14 @@ impl RingBuffer {
 
     pub fn push(&self, packet: &[u8]) {
         let mut inner = self.inner.lock().unwrap();
-        assert!(packet.len() <= inner.max_packet);
+        assert!(packet.len() <= inner.max_packet_size);
 
         while inner.len == inner.capacity {
             inner = self.not_full.wait(inner).unwrap();
         }
 
         let tail = inner.tail;
-        let offset = tail * inner.max_packet;
+        let offset = tail * inner.max_packet_size;
 
         inner.buffer[offset..offset + packet.len()].copy_from_slice(packet);
 
@@ -96,7 +96,7 @@ impl RingBuffer {
         let packet_len = inner.lengths[head];
         assert!(out_buf.len() >= packet_len);
 
-        let offset = head * inner.max_packet;
+        let offset = head * inner.max_packet_size;
 
         out_buf[..packet_len].copy_from_slice(&inner.buffer[offset..offset + packet_len]);
 
@@ -117,46 +117,46 @@ mod tests {
 
     #[test]
     fn basic_push_pop() {
-        let rb = RingBuffer::new(4, 1024);
+        let ringbuffer = RingBuffer::new(4, 1024);
         let data = b"hello world";
 
-        rb.push(data);
+        ringbuffer.push(data);
 
-        let mut out = vec![0u8; 1024];
-        let len = rb.pop(&mut out, Some(Duration::from_millis(10)));
+        let mut buffer = vec![0u8; 1024];
+        let len = ringbuffer.pop(&mut buffer, Some(Duration::from_millis(10)));
 
         assert_eq!(len, Some(data.len()));
-        assert_eq!(&out[..data.len()], data);
+        assert_eq!(&buffer[..data.len()], data);
     }
 
     #[test]
     fn wraparound_behavior() {
-        let rb = RingBuffer::new(2, 128);
+        let ringbuffer = RingBuffer::new(2, 128);
 
-        rb.push(b"a");
-        rb.push(b"b");
+        ringbuffer.push(b"a");
+        ringbuffer.push(b"b");
 
-        let mut out = vec![0u8; 128];
+        let mut buffer = vec![0u8; 128];
 
-        assert_eq!(rb.pop(&mut out, None), Some(1));
-        assert_eq!(&out[..1], b"a");
+        assert_eq!(ringbuffer.pop(&mut buffer, None), Some(1));
+        assert_eq!(&buffer[..1], b"a");
 
-        rb.push(b"c");
+        ringbuffer.push(b"c");
 
-        assert_eq!(rb.pop(&mut out, None), Some(1));
-        assert_eq!(&out[..1], b"b");
+        assert_eq!(ringbuffer.pop(&mut buffer, None), Some(1));
+        assert_eq!(&buffer[..1], b"b");
 
-        assert_eq!(rb.pop(&mut out, None), Some(1));
-        assert_eq!(&out[..1], b"c");
+        assert_eq!(ringbuffer.pop(&mut buffer, None), Some(1));
+        assert_eq!(&buffer[..1], b"c");
     }
 
     #[test]
     fn timeout_returns_none() {
-        let rb = RingBuffer::new(4, 256);
-        let mut out = vec![0u8; 256];
+        let ringbuffer = RingBuffer::new(4, 256);
+        let mut buffer = vec![0u8; 256];
 
         let start = Instant::now();
-        let result = rb.pop(&mut out, Some(Duration::from_millis(100)));
+        let result = ringbuffer.pop(&mut buffer, Some(Duration::from_millis(100)));
         let elapsed = start.elapsed();
 
         assert!(result.is_none());
@@ -165,16 +165,16 @@ mod tests {
 
     #[test]
     fn blocking_wakeup() {
-        let rb = Arc::new(RingBuffer::new(4, 256));
-        let rb_clone = rb.clone();
+        let ringbuffer = Arc::new(RingBuffer::new(4, 256));
+        let ringbuffer_clone = ringbuffer.clone();
 
         let handle = thread::spawn(move || {
-            let mut out = vec![0u8; 256];
-            rb_clone.pop(&mut out, None)
+            let mut buffer = vec![0u8; 256];
+            ringbuffer_clone.pop(&mut buffer, None)
         });
 
         thread::sleep(Duration::from_millis(50));
-        rb.push(b"ping");
+        ringbuffer.push(b"ping");
 
         let result = handle.join().unwrap();
         assert_eq!(result, Some(4));
@@ -182,25 +182,25 @@ mod tests {
 
     #[test]
     fn concurrent_producer_consumer() {
-        let rb = Arc::new(RingBuffer::new(8, 128));
+        let ringbuffer = Arc::new(RingBuffer::new(8, 128));
 
         let producer = {
-            let rb = rb.clone();
+            let ringbuffer = ringbuffer.clone();
             thread::spawn(move || {
                 for i in 0..1000 {
-                    rb.push(&[i as u8]);
+                    ringbuffer.push(&[i as u8]);
                 }
             })
         };
 
         let consumer = {
-            let rb = rb.clone();
+            let ringbuffer = ringbuffer.clone();
             thread::spawn(move || {
-                let mut out = vec![0u8; 128];
+                let mut buffer = vec![0u8; 128];
                 for i in 0..1000 {
-                    let len = rb.pop(&mut out, None).unwrap();
+                    let len = ringbuffer.pop(&mut buffer, None).unwrap();
                     assert_eq!(len, 1);
-                    assert_eq!(out[0], i as u8);
+                    assert_eq!(buffer[0], i as u8);
                 }
             })
         };
@@ -211,35 +211,46 @@ mod tests {
 
     #[test]
     fn push_blocks_when_full() {
-        let rb = Arc::new(RingBuffer::new(1, 64));
-        rb.push(b"first");
+        let ringbuffer = Arc::new(RingBuffer::new(1, 64));
+        ringbuffer.push(b"first");
 
-        let rb_clone = rb.clone();
+        let ringbuffer_clone = ringbuffer.clone();
 
         let producer = thread::spawn(move || {
-            rb_clone.push(b"second"); // should block until pop
+            ringbuffer_clone.push(b"second"); // should block until pop
         });
 
         thread::sleep(Duration::from_millis(50));
 
-        let mut out = vec![0u8; 64];
-        assert_eq!(rb.pop(&mut out, None), Some(5));
-        assert_eq!(&out[..5], b"first");
+        let mut buffer = vec![0u8; 64];
+        assert_eq!(ringbuffer.pop(&mut buffer, None), Some(5));
+        assert_eq!(&buffer[..5], b"first");
 
         producer.join().unwrap();
 
-        assert_eq!(rb.pop(&mut out, None), Some(6));
-        assert_eq!(&out[..6], b"second");
+        assert_eq!(ringbuffer.pop(&mut buffer, None), Some(6));
+        assert_eq!(&buffer[..6], b"second");
+    }
+
+    #[test]
+    fn timeout_enforced() {
+        let ringbuffer = RingBuffer::new(1, 64);
+
+        let mut buffer = [0u8; 64];
+        assert_eq!(
+            ringbuffer.pop(&mut buffer, Some(Duration::from_millis(50))),
+            None
+        );
     }
 
     #[test]
     fn max_packet_enforced() {
-        let rb = RingBuffer::new(2, 4);
+        let ringbuffer = RingBuffer::new(2, 4);
 
-        rb.push(b"1234");
+        ringbuffer.push(b"1234");
 
         let result = std::panic::catch_unwind(|| {
-            rb.push(b"12345"); // too large
+            ringbuffer.push(b"12345"); // too large
         });
 
         assert!(result.is_err());

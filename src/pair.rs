@@ -20,8 +20,8 @@ use thiserror::Error;
 use crate::{
     CHALLENGE_LENGTH, HashAlgorithm, PairPin, PairStatus, SALT_LENGTH, ServerVersion,
     hash_algorithm_for_server,
-    network::{
-        ApiError, ClientInfo,
+    http::{
+        ClientInfo, ParseError,
         pair::{
             ClientPairRequest1, ClientPairRequest2, ClientPairRequest3, ClientPairRequest4,
             ClientPairRequest5, host_pair1, host_pair2, host_pair3, host_pair4, host_pair5,
@@ -181,7 +181,7 @@ pub struct PairSuccess<C: RequestClient> {
 #[derive(Debug, Error)]
 pub enum PairError<RequestError> {
     #[error("{0}")]
-    Api(#[from] ApiError<RequestError>),
+    Api(#[from] ParseError<RequestError>),
     // Client
     #[error("incorrect private key: make sure it's a PKCS_RSA_SHA256 key")]
     IncorrectPrivateKey,
@@ -375,7 +375,7 @@ pub async fn host_pair<C: RequestClient>(
         client_certificate_pem,
         &server_cert_pem,
     )
-    .map_err(|err| PairError::Api(ApiError::RequestClient(err)))?;
+    .map_err(|err| PairError::Api(ParseError::RequestClient(err)))?;
 
     let server_response5 = host_pair5(
         &mut new_client,

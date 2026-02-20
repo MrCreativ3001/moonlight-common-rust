@@ -18,7 +18,7 @@ use num_derive::FromPrimitive;
 pub const DEFAULT_VIDEO_PORT: u16 = 47998;
 
 bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct ServerCodecModeSupport: u32 {
         const H264            = SCM_H264;
         const HEVC            = SCM_HEVC;
