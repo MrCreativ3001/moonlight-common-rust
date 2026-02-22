@@ -56,9 +56,8 @@ impl Display for MacAddress {
     }
 }
 
-#[cfg(feature = "network")]
 #[derive(Debug, Error)]
-pub enum ParseMacAddressError {
+pub enum ParseMacError {
     #[error("the mac address is too short")]
     TooShort,
     #[error("hex: {0}")]
@@ -66,7 +65,7 @@ pub enum ParseMacAddressError {
 }
 
 impl FromStr for MacAddress {
-    type Err = ParseMacAddressError;
+    type Err = ParseMacError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let split = s.splitn(6, ':');
@@ -81,7 +80,7 @@ impl FromStr for MacAddress {
         }
 
         if i != 6 {
-            return Err(ParseMacAddressError::TooShort);
+            return Err(ParseMacError::TooShort);
         }
 
         Ok(Self::from_bytes(mac))

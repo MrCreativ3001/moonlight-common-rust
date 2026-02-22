@@ -32,18 +32,15 @@ pub enum MoonlightError {
     NotPaired,
 }
 
-#[cfg(feature = "network")]
 pub mod http;
-
-#[cfg(feature = "high")]
-pub mod high;
-
 pub mod stream;
 
-#[cfg(feature = "pair")]
-pub mod pair;
-
 pub mod mac;
+
+pub mod high;
+
+#[cfg(feature = "openssl")]
+pub mod openssl;
 
 #[derive(Debug, Error, Clone)]
 #[error("failed to parse the state of the server")]
@@ -76,6 +73,8 @@ impl FromStr for ServerState {
     }
 }
 
+// TODO: remove this
+#[deprecated]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PairStatus {
     NotPaired,
@@ -197,104 +196,5 @@ impl FromStr for ServerVersion {
             .parse()?;
 
         Ok(Self::new(major, minor, patch, mini_patch))
-    }
-}
-
-/// A pin which contains four values in the range 0..10
-#[derive(Clone, Copy)]
-pub struct PairPin {
-    numbers: [u8; 4],
-}
-
-impl PairPin {
-    #[cfg(feature = "pair")]
-    pub fn generate() -> Result<Self, openssl::error::ErrorStack> {
-        let rand_num = || {
-            let mut num = [0u8];
-            openssl::rand::rand_bytes(&mut num)?;
-            Ok(num[0] % 10)
-        };
-
-        Ok(
-            Self::from_array([rand_num()?, rand_num()?, rand_num()?, rand_num()?])
-                .expect("generated invalid pair pin"),
-        )
-    }
-
-    pub fn from_array(numbers: [u8; 4]) -> Option<Self> {
-        let range = 0..10;
-
-        if range.contains(&numbers[0])
-            && range.contains(&numbers[1])
-            && range.contains(&numbers[2])
-            && range.contains(&numbers[3])
-        {
-            return Some(Self { numbers });
-        }
-
-        None
-    }
-
-    pub fn n(&self, index: usize) -> Option<u8> {
-        self.numbers.get(index).copied()
-    }
-    pub fn n1(&self) -> u8 {
-        self.numbers[0]
-    }
-    pub fn n2(&self) -> u8 {
-        self.numbers[1]
-    }
-    pub fn n3(&self) -> u8 {
-        self.numbers[2]
-    }
-    pub fn n4(&self) -> u8 {
-        self.numbers[3]
-    }
-
-    pub fn array(&self) -> [u8; 4] {
-        self.numbers
-    }
-}
-
-impl Display for PairPin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}{}{}", self.n1(), self.n2(), self.n3(), self.n4())
-    }
-}
-impl Debug for PairPin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PairPin(")?;
-        Display::fmt(&self, f)?;
-        write!(f, ")")?;
-
-        Ok(())
-    }
-}
-
-pub const SALT_LENGTH: usize = 16;
-pub const CHALLENGE_LENGTH: usize = 16;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HashAlgorithm {
-    Sha1,
-    Sha256,
-}
-
-impl HashAlgorithm {
-    pub const MAX_HASH_LEN: usize = 32;
-
-    pub fn hash_len(&self) -> usize {
-        match self {
-            Self::Sha1 => 20,
-            Self::Sha256 => 32,
-        }
-    }
-}
-
-pub fn hash_algorithm_for_server(server_version: ServerVersion) -> HashAlgorithm {
-    if server_version.major >= 7 {
-        HashAlgorithm::Sha256
-    } else {
-        HashAlgorithm::Sha1
     }
 }

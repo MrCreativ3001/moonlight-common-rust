@@ -1,18 +1,17 @@
 use std::{
-    fmt::{self, Write as _},
+    fmt::{self},
     net::AddrParseError,
     num::ParseIntError,
     str::FromStr,
     string::FromUtf8Error,
 };
 
+use pem::Pem;
 use roxmltree::Error;
 use thiserror::Error;
 use uuid::{Uuid, adapter::Hyphenated};
 
-use crate::{
-    PairStatus, ParseServerStateError, ParseServerVersionError, mac::ParseMacAddressError,
-};
+use crate::{ParseServerStateError, ParseServerVersionError, mac::ParseMacAddressError};
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -51,8 +50,11 @@ pub mod box_art;
 pub mod cancel;
 pub mod host_info;
 pub mod launch;
+pub mod pair;
 pub mod resume;
-//pub mod pair;
+pub mod unpair;
+
+pub mod client;
 
 mod helper;
 
@@ -82,14 +84,42 @@ impl<'a, T> QueryIter<'a> for T where T: Iterator<Item = &'a QueryParam<'a>> {}
 
 /// This represents an endpoint on the http or https server that a client can query for information or initiate a stream with.
 ///
+/// # Custom Client or Server
+///
 /// ## Client Usage
+/// Use the [client::async_client::RequestClient] or [client::blocking_client::RequestClient] when possible to make integration into other systems easier.
 ///
 /// ```
+/// // Get client info and request
+/// let client_info = ClientInfo {
+///     unique_id: DEFAULT_UNIQUE_ID,
+///     uuid: Uuid::new_v4(),
+/// };
+///
 /// type Endpoint = ...;
+/// let request: Endpoint::Request = ...;
 ///
-/// Use ClientInfo
-/// TODO
+/// // If [Endpoint::https_required] is true, only authenticated https requests are allowed
+/// let mut url = Url::parse(format!("http:127.0.0.1:47989{}", Endpoint::path()));
+///
+/// // Append client identifier to url
+/// client_info.append_query_parameters(&mut url).unwrap();
+///
+/// // Append request query parameters to url
+/// request.append_query_parameters(&mut url).unwrap();
+///
+/// // Send a get request to the url and turn the response into a string
+/// let text_response: String = my_request_client.send_get_request(url).unwrap();
+///
+/// // Almost all responses are of type TextResponse
+/// let response: Endpoint::Response = Endpoint::Response::from_str(&text_response).unwrap();
+///
+/// // Some endpoints might also return a `Vec<u8>` for raw bytes (e.g. images).
+/// // Those don't need to be converted and can directly be used.
+///
 /// ```
+///
+/// For a real implementation see the [backend::async_client::RequestClient] implementation of [reqwest::Client]
 ///
 /// ## Server Usage
 ///
@@ -99,7 +129,7 @@ pub trait Endpoint {
     type Request: Request;
     type Response;
 
-    /// The path of this endpoint
+    /// The path of this endpoint. Always begins with a `/`.
     fn path() -> &'static str;
 
     /// If this endpoint requires https / authentication
@@ -114,6 +144,7 @@ pub trait Request: Sized {
         query_builder: &mut impl QueryBuilder,
     ) -> Result<(), QueryBuilderError>;
 
+    // TODO: maybe don't use an iterator, but some kind of map like interface?
     fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
     where
         Q: QueryIter<'a>;
@@ -162,5 +193,62 @@ impl<'a> ClientInfo<'a> {
             key: "uuid",
             value: uuid_str,
         });
+    }
+}
+
+impl<'b> Request for ClientInfo<'b> {
+    fn append_query_params(
+        &self,
+        query_builder: &mut impl QueryBuilder,
+    ) -> Result<(), QueryBuilderError> {
+        todo!()
+    }
+
+    fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
+    where
+        Q: QueryIter<'a>,
+    {
+        todo!()
+    }
+}
+
+// TODO: use those types instead of directly using Pem
+// TODO: make a from_pem_str fn, so you don't need to include the pem lib
+pub struct ServerIdentifier(Pem);
+
+impl ServerIdentifier {
+    pub fn from_pem(pem: Pem) -> Self {
+        // TODO: check for the correct header or tag
+        Self(pem)
+    }
+
+    pub fn to_pem(&self) -> Pem {
+        self.0.clone()
+    }
+}
+
+pub struct ClientIdentifier(Pem);
+
+impl ClientIdentifier {
+    pub fn from_pem(pem: Pem) -> Self {
+        // TODO: check for the correct header or tag
+        Self(pem)
+    }
+
+    pub fn to_pem(&self) -> Pem {
+        self.0.clone()
+    }
+}
+
+pub struct ClientSecret(Pem);
+
+impl ClientSecret {
+    pub fn from_pem(pem: Pem) -> Self {
+        // TODO: check for the correct header or tag
+        Self(pem)
+    }
+
+    pub fn to_pem(&self) -> Pem {
+        self.0.clone()
     }
 }

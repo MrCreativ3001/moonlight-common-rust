@@ -6,14 +6,17 @@ use uuid::Uuid;
 use crate::{
     PairStatus, ServerState, ServerVersion,
     http::{
-        QueryBuilder, QueryBuilderError, QueryParam, Request, TextResponse,
+        ClientInfo, DEFAULT_UNIQUE_ID, QueryBuilder, QueryBuilderError, QueryParam, Request,
+        TextResponse,
         app_list::{App, AppListRequest, AppListResponse},
         box_art::AppBoxArtRequest,
+        cancel::{CancelRequest, CancelResponse},
         helper::fmt_write_to_buffer,
         host_info::{ApolloPermissions, HostInfoRequest, HostInfoResponse},
+        launch::{ClientStreamRequest, LaunchResponse},
     },
     mac::MacAddress,
-    stream::video::ServerCodecModeSupport,
+    stream::{control::ActiveGamepads, video::ServerCodecModeSupport},
 };
 
 #[derive(Debug, Default)]
@@ -76,6 +79,17 @@ where
     // test deserialize
     let response = R::from_str(&doc_expected).unwrap();
     assert_eq!(response, response_expected);
+}
+
+#[test]
+fn request_client_info() {
+    test_request(
+        ClientInfo {
+            unique_id: DEFAULT_UNIQUE_ID,
+            uuid: Uuid::new_v4(),
+        },
+        &[],
+    );
 }
 
 #[test]
@@ -189,6 +203,7 @@ fn response_app_list() {
             ],
         },
         r#"
+<?xml version="1.0" encoding="utf-8"?>
 <root status_code="200">
 	<App>
 		<IsHdrSupported>0</IsHdrSupported>
@@ -227,41 +242,118 @@ fn request_boxart() {
 }
 
 #[test]
-fn request_launch() {
-    todo!()
+fn request_launch_and_resume() {
+    // TODO: use values
+    test_request(
+        ClientStreamRequest {
+            app_id: 10,
+            mode_width: 1920,
+            mode_height: 1080,
+            mode_fps: 60,
+            hdr: false,
+            local_audio_play_mode: false,
+            gamepads_attached_mask: ActiveGamepads::GAMEPAD_1.bits() as i32,
+            gamepads_persist_after_disconnect: false,
+            sops: true,
+            ri_key_id: 0,
+            ri_key: [0; _],
+            additional_query_parameters: "&corever=1".to_string(),
+        },
+        &[
+            QueryParam {
+                key: "appid",
+                value: "10",
+            },
+            QueryParam {
+                key: "rikey",
+                value: "",
+            },
+            QueryParam {
+                key: "rikeyid",
+                value: "0",
+            },
+            QueryParam {
+                key: "localAudioPlayMode",
+                value: "0",
+            },
+            QueryParam {
+                key: "surroundAudioInfo",
+                value: "0",
+            },
+            QueryParam {
+                key: "remoteControllerBitmap",
+                value: "1",
+            },
+            QueryParam {
+                key: "gcmap",
+                value: "0",
+            },
+            QueryParam {
+                key: "gcpersist",
+                value: "0",
+            },
+        ],
+    );
 }
 
 #[test]
 fn response_launch() {
-    todo!()
-}
-
-#[test]
-fn request_resume() {
-    todo!()
+    test_response(
+        LaunchResponse {
+            game_session: 10,
+            rtsp_session_url: "rtspenc://192.167.178.140:48010".to_string(),
+        },
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+    <gamesession>10</gamesession>
+    <sessionUrl0>rtspenc://192.167.178.140:48010</sessionUrl0>
+</root>
+        "#,
+    );
 }
 
 #[test]
 fn response_resume() {
-    todo!()
+    test_response(
+        LaunchResponse {
+            game_session: 10,
+            rtsp_session_url: "rtspenc://192.167.178.140:48010".to_string(),
+        },
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+    <gamesession>10</gamesession>
+    <sessionUrl0>rtspenc://192.167.178.140:48010</sessionUrl0>
+</root>
+        "#,
+    );
 }
 
 #[test]
 fn request_cancel() {
-    todo!()
+    test_request(CancelRequest {}, &[]);
 }
 
 #[test]
 fn response_cancel() {
-    todo!()
-}
+    test_response(
+        CancelResponse { cancel: false },
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+    <cancel>0</cancel>
+</root>
+    "#,
+    );
 
-#[test]
-fn request_pair() {
-    todo!()
-}
-
-#[test]
-fn response_pair() {
-    todo!()
+    test_response(
+        CancelResponse { cancel: true },
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+    <cancel>100</cancel>
+</root>
+    "#,
+    );
 }

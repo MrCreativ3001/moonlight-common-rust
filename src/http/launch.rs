@@ -13,6 +13,10 @@ use crate::http::{
     },
 };
 
+/// Launches a new session.
+///
+/// When there's already an active game this will fail to start a new session.
+/// Then you should use [super::resume::ResumeEndpoint].
 pub struct LaunchEndpoint;
 
 impl Endpoint for LaunchEndpoint {
@@ -168,6 +172,7 @@ impl Request for ClientStreamRequest {
 
 #[derive(Debug, Clone)]
 pub struct LaunchResponse {
+    // TODO: what exactly is game_session used for?
     pub game_session: u32,
     pub rtsp_session_url: String,
 }

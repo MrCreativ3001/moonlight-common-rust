@@ -32,98 +32,6 @@ use crate::{
 };
 
 // TODO: allow different crypto providers
-fn hash(algorithm: HashAlgorithm, data: &[u8], output: &mut [u8]) {
-    match algorithm {
-        HashAlgorithm::Sha1 => {
-            let digest = sha1(data);
-            output.copy_from_slice(&digest);
-        }
-        HashAlgorithm::Sha256 => {
-            let digest = sha256(data);
-            output.copy_from_slice(&digest);
-        }
-    }
-}
-fn hash_size_uneq(algorithm: HashAlgorithm, data: &[u8], output: &mut [u8]) {
-    let mut hash = [0u8; HashAlgorithm::MAX_HASH_LEN];
-    self::hash(algorithm, data, &mut hash);
-
-    output.copy_from_slice(&hash[0..output.len()]);
-}
-
-fn salt_pin(salt: [u8; SALT_LENGTH], pin: PairPin) -> [u8; SALT_LENGTH + 4] {
-    let mut out = [0u8; SALT_LENGTH + 4];
-
-    out[0..16].copy_from_slice(&salt);
-
-    let pin_utf8 = pin
-        .array()
-        .map(|value| char::from_digit(value as u32, 10).expect("a pin digit between 0-9") as u8);
-
-    out[16..].copy_from_slice(&pin_utf8);
-
-    out
-}
-
-fn generate_aes_key(algorithm: HashAlgorithm, salt: [u8; SALT_LENGTH], pin: PairPin) -> [u8; 16] {
-    let mut hash = [0u8; 16];
-
-    let salted = self::salt_pin(salt, pin);
-    hash_size_uneq(algorithm, &salted, &mut hash);
-
-    hash
-}
-
-pub fn encrypt_aes(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, ErrorStack> {
-    let mut cipher_ctx = CipherCtx::new()?;
-
-    cipher_ctx.encrypt_init(Some(Cipher::aes_128_ecb()), Some(key), None)?;
-    cipher_ctx.set_padding(false);
-
-    let mut output = Vec::new();
-    cipher_ctx.cipher_update_vec(plaintext, &mut output)?;
-    Ok(output)
-}
-
-pub fn decrypt_aes<C: RequestClient>(
-    key: &[u8],
-    ciphertext: &[u8],
-) -> Result<Vec<u8>, PairError<C::Error>> {
-    let mut cipher_ctx = CipherCtx::new()?;
-
-    cipher_ctx.decrypt_init(Some(Cipher::aes_128_ecb()), Some(key), None)?;
-    cipher_ctx.set_padding(false);
-
-    let mut decrypted = Vec::new();
-    cipher_ctx.cipher_update_vec(ciphertext, &mut decrypted)?;
-
-    Ok(decrypted)
-}
-
-fn verify_signature(
-    server_secret: &[u8],
-    server_signature: &[u8],
-    server_cert: &X509,
-) -> Result<bool, ErrorStack> {
-    let public_key = server_cert.public_key()?;
-
-    let mut md_ctx = MdCtx::new()?;
-
-    md_ctx.digest_verify_init(Some(Md::sha256()), &public_key)?;
-    md_ctx.digest_verify_update(server_secret)?;
-    md_ctx.digest_verify_final(server_signature)
-}
-
-fn sign_data(private_key: &PKey<Private>, data: &[u8]) -> Result<Vec<u8>, ErrorStack> {
-    let mut md_ctx = MdCtx::new()?;
-
-    md_ctx.digest_sign_init(Some(Md::sha256()), private_key)?;
-    md_ctx.digest_sign_update(data)?;
-
-    let mut out = Vec::new();
-    md_ctx.digest_sign_final_to_vec(&mut out)?;
-    Ok(out)
-}
 
 fn can_sign_with_pkcs1_sha256(pkey: &PKey<Private>) -> bool {
     openssl::sign::Signer::new(MessageDigest::sha256(), pkey)
@@ -181,7 +89,7 @@ pub struct PairSuccess<C: RequestClient> {
 #[derive(Debug, Error)]
 pub enum PairError<RequestError> {
     #[error("{0}")]
-    Api(#[from] ParseError<RequestError>),
+    Api(#[from] ParseError),
     // Client
     #[error("incorrect private key: make sure it's a PKCS_RSA_SHA256 key")]
     IncorrectPrivateKey,

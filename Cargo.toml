@@ -30,93 +30,55 @@ log = "0.4.29"
 
 thiserror = "2.0.18"
 
-# Network
-uuid = { version = "0", features = ["v4"], optional = true }
+uuid = { version = "0.8.2", features = ["v4"] }
 hex = "0.4.3"
-url = { version = "2.5.8", optional = true }
-roxmltree = { version = "0.21.1", optional = true }
-form_urlencoded = { version = "1.2.2", optional = true }
+url = { version = "2.5.8" }
+roxmltree = { version = "0.21.1" }
+form_urlencoded = { version = "1.2.2" }
 
-# Network Reqwest backend
-reqwest = { version = "0.12.28", features = ["default"], optional = true }
-bytes = { version = "1.11.1", optional = true }
-
-# Network Hyper OpenSSL backend
-hyper = { version = "1.8.1", features = ["http1", "client"], optional = true }
-hyper-openssl = { version = "0.10.2", optional = true }
-hyper-util = { version = "0.1.20", features = ["tokio"], optional = true }
-http-body-util = { version = "0.1.3", optional = true }
-
-# Network Curl backend, Doesn't currently work on windows
-curl = { version = "0.4.49", features = ["ssl"], optional = true }
+# Stream Proto
+# We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
+reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017" }
 
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
 # TODO: move this into the sys crate because this requires nightly -> this crate doesn't need nightly, only this feature needs nightly
 printf-compat = { version = "0.3.1", optional = true }
 
-# Stream proto
-# We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
-reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017" }
+# Reqwest
+reqwest = { version = "0.12.28", default-features = false, optional = true }
+bytes = { version = "1.11.1", optional = true }
 
-# High
+# Tokio
 tokio = { version = "1.49.0", features = [
     "rt",
     "rt-multi-thread",
     "time",
 ], optional = true }
 pem = { version = "3.0.6", optional = true }
-openssl = { workspace = true }
+
+# OpenSSL
+openssl = { workspace = true, optional = true }
 
 # Serde Serialization
-serde = { version = "1.0.228", optional = true }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 # Proto
 # TODO: make this optional
 rusty_enet = "0.4.0"
 
 [features]
-#default = ["high", "stream_std", "backend_reqwest"]
-default = ["network", "stream_proto"]
-
-# High level api
-high = ["network", "pair", "dep:tokio"]
+default = ["stream_std"]
 
 # Stream implementations
 stream_c = ["dep:moonlight-common-sys", "dep:printf-compat"]
-stream_proto = []
-stream_std = ["stream_proto"]
+stream_std = []
 
-# Pairing
-pair = ["network"]
+# implementation for other libraries
+openssl = ["dep:openssl"]
 
-# Network, TODO: rename to http, maybe don't even have this as a feature?
-network = [
-    "dep:url",
-    "dep:form_urlencoded",
-    "dep:roxmltree",
-    "dep:uuid",
-
-    "dep:pem",
-]
-# Reqwest Network Backend
-backend_reqwest = [
-    "dep:reqwest",
-    "reqwest/native-tls",
-    "dep:tokio",
-    "dep:bytes",
-]
-# Hyper OpenSSL Network Backend
-backend_hyper_openssl = [
-    "dep:tokio",
-    "dep:hyper",
-    "dep:hyper-openssl",
-    "dep:hyper-util",
-    "dep:http-body-util",
-    "dep:bytes",
-]
-# Curl Network Backend
-backend_curl = ["dep:curl"]
+reqwest = ["dep:reqwest", "dep:bytes"]
+tokio = ["dep:tokio"]
 
 serde = ["dep:serde"]
 

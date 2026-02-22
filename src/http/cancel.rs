@@ -65,6 +65,7 @@ impl FromStr for CancelResponse {
 
         let cancel = parse_xml_child_text(root, "cancel")?.trim();
 
+        // TODO: what is this? https://github.com/moonlight-stream/moonlight-android/blob/f10085f552b367cf7203007693d91c322a0a2936/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java#L803-L818
         Ok(Self {
             cancel: cancel != "0",
         })

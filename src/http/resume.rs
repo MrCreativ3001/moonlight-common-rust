@@ -6,6 +6,7 @@ use crate::http::{
     Endpoint, ParseError, TextResponse, helper::parse_xml_child_text, launch::ClientStreamRequest,
 };
 
+/// Resumes a session that was already created using a request to [super::launch::LaunchEndpoint].
 pub struct ResumeEndpoint;
 
 impl Endpoint for ResumeEndpoint {

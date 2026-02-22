@@ -6,8 +6,6 @@ use crate::{
     stream::{HostFeatures, SupportedVideoFormats},
 };
 
-// TODO: avoid using c
-
 #[derive(Debug, Default)]
 pub struct ServerSdp {
     // TODO: parse audio data correctly:

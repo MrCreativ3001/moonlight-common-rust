@@ -17,6 +17,11 @@ use crate::{
     stream::video::ServerCodecModeSupport,
 };
 
+/// Queries information about the host.
+///
+/// Some information might be hidden if the client is not authenticated over https.
+/// This might include:
+/// - mac address
 pub struct HostInfoEndpoint;
 
 impl Endpoint for HostInfoEndpoint {
@@ -245,6 +250,12 @@ impl FromStr for HostInfoResponse {
         };
         if apollo_permissions.is_some() {
             app_version.server_type = ServerType::Apollo;
+        }
+
+        // Real Nvidia host software (GeForce Experience and RTX Experience) both use the 'Mjolnir'
+        // codename in the state field and no version of Sunshine does.
+        if state_string.contains("Mjolnir") {
+            app_version.server_type = ServerType::NvidiaGameStream;
         }
 
         Ok(HostInfoResponse {
