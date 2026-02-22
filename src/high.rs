@@ -461,7 +461,6 @@ where
 }
 
 // TODO: change that feature flags
-#[cfg(all(feature = "stream_c", feature = "stream_proto"))]
 mod stream {
     use openssl::rand::rand_bytes;
     use uuid::Uuid;

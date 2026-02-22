@@ -584,7 +584,6 @@ dependencies = [
  "num-traits",
  "openssl",
  "pem",
- "printf-compat",
  "reed-solomon-erasure",
  "reqwest",
  "roxmltree",
@@ -603,6 +602,7 @@ dependencies = [
  "bindgen",
  "cmake",
  "openssl-sys",
+ "printf-compat",
 ]
 
 [[package]]

@@ -1,9 +1,11 @@
 use std::{
-    os::raw::{c_char, c_int, c_uchar, c_ushort},
+    os::raw::{c_char, c_int, c_schar, c_uchar, c_ushort},
     sync::Mutex,
 };
 
-use moonlight_common_sys::limelight::_CONNECTION_LISTENER_CALLBACKS;
+use moonlight_common_sys::{
+    LogMessageCallback, limelight::_CONNECTION_LISTENER_CALLBACKS, log_message_wrapper,
+};
 use num::FromPrimitive;
 use printf_compat::{format, output};
 
@@ -80,14 +82,14 @@ unsafe extern "C" fn connection_status_update(status: c_int) {
     });
 }
 
-unsafe extern "C" fn log_message(message: *const c_char, args: ...) {
-    global_listener(|(_, listener)| unsafe {
-        let mut text = String::new();
-        format(message, args, output::fmt_write(&mut text));
+struct LogMessage;
 
-        // TODO: move the log_message into sys so the normal crate doesn't need nightly
-        listener.log_message(&text);
-    });
+impl LogMessageCallback for LogMessage {
+    fn log_message(text: String) {
+        global_listener(|(_, listener)| unsafe {
+            listener.log_message(&text);
+        });
+    }
 }
 
 unsafe extern "C" fn set_hdr_mode(hdr_enabled: bool) {
@@ -161,7 +163,7 @@ pub(crate) unsafe fn raw_callbacks() -> _CONNECTION_LISTENER_CALLBACKS {
         stageFailed: Some(stage_failed),
         connectionStarted: Some(connection_started),
         connectionTerminated: Some(connection_terminated),
-        logMessage: Some(log_message),
+        logMessage: Some(log_message_wrapper::<LogMessage>),
         rumble: Some(controller_rumble),
         connectionStatusUpdate: Some(connection_status_update),
         setHdrMode: Some(set_hdr_mode),

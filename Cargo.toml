@@ -42,8 +42,6 @@ reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-er
 
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
-# TODO: move this into the sys crate because this requires nightly -> this crate doesn't need nightly, only this feature needs nightly
-printf-compat = { version = "0.3.1", optional = true }
 
 # Reqwest
 reqwest = { version = "0.12.28", default-features = false, optional = true }
@@ -71,7 +69,7 @@ rusty_enet = "0.4.0"
 default = ["stream_std"]
 
 # Stream implementations
-stream_c = ["dep:moonlight-common-sys", "dep:printf-compat"]
+stream_c = ["dep:moonlight-common-sys"]
 stream_std = []
 
 # implementation for other libraries

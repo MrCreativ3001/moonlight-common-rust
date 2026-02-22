@@ -7,12 +7,10 @@ license.workspace = true
 [dependencies]
 openssl-sys.workspace = true
 
+printf-compat = { version = "0.3.1" }
+
 [features]
 default = ["vendored", "openssl-sys/vendored"]
-
-# Moonlight Features
-# TODO: remove this
-crypto = []
 
 # Vendored
 vendored = ["dep:cmake"]

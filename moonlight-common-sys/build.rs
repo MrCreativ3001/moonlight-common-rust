@@ -17,8 +17,6 @@ fn main() {
 
 fn generate_bindings() {
     generate_bindings_with_name("limelight.h", "limelight.rs");
-    #[cfg(feature = "crypto")]
-    generate_bindings_with_name("crypto.h", "crypto.rs");
 }
 fn generate_bindings_with_name(header_name: &str, rust_name: &str) {
     let bindings = bindgen::Builder::default()
