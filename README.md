@@ -16,3 +16,5 @@ Because the core does not depend on native sockets or a specific runtime, it can
 - Compile to WebAssembly and run in the browser, where networking is provided externally (e.g. WebRTC, WebTransport, Direct Sockets in IWA's)
 
 This design allows the same protocol implementation to be reused across native and web targets while remaining modular and easy to embed.
+
+## Examples

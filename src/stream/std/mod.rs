@@ -31,7 +31,6 @@ use crate::stream::{
 };
 
 // TODO: move decoders into different thread because the network thread NEEDS to be quick to avoid packet losses by the underlying buffer dropping packets
-// TODO: maybe take a look at this? https://crates.io/crates/swap-buffer-queue
 
 mod ringbuffer;
 

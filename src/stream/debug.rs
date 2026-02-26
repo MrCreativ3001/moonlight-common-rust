@@ -161,7 +161,7 @@ impl ConnectionListener for DebugHandler {
     }
 }
 
-#[cfg(feature = "stream_c")]
+#[cfg(feature = "stream-c")]
 mod stream_c {
     use log::info;
 

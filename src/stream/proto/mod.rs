@@ -1,3 +1,8 @@
+//!
+//! This module contains the core of the Moonlight Sans-IO Protocol implementation.
+//! The entrypoint is the [MoonlightStreamProto] struct.
+//!
+
 use std::{
     fmt::Debug,
     net::SocketAddr,
@@ -158,6 +163,16 @@ struct Sdp {
     video_format: VideoFormat,
 }
 
+///
+/// The entrypoint of the Moonlight Sans-IO Protocol implementation.
+///
+/// Use the [MoonlightStreamProto::new] function to create a new stream.
+///
+/// ## Usage
+/// ```
+/// // TODO
+/// ```
+///
 pub struct MoonlightStreamProto {
     client_settings: MoonlightStreamSettings,
     rtsp: Rtsp,
@@ -186,7 +201,11 @@ enum State {
 }
 
 impl MoonlightStreamProto {
-    // TODO: rename error
+    ///
+    /// The parameter [MoonlightStreamConfig] contains all the important technical details while the [MoonlightStreamSettings] are settings that the user can modify to enhance their streaming experience.
+    ///
+    /// To obtain a [MoonlightStreamConfig] you can use a [MoonlightClient](crate::high::MoonlightClient) and call the [MoonlightClient::start_stream](crate::high::MoonlightClient::start_stream) function.
+    ///
     pub fn new(
         now: Instant,
         config: MoonlightStreamConfig,

@@ -1,5 +1,5 @@
 use std::{
-    os::raw::{c_char, c_int, c_schar, c_uchar, c_ushort},
+    os::raw::{c_int, c_uchar, c_ushort},
     sync::Mutex,
 };
 
@@ -7,7 +7,6 @@ use moonlight_common_sys::{
     LogMessageCallback, limelight::_CONNECTION_LISTENER_CALLBACKS, log_message_wrapper,
 };
 use num::FromPrimitive;
-use printf_compat::{format, output};
 
 use crate::stream::{
     c::bindings::{ConnectionStatus, Stage},

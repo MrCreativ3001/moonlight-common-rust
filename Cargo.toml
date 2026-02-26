@@ -1,14 +1,14 @@
 [workspace]
 package.version = "0.1.0"
 package.license = "GPL-3.0-or-later"
-members = ["./", "moonlight-common-sys", "examples/*"]
+members = ["./", "moonlight-common-sys"]
 
 [workspace.dependencies]
 moonlight-common = { path = "./" }
 moonlight-common-sys = { path = "./moonlight-common-sys" }
 
-openssl-sys = { version = "0.9.109", default-features = false }
-openssl = { version = "0.10.73", default-features = false }
+openssl-sys = "0.9.109"
+openssl = "0.10.73"
 
 [workspace.lints.clippy]
 too_many_arguments = "allow"
@@ -30,55 +30,87 @@ log = "0.4.29"
 
 thiserror = "2.0.18"
 
+# TODO: should the v4 feature for random be used?
 uuid = { version = "0.8.2", features = ["v4"] }
 hex = "0.4.3"
-url = { version = "2.5.8" }
-roxmltree = { version = "0.21.1" }
-form_urlencoded = { version = "1.2.2" }
+url = "2.5.8"
+pem = "3.0.6"
+roxmltree = "0.21.1"
+form_urlencoded = "1.2.2"
 
 # Stream Proto
 # We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
 reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017" }
+rusty_enet = "0.4.0"
 
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
 
 # Reqwest
-reqwest = { version = "0.12.28", default-features = false, optional = true }
-bytes = { version = "1.11.1", optional = true }
+reqwest = { version = "0.13.2", features = [
+    "rustls",
+], default-features = false, optional = true }
 
 # Tokio
-tokio = { version = "1.49.0", features = [
-    "rt",
-    "rt-multi-thread",
-    "time",
+# TODO: only pick needed features, maybe also behind a feature lock
+tokio = { version = "1.49.0", default-features = false, features = [
+    "full",
 ], optional = true }
-pem = { version = "3.0.6", optional = true }
 
 # OpenSSL
 openssl = { workspace = true, optional = true }
 
-# Serde Serialization
+# serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
-# Proto
-# TODO: make this optional
-rusty_enet = "0.4.0"
-
 [features]
-default = ["stream_std"]
-
-# Stream implementations
-stream_c = ["dep:moonlight-common-sys"]
-stream_std = []
-
-# implementation for other libraries
-openssl = ["dep:openssl"]
-
-reqwest = ["dep:reqwest", "dep:bytes"]
-tokio = ["dep:tokio"]
+default = ["reqwest-blocking", "std"]
 
 serde = ["dep:serde"]
 
+# Different "runtimes"
+std = []
+tokio = ["dep:tokio"]
+
+# Stream implementations
+stream-c = ["dep:moonlight-common-sys"]
+
+# Crypto implementations
+openssl = ["dep:openssl"]
+# TODO: rustcrypto
+rustcrypto = []
+
+# Request implementations
+reqwest = ["dep:reqwest"]
+# TODO: implement reqwest blocking
+reqwest-blocking = ["dep:reqwest", "reqwest/blocking"]
+
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.49.0", features = ["full"] }
+
+# openssl version above this version don't compile in cross-rs (x86_64-pc-windows-gnu)
+# See https://github.com/openssl/openssl/issues/29818
+openssl-sys = { version = "=0.9.109" }
+
+[[example]]
+name = "client-pair"
+path = "examples/client-pair.rs"
+required-features = ["reqwest-blocking", "rustcrypto"]
+
+[[example]]
+name = "client-stream"
+path = "examples/client-stream.rs"
+required-features = ["reqwest-blocking", "std", "rustcrypto"]
+
+[[example]]
+name = "client-common-c"
+path = "examples/client-common-c.rs"
+required-features = ["reqwest-blocking", "stream-c"]
+
+[[example]]
+name = "client-tokio"
+path = "examples/client-tokio.rs"
+required-features = ["reqwest", "tokio", "openssl"]

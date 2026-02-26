@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use pem::Pem;
 use roxmltree::Document;
 
 use crate::http::{
@@ -8,10 +9,11 @@ use crate::http::{
     pair::{SALT_LENGTH, parse_xml_child_paired},
 };
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase1Request {
     pub device_name: String,
     pub salt: [u8; SALT_LENGTH],
-    pub client_certificate_pem: String,
+    pub client_certificate: Pem,
 }
 
 impl Request for PairPhase1Request {
@@ -39,7 +41,7 @@ impl Request for PairPhase1Request {
             value: &salt_str,
         })?;
 
-        let client_cert_pem_str = hex::encode_upper(&self.client_certificate_pem);
+        let client_cert_pem_str = hex::encode_upper(&self.client_certificate.to_string());
         query_builder.append(QueryParam {
             key: "clientcert",
             value: &client_cert_pem_str,
@@ -56,22 +58,22 @@ impl Request for PairPhase1Request {
     }
 }
 
-pub struct PairPhase2Response {
+pub struct PairPhase1Response {
     pub paired: bool,
-    pub certificate: Option<String>,
+    pub certificate: Option<Pem>,
 }
 
-impl TextResponse for PairPhase2Response {
+impl TextResponse for PairPhase1Response {
     fn serialize_into(&self, body_writer: &mut impl std::fmt::Write) -> std::fmt::Result {
         todo!()
     }
 }
 
-impl FromStr for PairPhase2Response {
+impl FromStr for PairPhase1Response {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let doc = Document::parse(s.as_ref())?;
+        let doc = Document::parse(s)?;
         let root = parse_xml_root_node(&doc)?;
 
         let paired = parse_xml_child_paired(root)?;
@@ -79,8 +81,10 @@ impl FromStr for PairPhase2Response {
         let certificate = match parse_xml_child_text(root, "plaincert") {
             Ok(value) => {
                 let value = hex::decode(value)?;
+                let str = String::from_utf8(value)?;
 
-                Some(String::from_utf8(value)?)
+                let pem = Pem::from_str(&str)?;
+                Some(pem)
             }
             Err(ParseError::DetailNotFound("plaincert")) => None,
             Err(err) => return Err(err),

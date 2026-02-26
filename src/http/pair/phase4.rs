@@ -7,6 +7,7 @@ use crate::http::{
     helper::parse_xml_root_node, pair::parse_xml_child_paired,
 };
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase4Request {
     pub device_name: String,
     pub client_pairing_secret: Vec<u8>,

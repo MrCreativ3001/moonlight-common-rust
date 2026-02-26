@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use pem::Pem;
 
 use crate::http::{ClientInfo, Endpoint, ParseError, TextResponse, client::RequestError};
@@ -8,9 +7,6 @@ use crate::http::{ClientInfo, Endpoint, ParseError, TextResponse, client::Reques
 ///
 pub trait RequestClient: Sized + Clone {
     type Error: RequestError;
-
-    type Text: AsRef<str>;
-    type Bytes: AsRef<[u8]>;
 
     fn with_defaults() -> Result<Self, Self::Error>;
     fn with_defaults_long_timeout() -> Result<Self, Self::Error>;
@@ -50,6 +46,6 @@ pub trait RequestClient: Sized + Clone {
         request: &E::Request,
     ) -> impl Future<Output = Result<E::Response, Self::Error>> + Send
     where
-        E: Endpoint<Response = Bytes>,
+        E: Endpoint<Response = Vec<u8>>,
         E::Request: Sync;
 }

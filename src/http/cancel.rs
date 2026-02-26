@@ -22,7 +22,7 @@ impl Endpoint for CancelEndpoint {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CancelRequest {}
 
 impl Request for CancelRequest {

@@ -1,6 +1,5 @@
-use std::str::FromStr;
+use std::{str::FromStr, time::Duration};
 
-use bytes::Bytes;
 use pem::Pem;
 use reqwest::{Certificate, Client, ClientBuilder, Identity};
 use thiserror::Error;
@@ -12,8 +11,6 @@ use crate::http::{
 };
 
 pub type ReqwestClient = reqwest::Client;
-#[cfg(feature = "high")]
-pub type ReqwestMoonlightHost = crate::high::MoonlightClient<reqwest::Client>;
 
 #[derive(Debug, Error)]
 pub enum ReqwestError {
@@ -51,10 +48,13 @@ impl TryInto<ParseError> for ReqwestError {
 
 fn default_builder() -> ClientBuilder {
     ClientBuilder::new()
-        .use_native_tls()
+        // Use rustls because other backends could have varying support for custom certs
+        // e.g. schannel (windows)
+        .tls_backend_rustls()
         .timeout(DEFAULT_LONG_TIMEOUT)
         // https://github.com/seanmonstar/reqwest/issues/2021
         .pool_max_idle_per_host(0)
+        .pool_idle_timeout(Some(Duration::ZERO))
 }
 fn timeout_builder() -> ClientBuilder {
     default_builder().timeout(DEFAULT_TIMEOUT)
@@ -84,9 +84,6 @@ where
 impl RequestClient for Client {
     type Error = ReqwestError;
 
-    type Text = String;
-    type Bytes = Bytes;
-
     fn with_defaults_long_timeout() -> Result<Self, Self::Error> {
         Ok(default_builder().build()?)
     }
@@ -106,16 +103,11 @@ impl RequestClient for Client {
         client_pem.push('\n');
         client_pem.push_str(&client_certificate.to_string());
 
-        let identity = Identity::from_pkcs8_pem(
-            client_certificate.to_string().as_bytes(),
-            client_private_key.to_string().as_bytes(),
-        )?;
+        let identity = Identity::from_pem(client_pem.as_bytes())?;
 
         Ok(timeout_builder()
-            .tls_built_in_root_certs(false)
-            .add_root_certificate(server_cert)
+            .tls_certs_only([server_cert])
             .identity(identity)
-            .danger_accept_invalid_hostnames(true)
             .build()?)
     }
 
@@ -166,13 +158,13 @@ impl RequestClient for Client {
         request: &E::Request,
     ) -> Result<E::Response, Self::Error>
     where
-        E: Endpoint<Response = Bytes>,
+        E: Endpoint<Response = Vec<u8>>,
         E::Request: Sync,
     {
         let url = build_url::<E>(false, client_info, hostport, request)?;
 
         let response = self.get(url).send().await?.bytes().await?;
 
-        Ok(response)
+        Ok(response.into())
     }
 }

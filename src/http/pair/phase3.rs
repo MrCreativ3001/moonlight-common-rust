@@ -8,6 +8,7 @@ use crate::http::{
     pair::parse_xml_child_paired,
 };
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase3Request {
     pub device_name: String,
     pub encrypted_challenge_response_hash: Vec<u8>,

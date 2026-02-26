@@ -8,6 +8,7 @@ use crate::http::{
     pair::parse_xml_child_paired,
 };
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase2Request {
     pub device_name: String,
     pub encrypted_challenge: Vec<u8>,
@@ -44,18 +45,22 @@ impl Request for PairPhase2Request {
     }
 }
 
-pub struct PairPhase1Response {
-    paired: bool,
-    encrypted_response: Vec<u8>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct PairPhase2Response {
+    pub paired: bool,
+    /// Encrypted response contains when unencrypted:
+    /// 0..[HashAlgorithm::hash_len()](crate::http::pair::HashAlgorithm::hash_len()): The response hash
+    /// [HashAlgorithm::hash_len()](crate::http::pair::HashAlgorithm::hash_len())..hash_len() + [CHALLENGE_LENGTH](crate::http::pair::CHALLENGE_LENGTH): The server challenge
+    pub encrypted_response: Vec<u8>,
 }
 
-impl TextResponse for PairPhase1Response {
+impl TextResponse for PairPhase2Response {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
         todo!()
     }
 }
 
-impl FromStr for PairPhase1Response {
+impl FromStr for PairPhase2Response {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -67,7 +72,7 @@ impl FromStr for PairPhase1Response {
         let challenge_response_str = parse_xml_child_text(root, "challengeresponse")?;
         let challenge_response = hex::decode(challenge_response_str)?;
 
-        Ok(PairPhase1Response {
+        Ok(PairPhase2Response {
             paired,
             encrypted_response: challenge_response,
         })

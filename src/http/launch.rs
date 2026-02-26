@@ -32,7 +32,7 @@ impl Endpoint for LaunchEndpoint {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClientStreamRequest {
     pub app_id: u32,
     pub mode_width: u32,
@@ -170,7 +170,7 @@ impl Request for ClientStreamRequest {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LaunchResponse {
     // TODO: what exactly is game_session used for?
     pub game_session: u32,

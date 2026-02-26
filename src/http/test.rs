@@ -12,8 +12,8 @@ use crate::{
         box_art::AppBoxArtRequest,
         cancel::{CancelRequest, CancelResponse},
         helper::fmt_write_to_buffer,
-        host_info::{ApolloPermissions, HostInfoRequest, HostInfoResponse},
         launch::{ClientStreamRequest, LaunchResponse},
+        server_info::{ApolloPermissions, ServerInfoRequest, ServerInfoResponse},
     },
     mac::MacAddress,
     stream::{control::ActiveGamepads, video::ServerCodecModeSupport},
@@ -77,30 +77,41 @@ where
     assert_eq!(doc.root(), Document::parse(doc_expected).unwrap().root());
 
     // test deserialize
-    let response = R::from_str(&doc_expected).unwrap();
+    let response = R::from_str(doc_expected).unwrap();
     assert_eq!(response, response_expected);
 }
 
 #[test]
 fn request_client_info() {
+    let uuid = Uuid::from_u128(4522875942567894520547);
+
     test_request(
         ClientInfo {
             unique_id: DEFAULT_UNIQUE_ID,
-            uuid: Uuid::new_v4(),
+            uuid,
         },
-        &[],
+        &[
+            QueryParam {
+                key: "uniqueid",
+                value: DEFAULT_UNIQUE_ID,
+            },
+            QueryParam {
+                key: "uuid",
+                value: &uuid.to_hyphenated().to_string(),
+            },
+        ],
     );
 }
 
 #[test]
 fn request_host_info() {
-    test_request(HostInfoRequest {}, &[]);
+    test_request(ServerInfoRequest {}, &[]);
 }
 
 #[test]
 fn response_host_info_sunshine() {
     test_response(
-        HostInfoResponse {
+        ServerInfoResponse {
             host_name: "PCNAME".to_string(),
             app_version: ServerVersion::new(7, 1, 431, -1),
             gfe_version: "3.23.0.74".to_string(),
@@ -141,7 +152,7 @@ fn response_host_info_sunshine() {
 #[test]
 fn response_host_info_apollo() {
     test_response(
-        HostInfoResponse {
+        ServerInfoResponse {
             host_name: "PCNAME".to_string(),
             app_version: ServerVersion::new(7, 1, 431, -1),
             gfe_version: "3.23.0.74".to_string(),

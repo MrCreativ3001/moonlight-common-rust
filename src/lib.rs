@@ -34,10 +34,9 @@ pub mod stream;
 
 pub mod mac;
 
-pub mod high;
+pub mod crypto;
 
-#[cfg(feature = "openssl")]
-pub mod openssl;
+pub mod high;
 
 #[derive(Debug, Error, Clone)]
 #[error("failed to parse the state of the server")]
@@ -92,11 +91,13 @@ pub enum ParseServerVersionError {
 pub enum ServerType {
     #[default]
     NvidiaGameStream,
-    Wolf,
     Sunshine,
     Apollo,
 }
 
+/// The version of the server.
+///
+/// This is the [app_version field](crate::http::server_info::ServerInfoResponse::app_version) in the [ServerInfoResponse](crate::http::server_info::ServerInfoResponse).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerVersion {
     pub major: i32,
@@ -126,11 +127,7 @@ impl ServerVersion {
     /// This includes Sunshine, Apollo, Wolf and likely any other version that isn't Nvidia's Gamestream and supports newer protocols
     pub fn is_sunshine_like(&self) -> bool {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L85
-        self.mini_patch < 0
-            || matches!(
-                self.server_type,
-                ServerType::Sunshine | ServerType::Wolf | ServerType::Apollo
-            )
+        self.mini_patch < 0 || matches!(self.server_type, ServerType::Sunshine | ServerType::Apollo)
     }
 
     pub fn is_apollo(&self) -> bool {

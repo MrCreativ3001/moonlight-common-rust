@@ -22,11 +22,11 @@ use crate::{
 /// Some information might be hidden if the client is not authenticated over https.
 /// This might include:
 /// - mac address
-pub struct HostInfoEndpoint;
+pub struct ServerInfoEndpoint;
 
-impl Endpoint for HostInfoEndpoint {
-    type Request = HostInfoRequest;
-    type Response = HostInfoResponse;
+impl Endpoint for ServerInfoEndpoint {
+    type Request = ServerInfoRequest;
+    type Response = ServerInfoResponse;
 
     fn path() -> &'static str {
         "/serverinfo"
@@ -38,9 +38,9 @@ impl Endpoint for HostInfoEndpoint {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct HostInfoRequest {}
+pub struct ServerInfoRequest {}
 
-impl Request for HostInfoRequest {
+impl Request for ServerInfoRequest {
     fn append_query_params(
         &self,
         _query_builder: &mut impl QueryBuilder,
@@ -96,7 +96,7 @@ bitflags! {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct HostInfoResponse {
+pub struct ServerInfoResponse {
     pub host_name: String,
     pub app_version: ServerVersion,
     pub gfe_version: String,
@@ -114,7 +114,7 @@ pub struct HostInfoResponse {
     pub apollo_permissions: Option<ApolloPermissions>,
 }
 
-impl TextResponse for HostInfoResponse {
+impl TextResponse for ServerInfoResponse {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
         // XML header + root
         body_writer.write_str(r#"<?xml version="1.0" encoding="utf-8"?>"#)?;
@@ -221,7 +221,7 @@ impl TextResponse for HostInfoResponse {
     }
 }
 
-impl FromStr for HostInfoResponse {
+impl FromStr for ServerInfoResponse {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -258,7 +258,7 @@ impl FromStr for HostInfoResponse {
             app_version.server_type = ServerType::NvidiaGameStream;
         }
 
-        Ok(HostInfoResponse {
+        Ok(ServerInfoResponse {
             host_name: parse_xml_child_text(root, "hostname")?.to_string(),
             app_version,
             gfe_version: parse_xml_child_text(root, "GfeVersion")?.to_string(),

@@ -5,7 +5,7 @@ use crate::http::ParseError;
 pub mod async_client;
 pub mod blocking_client;
 
-#[cfg(feature = "backend_reqwest")]
+#[cfg(feature = "reqwest")]
 pub mod reqwest;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);

@@ -22,6 +22,7 @@ impl Endpoint for UnpairEndpoint {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct UnpairRequest {}
 
 impl Request for UnpairRequest {

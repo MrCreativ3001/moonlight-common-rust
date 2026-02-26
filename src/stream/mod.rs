@@ -8,7 +8,7 @@ use num_derive::FromPrimitive;
 
 use crate::{
     ServerVersion,
-    http::host_info::ApolloPermissions,
+    http::server_info::ApolloPermissions,
     stream::{
         audio::AudioConfig,
         bindings::{
@@ -20,12 +20,12 @@ use crate::{
 };
 
 // TODO: move more stuff out of c into mod, e.g. VideoDecoder, AudioDecoder
-#[cfg(feature = "stream_c")]
+#[cfg(feature = "stream-c")]
 pub mod c;
 
 pub mod proto;
 
-#[cfg(feature = "stream_std")]
+#[cfg(feature = "std")]
 pub mod std;
 
 // Common implementation details
@@ -72,15 +72,22 @@ impl Deref for AesIv {
     }
 }
 
+/// This contains technical details that are required for a stream to start.
 #[derive(Debug)]
 pub struct MoonlightStreamConfig {
     /// The address of the server
     pub address: String,
     /// The `appversion` of the server from the `/serverinfo` response
+    ///
+    /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
     pub version: ServerVersion,
     /// The `GfeVersion` of the server from the `/serverinfo` response
+    ///
+    /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
     pub gfe_version: String,
     /// The `ServerCodeModeSupport` of the server from the `/serverinfo` response
+    ///
+    /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
     pub server_codec_mode_support: ServerCodecModeSupport,
     /// The rtsp session from the `/launch` or `/resume` response
     pub rtsp_session_url: String,
@@ -93,6 +100,8 @@ pub struct MoonlightStreamConfig {
     /// in `/launch` and `/resume` requests.
     pub remote_input_aes_iv: AesIv,
     /// Apollo Extension
+    ///
+    /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
     pub apollo_permissions: Option<ApolloPermissions>,
 }
 

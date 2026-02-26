@@ -2,24 +2,25 @@
 //!
 //! References:
 //! - https://games-on-whales.github.io/wolf/stable/protocols/http-pairing.html
-//! - Moonlight-Embedded:
+//! - Moonlight-Embedded: https://github.com/moonlight-stream/moonlight-embedded/blob/master/libgamestream/client.c#L426
 
 use std::{
     fmt::{self, Debug, Display},
     str::FromStr,
+    sync::Arc,
 };
 
-use roxmltree::Node;
+use roxmltree::{Document, Node};
 
 use crate::{
     ServerVersion,
     http::{
-        ClientSecret, Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, Request,
-        ServerIdentifier, TextResponse,
+        ClientIdentifier, ClientSecret, Endpoint, ParseError, QueryBuilder, QueryBuilderError,
+        QueryIter, Request, ServerIdentifier, TextResponse,
         helper::parse_xml_child_text,
         pair::{
-            phase1::{PairPhase1Request, PairPhase2Response},
-            phase2::{PairPhase1Response, PairPhase2Request},
+            phase1::{PairPhase1Request, PairPhase1Response},
+            phase2::{PairPhase2Request, PairPhase2Response},
             phase3::{PairPhase3Request, PairPhase3Response},
             phase4::{PairPhase4Request, PairPhase4Response},
             phase5::{PairPhase5Request, PairPhase5Response},
@@ -27,13 +28,13 @@ use crate::{
     },
 };
 
-pub mod client;
-
 pub mod phase1;
 pub mod phase2;
 pub mod phase3;
 pub mod phase4;
 pub mod phase5;
+
+pub mod client;
 
 #[cfg(test)]
 mod test;
@@ -45,18 +46,21 @@ pub struct PairPin {
 }
 
 impl PairPin {
-    pub fn from_array(numbers: [u8; 4]) -> Option<Self> {
+    pub fn new(n1: u8, n2: u8, n3: u8, n4: u8) -> Option<Self> {
         let range = 0..10;
 
-        if range.contains(&numbers[0])
-            && range.contains(&numbers[1])
-            && range.contains(&numbers[2])
-            && range.contains(&numbers[3])
+        if range.contains(&n1) && range.contains(&n2) && range.contains(&n3) && range.contains(&n4)
         {
-            return Some(Self { numbers });
+            return Some(Self {
+                numbers: [n1, n2, n3, n4],
+            });
         }
 
         None
+    }
+
+    pub fn from_array(numbers: [u8; 4]) -> Option<Self> {
+        Self::new(numbers[0], numbers[1], numbers[2], numbers[3])
     }
 
     pub fn n(&self, index: usize) -> Option<u8> {
@@ -122,6 +126,7 @@ impl Endpoint for PairEndpoint {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum PairRequest {
     Phase1(PairPhase1Request),
     Phase2(PairPhase2Request),
@@ -135,7 +140,13 @@ impl Request for PairRequest {
         &self,
         query_builder: &mut impl QueryBuilder,
     ) -> Result<(), QueryBuilderError> {
-        todo!()
+        match self {
+            PairRequest::Phase1(request) => request.append_query_params(query_builder),
+            PairRequest::Phase2(request) => request.append_query_params(query_builder),
+            PairRequest::Phase3(request) => request.append_query_params(query_builder),
+            PairRequest::Phase4(request) => request.append_query_params(query_builder),
+            PairRequest::Phase5(request) => request.append_query_params(query_builder),
+        }
     }
 
     fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
@@ -164,7 +175,19 @@ impl FromStr for PairResponse {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        todo!()
+        // TODO: find a better way to do this
+
+        if s.contains("plaincert") {
+            PairPhase1Response::from_str(s).map(Self::Phase1)
+        } else if s.contains("challengeresponse") {
+            PairPhase2Response::from_str(s).map(Self::Phase2)
+        } else if s.contains("serverchallengeresp") {
+            PairPhase3Response::from_str(s).map(Self::Phase3)
+        } else if s.contains("clientpairingsecret") {
+            PairPhase4Response::from_str(s).map(Self::Phase4)
+        } else {
+            PairPhase5Response::from_str(s).map(Self::Phase5)
+        }
     }
 }
 
@@ -198,11 +221,21 @@ fn hash_algorithm_for_server(server_version: ServerVersion) -> HashAlgorithm {
     }
 }
 
-pub trait PairCryptoProvider {
-    type Error;
+pub trait PairingCryptoBackend {
+    type Error: std::error::Error;
+
+    fn generate_client_identity(&self) -> Result<(ClientIdentifier, ClientSecret), Self::Error>;
 
     /// Hashes data into the output buffer provided.
-    fn hash(&self, algorithm: HashAlgorithm, data: &[u8], output: &mut [u8]);
+    fn hash(
+        &self,
+        algorithm: HashAlgorithm,
+        data: &[u8],
+        output: &mut [u8],
+    ) -> Result<(), Self::Error>;
+
+    /// Puts random bytes into data.
+    fn random_bytes(&self, data: &mut [u8]) -> Result<(), Self::Error>;
 
     /// Encrypts plaintext using aes 128 bit ecb with the provided key.
     fn encrypt_aes(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, Self::Error>;
@@ -210,14 +243,65 @@ pub trait PairCryptoProvider {
     /// Decrypts plaintext using aes 128 bit ecb with the provided key.
     fn decrypt_aes(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error>;
 
+    fn signature(&self, server_certificate: &ServerIdentifier) -> Result<Vec<u8>, Self::Error>;
+
     /// Verifies the signature using sha256
     fn verify_signature(
         &self,
         server_secret: &[u8],
         server_signature: &[u8],
-        server_cert: &ServerIdentifier,
+        server_certificate: &ServerIdentifier,
     ) -> Result<bool, Self::Error>;
 
     /// Signs the data using sha256
     fn sign_data(&self, private_key: &ClientSecret, data: &[u8]) -> Result<Vec<u8>, Self::Error>;
+}
+
+impl<T> PairingCryptoBackend for Arc<T>
+where
+    T: PairingCryptoBackend,
+{
+    type Error = T::Error;
+
+    fn generate_client_identity(&self) -> Result<(ClientIdentifier, ClientSecret), Self::Error> {
+        T::generate_client_identity(self)
+    }
+
+    fn decrypt_aes(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        T::decrypt_aes(self, key, ciphertext)
+    }
+
+    fn encrypt_aes(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        T::encrypt_aes(self, key, plaintext)
+    }
+
+    fn hash(
+        &self,
+        algorithm: HashAlgorithm,
+        data: &[u8],
+        output: &mut [u8],
+    ) -> Result<(), Self::Error> {
+        T::hash(self, algorithm, data, output)
+    }
+
+    fn random_bytes(&self, data: &mut [u8]) -> Result<(), Self::Error> {
+        T::random_bytes(self, data)
+    }
+
+    fn sign_data(&self, private_key: &ClientSecret, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        T::sign_data(self, private_key, data)
+    }
+
+    fn signature(&self, server_certificate: &ServerIdentifier) -> Result<Vec<u8>, Self::Error> {
+        T::signature(self, server_certificate)
+    }
+
+    fn verify_signature(
+        &self,
+        server_secret: &[u8],
+        server_signature: &[u8],
+        server_cert: &ServerIdentifier,
+    ) -> Result<bool, Self::Error> {
+        T::verify_signature(self, server_secret, server_signature, server_cert)
+    }
 }

@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self},
+    fmt::{self, Debug},
     net::AddrParseError,
     num::ParseIntError,
     str::FromStr,
@@ -11,7 +11,7 @@ use roxmltree::Error;
 use thiserror::Error;
 use uuid::{Uuid, adapter::Hyphenated};
 
-use crate::{ParseServerStateError, ParseServerVersionError, mac::ParseMacAddressError};
+use crate::{ParseServerStateError, ParseServerVersionError, mac::ParseMacError};
 
 #[derive(Debug, Error)]
 pub enum ParseError {
@@ -31,37 +31,43 @@ pub enum ParseError {
     ParseServerVersionError(#[from] ParseServerVersionError),
     #[error("parsing server codec mode support")]
     ParseServerCodecModeSupport,
-    #[error("failed to parse the mac address")]
-    ParseMacError(#[from] ParseMacAddressError),
-    #[error("{0}")]
+    #[error("mac: {0}")]
+    ParseMacError(#[from] ParseMacError),
+    #[error("int: {0}")]
     ParseIntError(#[from] ParseIntError),
-    #[error("{0}")]
+    #[error("uuid: {0}")]
     ParseUuidError(#[from] uuid::Error),
-    #[error("{0}")]
+    #[error("hex: {0}")]
     ParseHexError(#[from] hex::FromHexError),
-    #[error("{0}")]
+    #[error("addr: {0}")]
     ParseAddrError(#[from] AddrParseError),
-    #[error("{0}")]
+    #[error("pem: {0}")]
+    ParsePem(#[from] pem::PemError),
+    #[error("utf-8: {0}")]
     Utf8Error(#[from] FromUtf8Error),
 }
 
 pub mod app_list;
 pub mod box_art;
 pub mod cancel;
-pub mod host_info;
 pub mod launch;
 pub mod pair;
 pub mod resume;
+pub mod server_info;
 pub mod unpair;
 
 pub mod client;
 
 mod helper;
 
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod test;
 
 // TODO: don't make this async depedendant but make this work in async and sync!
+
+pub const DEFAULT_HTTP_PORT: u16 = 47989;
+pub const DEFAULT_HTTPS_PORT: u16 = 47984;
 
 #[derive(Debug)]
 pub struct QueryParam<'a> {
@@ -102,7 +108,7 @@ impl<'a, T> QueryIter<'a> for T where T: Iterator<Item = &'a QueryParam<'a>> {}
 /// // If [Endpoint::https_required] is true, only authenticated https requests are allowed
 /// let mut url = Url::parse(format!("http:127.0.0.1:47989{}", Endpoint::path()));
 ///
-/// // Append client identifier to url
+/// // Append client information to url
 /// client_info.append_query_parameters(&mut url).unwrap();
 ///
 /// // Append request query parameters to url
@@ -119,7 +125,7 @@ impl<'a, T> QueryIter<'a> for T where T: Iterator<Item = &'a QueryParam<'a>> {}
 ///
 /// ```
 ///
-/// For a real implementation see the [backend::async_client::RequestClient] implementation of [reqwest::Client]
+/// For a real implementation see the [client::async_client::RequestClient] implementation of [reqwest::Client]
 ///
 /// ## Server Usage
 ///
@@ -139,12 +145,15 @@ pub trait Endpoint {
 }
 
 pub trait Request: Sized {
+    /// Serialize the parameters in this request into the query builder.
     fn append_query_params(
         &self,
         query_builder: &mut impl QueryBuilder,
     ) -> Result<(), QueryBuilderError>;
 
     // TODO: maybe don't use an iterator, but some kind of map like interface?
+    // TODO: error?
+    /// Parse the query parameters of into this request type.
     fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
     where
         Q: QueryIter<'a>;
@@ -154,11 +163,12 @@ pub trait TextResponse: FromStr {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result;
 }
 
+/// It's recommended to use the same (default) UID for all Moonlight clients so we can quit games started by other Moonlight clients.
 pub const DEFAULT_UNIQUE_ID: &str = "0123456789ABCDEF";
 
 /// The identifier of a client.
 /// Every client request should use this, even when unauthenticated.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClientInfo<'a> {
     /// It's recommended to use the same (default) UID for all Moonlight clients so we can quit games started by other Moonlight clients.
     pub unique_id: &'a str,
@@ -174,34 +184,26 @@ impl Default for ClientInfo<'static> {
     }
 }
 
-impl<'a> ClientInfo<'a> {
-    // Requires 2 query params
-    fn push_query_params(
-        &self,
-        uuid_bytes: &'a mut [u8; Hyphenated::LENGTH],
-        query_params: &mut impl QueryBuilder,
-    ) {
-        query_params.append(QueryParam {
-            key: "uniqueid",
-            value: self.unique_id,
-        });
-
-        self.uuid.to_hyphenated_ref().encode_lower(uuid_bytes);
-        let uuid_str = str::from_utf8(uuid_bytes).expect("uuid string");
-
-        query_params.append(QueryParam {
-            key: "uuid",
-            value: uuid_str,
-        });
-    }
-}
-
 impl<'b> Request for ClientInfo<'b> {
     fn append_query_params(
         &self,
         query_builder: &mut impl QueryBuilder,
     ) -> Result<(), QueryBuilderError> {
-        todo!()
+        query_builder.append(QueryParam {
+            key: "uniqueid",
+            value: self.unique_id,
+        })?;
+
+        let mut uuid_bytes = [0; Hyphenated::LENGTH];
+        self.uuid.to_hyphenated_ref().encode_lower(&mut uuid_bytes);
+        let uuid_str = str::from_utf8(&uuid_bytes).expect("uuid string");
+
+        query_builder.append(QueryParam {
+            key: "uuid",
+            value: uuid_str,
+        })?;
+
+        Ok(())
     }
 
     fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
@@ -214,6 +216,9 @@ impl<'b> Request for ClientInfo<'b> {
 
 // TODO: use those types instead of directly using Pem
 // TODO: make a from_pem_str fn, so you don't need to include the pem lib
+
+/// This is used to identify and verify a server.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ServerIdentifier(Pem);
 
 impl ServerIdentifier {
@@ -227,6 +232,8 @@ impl ServerIdentifier {
     }
 }
 
+/// This is used to identify and verify a client.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClientIdentifier(Pem);
 
 impl ClientIdentifier {
@@ -240,6 +247,9 @@ impl ClientIdentifier {
     }
 }
 
+/// The secret of the client.
+/// This MUST NOT be shared and MUST be kept secret.
+#[derive(Clone, PartialEq)]
 pub struct ClientSecret(Pem);
 
 impl ClientSecret {
@@ -250,5 +260,11 @@ impl ClientSecret {
 
     pub fn to_pem(&self) -> Pem {
         self.0.clone()
+    }
+}
+
+impl Debug for ClientSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[ClientSecret]")
     }
 }
