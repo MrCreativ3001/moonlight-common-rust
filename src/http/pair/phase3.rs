@@ -22,17 +22,17 @@ impl Request for PairPhase3Request {
         query_builder.append(QueryParam {
             key: "devicename",
             value: &self.device_name,
-        });
+        })?;
         query_builder.append(QueryParam {
             key: "updateState",
             value: "1",
-        });
+        })?;
 
         let encrypted_challenge_str = hex::encode_upper(&self.encrypted_challenge_response_hash);
         query_builder.append(QueryParam {
             key: "serverchallengeresp",
             value: &encrypted_challenge_str,
-        });
+        })?;
 
         Ok(())
     }
@@ -45,6 +45,7 @@ impl Request for PairPhase3Request {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase3Response {
     pub paired: bool,
     pub server_pairing_secret: Vec<u8>,

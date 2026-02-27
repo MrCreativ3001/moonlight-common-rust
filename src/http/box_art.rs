@@ -32,16 +32,16 @@ impl Request for AppBoxArtRequest {
         query_builder.append(QueryParam {
             key: "appid",
             value: appid,
-        });
+        })?;
 
         query_builder.append(QueryParam {
             key: "AssetType",
             value: "2",
-        });
+        })?;
         query_builder.append(QueryParam {
             key: "AssetIdx",
             value: "0",
-        });
+        })?;
 
         Ok(())
     }

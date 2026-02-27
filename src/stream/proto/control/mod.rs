@@ -6,9 +6,9 @@ use std::{
     time::Instant,
 };
 
-use log::{debug, trace, warn};
 use rusty_enet::{Packet, PacketKind, PeerID, error::PeerSendError};
 use thiserror::Error;
+use tracing::{debug, trace, warn};
 
 use crate::{
     ServerVersion,

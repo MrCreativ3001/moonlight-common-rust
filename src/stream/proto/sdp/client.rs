@@ -67,40 +67,40 @@ pub struct ClientSdp {
     /// Required: Use the target ip
     /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L546
     pub target_ip: Option<IpAddr>,
-    pub client_viewport_width: Option<usize>,
-    pub client_viewport_height: Option<usize>,
-    pub max_fps: Option<usize>,
+    pub client_viewport_width: Option<u32>,
+    pub client_viewport_height: Option<u32>,
+    pub max_fps: Option<u32>,
     /// default is 1024
-    pub packet_size: Option<usize>,
+    pub packet_size: Option<u32>,
     /// default is 4
-    pub rate_control_mode: Option<usize>,
+    pub rate_control_mode: Option<u32>,
     /// default is 7000ms
     pub timeout_length: Option<Duration>,
     /// default is 0
-    pub frames_with_invalid_ref_threshold: Option<usize>,
+    pub frames_with_invalid_ref_threshold: Option<u32>,
     // TODO: differentiate between them, version docs / check?: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L359
     // We don't support dynamic bitrate scaling properly (it tends to bounce between min and max and never
     // settle on the optimal bitrate if it's somewhere in the middle), so we'll just latch the bitrate
     // to the requested value.
-    pub initial_bitrate_kbps: Option<usize>,
-    pub initial_peak_bitrate_kbps: Option<usize>,
-    pub vqos_maximum_bitrate_kbps: Option<usize>,
-    pub vqos_minium_bitrate_kbps: Option<usize>,
+    pub initial_bitrate_kbps: Option<u32>,
+    pub initial_peak_bitrate_kbps: Option<u32>,
+    pub vqos_maximum_bitrate_kbps: Option<u32>,
+    pub vqos_minium_bitrate_kbps: Option<u32>,
     /// Only enabled when AppVersionQuad[0] < 5 && Streaming Remote
     /// default is 4
-    pub average_bitrate: Option<usize>,
+    pub average_bitrate: Option<u32>,
     /// Only enabled when AppVersionQuad[0] < 5 && Streaming Remote
     /// default is 4
-    pub peak_bitrate: Option<usize>,
-    pub maximum_bitrate: Option<usize>,
-    pub minimum_bitrate: Option<usize>,
+    pub peak_bitrate: Option<u32>,
+    pub maximum_bitrate: Option<u32>,
+    pub minimum_bitrate: Option<u32>,
     /// AppVersionQuad[0] >= 5
     /// Sunshine extension: Send the configured bitrate to Sunshine hosts, so they can adjust for dynamic FEC percentage
-    pub sunshine_configured_bitrate_kbps: Option<usize>,
+    pub sunshine_configured_bitrate_kbps: Option<u32>,
     /// default is true
     pub enable_fec: Option<bool>,
     /// default is 5000
-    pub video_quality_score_update_time: Option<usize>,
+    pub video_quality_score_update_time: Option<u32>,
     /// default is 0, but if streaming local it's 5
     /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L399
     /// If the remote host is local (RFC 1918), enable QoS tagging for our traffic. Windows qWave
@@ -160,7 +160,7 @@ pub struct ClientSdp {
     /// APP_VERSION_AT_SMALLER_EQ(7, 1, 431)
     /// When streaming 4K, lower FEC levels to reduce stream overhead
     /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L224C9-L224C73
-    pub fec_repair_percent: Option<usize>,
+    pub fec_repair_percent: Option<u32>,
     /// true if APP_VERSION_AT_LEAST(7, 1, 446) && (StreamConfig.width < 720 || StreamConfig.height < 540)
     /// We enable DRC with a static DRC table for very low resoutions on GFE 3.26 to work around
     /// a bug that causes nvstreamer.exe to crash due to failing to populate a list of valid resolutions.
@@ -171,19 +171,19 @@ pub struct ClientSdp {
     pub enable_drc: Option<bool>,
     /// Use if drc_enable is true: set to 2
     /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L241
-    pub drc_table_type: Option<usize>,
+    pub drc_table_type: Option<u32>,
     /// Recovery mode can cause the FEC percentage to change mid-frame, which
     /// breaks many assumptions in RTP FEC queue.
     pub enable_recovery_mode: Option<bool>,
     /// Use slicing for increased performance on some decoders
     /// If not using slicing, we should request 1 slice per frame
-    pub slices_per_frame: Option<usize>,
-    pub vqos_bit_stream_format: Option<usize>,
+    pub slices_per_frame: Option<u32>,
+    pub vqos_bit_stream_format: Option<u32>,
     pub client_support_hevc: Option<bool>,
     /// This disables split frame encode on GFE 3.10 which seems to produce broken
     /// HEVC output at 1080p60 (full of artifacts even on the SHIELD itself, go figure).
     /// It now appears to work fine on GFE 3.14.1.
-    pub video_encoder_feature_setting: Option<usize>,
+    pub video_encoder_feature_setting: Option<u32>,
     /// Enable HDR
     pub dynamic_range_mode: Option<bool>,
     /// If the decoder supports reference frame invalidation, that indicates it also supports
@@ -194,10 +194,10 @@ pub struct ClientSdp {
     /// Restrict the video stream to 1 reference frame if we're not using
     /// reference frame invalidation. This helps to improve compatibility with
     /// some decoders that don't like the default of having 16 reference frames.
-    pub max_num_reference_frames: Option<usize>,
-    pub client_refresh_rate_x100: Option<usize>,
-    pub audio_surround_num_channels: Option<usize>,
-    pub audio_surround_channel_mask: Option<usize>,
+    pub max_num_reference_frames: Option<u32>,
+    pub client_refresh_rate_x100: Option<u32>,
+    pub audio_surround_num_channels: Option<u32>,
+    pub audio_surround_channel_mask: Option<u32>,
     pub audio_surround_enable: Option<bool>,
     /// Enabled when more than 2 channels, this also influences the opus config
     /// https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/AudioStream.c#L428-L438
@@ -236,19 +236,19 @@ impl ClientSdp {
         moonlight_feature_flags: MoonlightFeatureFlags,
         sunshine_encryption_flags: SunshineEncryptionFlags,
         negotiated_video_format: VideoFormat,
-        width: usize,
-        height: usize,
-        max_fps: usize,
-        fps_x100: usize,
-        packet_size: usize,
-        bitrate: usize,
+        width: u32,
+        height: u32,
+        max_fps: u32,
+        fps_x100: u32,
+        packet_size: u32,
+        bitrate: u32,
         server_address: String,
         rtsp_port: u16,
-        fec_repair_percent: usize,
+        fec_repair_percent: u32,
         audio_config: AudioConfig,
         high_quality_audio: bool,
-        slices_per_frame: usize,
-        max_num_reference_frames: usize,
+        slices_per_frame: u32,
+        max_num_reference_frames: u32,
         color_space: ColorSpace,
         color_range: ColorRange,
         video_port: u16,
@@ -421,8 +421,8 @@ impl ClientSdp {
 
             sdp.client_refresh_rate_x100 = Some(fps_x100);
 
-            sdp.audio_surround_num_channels = Some(audio_config.channel_count as usize);
-            sdp.audio_surround_channel_mask = Some(audio_config.channel_mask as usize);
+            sdp.audio_surround_num_channels = Some(audio_config.channel_count);
+            sdp.audio_surround_channel_mask = Some(audio_config.channel_mask);
             sdp.audio_surround_enable = Some(audio_config.channel_count > 2);
 
             // TODO: audio stuff: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L492-L530

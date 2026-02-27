@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 
-use roxmltree::{Document, Node};
+use roxmltree::Node;
 
 use crate::{
     ServerVersion,
@@ -23,7 +23,7 @@ use crate::{
             phase2::{PairPhase2Request, PairPhase2Response},
             phase3::{PairPhase3Request, PairPhase3Response},
             phase4::{PairPhase4Request, PairPhase4Response},
-            phase5::{PairPhase5Request, PairPhase5Response},
+            phase5::PairPhase5Request,
         },
     },
 };
@@ -157,12 +157,13 @@ impl Request for PairRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum PairResponse {
     Phase1(PairPhase1Response),
     Phase2(PairPhase2Response),
     Phase3(PairPhase3Response),
+    /// Phase 5 is also Phase 4 because both have the same structure and data
     Phase4(PairPhase4Response),
-    Phase5(PairPhase5Response),
 }
 
 impl TextResponse for PairResponse {
@@ -181,12 +182,10 @@ impl FromStr for PairResponse {
             PairPhase1Response::from_str(s).map(Self::Phase1)
         } else if s.contains("challengeresponse") {
             PairPhase2Response::from_str(s).map(Self::Phase2)
-        } else if s.contains("serverchallengeresp") {
+        } else if s.contains("pairingsecret") {
             PairPhase3Response::from_str(s).map(Self::Phase3)
-        } else if s.contains("clientpairingsecret") {
-            PairPhase4Response::from_str(s).map(Self::Phase4)
         } else {
-            PairPhase5Response::from_str(s).map(Self::Phase5)
+            PairPhase4Response::from_str(s).map(Self::Phase4)
         }
     }
 }
@@ -243,7 +242,14 @@ pub trait PairingCryptoBackend {
     /// Decrypts plaintext using aes 128 bit ecb with the provided key.
     fn decrypt_aes(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error>;
 
-    fn signature(&self, server_certificate: &ServerIdentifier) -> Result<Vec<u8>, Self::Error>;
+    fn client_signature(
+        &self,
+        client_certificate: &ClientIdentifier,
+    ) -> Result<Vec<u8>, Self::Error>;
+    fn server_signature(
+        &self,
+        server_certificate: &ServerIdentifier,
+    ) -> Result<Vec<u8>, Self::Error>;
 
     /// Verifies the signature using sha256
     fn verify_signature(
@@ -292,8 +298,17 @@ where
         T::sign_data(self, private_key, data)
     }
 
-    fn signature(&self, server_certificate: &ServerIdentifier) -> Result<Vec<u8>, Self::Error> {
-        T::signature(self, server_certificate)
+    fn client_signature(
+        &self,
+        client_certificate: &ClientIdentifier,
+    ) -> Result<Vec<u8>, Self::Error> {
+        T::client_signature(self, client_certificate)
+    }
+    fn server_signature(
+        &self,
+        server_certificate: &ServerIdentifier,
+    ) -> Result<Vec<u8>, Self::Error> {
+        T::server_signature(self, server_certificate)
     }
 
     fn verify_signature(

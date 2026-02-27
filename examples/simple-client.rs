@@ -1,29 +1,19 @@
-#![allow(clippy::unwrap_used)]
-
 use std::sync::Arc;
 
 use moonlight_common::{
     crypto::openssl::OpenSSLCryptoBackend,
-    high::tokio::MoonlightHost,
-    http::{
-        DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
-        client::reqwest::ReqwestClient,
-        pair::{PairPin, PairingCryptoBackend},
-    },
+    high::std::MoonlightHost,
+    http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::reqwest_blocking::ReqwestClient},
 };
-
-use crate::common::{save_identity_async, try_load_identity_async};
 
 mod common;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     common::init();
 
     // Create a new client that'll use the [reqwest::Client] in the background to make requests
-    let address = "192.168.178.140".to_string();
-    // let address = "localhost".to_string();
-
+    // let address = "192.168.178.140".to_string();
+    let address = "localhost".to_string();
     let http_port = DEFAULT_HTTP_PORT;
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
@@ -34,12 +24,11 @@ async fn main() {
     let crypto_provider = Arc::new(OpenSSLCryptoBackend::default());
 
     // Try to get existing identity
-    match try_load_identity_async().await {
+    match try_load_identity() {
         Some((client_identifier, client_secret, server_identifier)) => {
             // Set already existing identity identity
             client
                 .set_identity(&client_identifier, &client_secret, &server_identifier)
-                .await
                 .unwrap();
         }
         None => {
@@ -62,13 +51,12 @@ async fn main() {
                     // TODO: replace with rustcrypto
                     crypto_provider.clone(),
                 )
-                .await
                 .unwrap();
 
-            let (_, _, server_identifier) = client.identity().await.unwrap();
+            let (_, _, server_identifier) = client.identity().unwrap();
 
             // Save identity and server identifier
-            save_identity_async(&client_identifier, &client_secret, &server_identifier).await;
+            save_identity(&client_identifier, &client_secret, &server_identifier);
         }
     };
 

@@ -26,7 +26,7 @@ num = "0.4.3"
 num-derive = "0.4.2"
 num-traits = "0.2.19"
 
-log = "0.4.29"
+tracing = "0.1.44"
 
 thiserror = "2.0.18"
 
@@ -40,13 +40,16 @@ form_urlencoded = "1.2.2"
 
 # Stream Proto
 # We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
-reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017" }
+reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017", features = [
+    "simd-accel",
+] }
 rusty_enet = "0.4.0"
 
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
 
 # Reqwest
+# TODO: update to rustls when this is fixed: https://github.com/seanmonstar/reqwest/issues/2941
 reqwest = { version = "0.13.2", features = [
     "rustls",
 ], default-features = false, optional = true }
@@ -83,22 +86,27 @@ rustcrypto = []
 # Request implementations
 reqwest = ["dep:reqwest"]
 # TODO: implement reqwest blocking
-reqwest-blocking = ["dep:reqwest", "reqwest/blocking"]
+reqwest-blocking = ["reqwest", "reqwest/blocking"]
+
+# Logs sensitive information: e.g. private keys and sensitive values used in encryption / decryption
+__tracing_sensitive = []
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 tokio = { version = "1.49.0", features = ["full"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 # openssl version above this version don't compile in cross-rs (x86_64-pc-windows-gnu)
 # See https://github.com/openssl/openssl/issues/29818
 openssl-sys = { version = "=0.9.109" }
 
+# TODO: all examples should use rustcrypto
 [[example]]
-name = "client-pair"
-path = "examples/client-pair.rs"
-required-features = ["reqwest-blocking", "rustcrypto"]
+name = "simple-client"
+path = "examples/simple-client.rs"
+required-features = ["reqwest-blocking", "std", "openssl"]
 
 [[example]]
 name = "client-stream"

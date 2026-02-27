@@ -1,8 +1,8 @@
 use std::{fmt, fmt::Write as _, net::Ipv4Addr, str::FromStr};
 
 use bitflags::bitflags;
-use log::warn;
 use roxmltree::Document;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{

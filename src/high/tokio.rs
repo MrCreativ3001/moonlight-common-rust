@@ -7,29 +7,34 @@ use std::{
 use tokio::{
     net::UdpSocket,
     sync::{Mutex, RwLock},
-    task::JoinError,
 };
 use uuid::Uuid;
 
 use crate::{
-    Error, MoonlightError, ServerState, ServerVersion,
+    Error, ServerState, ServerVersion,
+    high::MoonlightClientError,
     http::{
         ClientIdentifier, ClientInfo, ClientSecret, DEFAULT_UNIQUE_ID, ServerIdentifier,
         app_list::{App, AppListEndpoint, AppListRequest, AppListResponse},
         box_art::{AppBoxArtEndpoint, AppBoxArtRequest},
         cancel::{CancelEndpoint, CancelRequest},
         client::async_client::RequestClient,
+        launch::{ClientStreamRequest, LaunchEndpoint},
         pair::{
-            PairEndpoint, PairPin, PairResponse, PairingCryptoBackend,
+            PairEndpoint, PairPin, PairingCryptoBackend,
             client::{ClientPairing, ClientPairingError, ClientPairingOutput},
         },
+        resume::ResumeEndpoint,
         server_info::{
             ApolloPermissions, ServerInfoEndpoint, ServerInfoRequest, ServerInfoResponse,
         },
         unpair::{UnpairEndpoint, UnpairRequest},
     },
     mac::MacAddress,
-    stream::video::ServerCodecModeSupport,
+    stream::{
+        AesIv, AesKey, MoonlightStreamConfig, MoonlightStreamSettings,
+        video::ServerCodecModeSupport,
+    },
 };
 
 pub async fn broadcast_magic_packet(mac: MacAddress) -> Result<(), io::Error> {
@@ -48,26 +53,6 @@ pub async fn broadcast_magic_packet(mac: MacAddress) -> Result<(), io::Error> {
     socket.send_to(&magic_packet, &broadcast).await?;
 
     Ok(())
-}
-
-#[derive(Debug, Error)]
-pub enum MoonlightClientError {
-    #[error("{0}")]
-    Moonlight(#[from] MoonlightError),
-    #[error("{0}")]
-    BlockingJoin(#[from] JoinError),
-    #[error("this action requires pairing")]
-    NotPaired,
-    #[error("{0}")]
-    StreamConfig(#[from] StreamConfigError),
-    #[error("the host is likely offline")]
-    LikelyOffline,
-    #[error("unauthenticated")]
-    Unauthenticated,
-    #[error("request: {0}")]
-    Backend(Box<dyn Error + Send + Sync>),
-    #[error("pairing: {0}")]
-    Pairing(ClientPairingError<Box<dyn Error + Send + Sync>>),
 }
 
 #[derive(Debug, Error)]
@@ -149,6 +134,7 @@ where
     }
 
     pub async fn update(self: &MoonlightHost<Client>) -> Result<(), MoonlightClientError> {
+        let mut cache_lock = self.cache.write().await;
         let client = self.client.lock().await;
 
         let client_info = ClientInfo {
@@ -167,7 +153,7 @@ where
         let https_port = server_info.https_port;
         cache.server_info = Some(server_info);
 
-        if self.is_paired() {
+        if cache_lock.authenticated.is_some() {
             let https_address = Self::build_https_address(&self.address, https_port);
 
             let server_info_secure = client
@@ -189,11 +175,9 @@ where
             cache.app_list = Some(app_list);
         }
 
-        {
-            let mut cache_lock = self.cache.write().await;
-            *cache_lock = cache;
-        }
+        *cache_lock = cache;
 
+        drop(cache_lock);
         drop(client);
 
         Ok(())
@@ -298,26 +282,28 @@ where
 
         Ok(())
     }
+    pub async fn identity(&self) -> Option<(ClientIdentifier, ClientSecret, ServerIdentifier)> {
+        let cache = self.cache.read().await;
 
-    pub async fn clear_identity(&self) -> Result<(), MoonlightClientError> {
-        let client = Client::with_defaults().map_err(req_err)?;
+        cache.authenticated.as_ref().map(|authenticated| {
+            (
+                authenticated.client_identifier.clone(),
+                authenticated.client_secret.clone(),
+                authenticated.server_identifier.clone(),
+            )
+        })
+    }
 
-        {
-            let mut client_lock = self.client.lock().await;
-            *client_lock = client;
+    pub async fn is_paired(&self) -> bool {
+        let cache = self.cache.read().await;
+        cache.authenticated.is_some()
+    }
+    async fn check_paired(&self) -> Result<(), MoonlightClientError> {
+        if self.is_paired().await {
+            Ok(())
+        } else {
+            Err(MoonlightClientError::Unauthenticated)
         }
-
-        self.update().await?;
-
-        Ok(())
-    }
-
-    pub fn is_paired(&self) -> bool {
-        // TODO
-        false
-    }
-    fn check_paired(&self) -> Result<(), MoonlightClientError> {
-        todo!()
     }
 
     pub async fn pair<Crypto>(
@@ -353,20 +339,57 @@ where
         )
         .map_err(crypto_err)?;
 
-        // TODO: when any error happens we MUST call the unpair endpoint
+        match self
+            .pair_impl(
+                &http_address,
+                &https_address,
+                client_identifier,
+                client_secret,
+                client_info,
+                &mut pairing,
+                &mut client,
+            )
+            .await
+        {
+            Ok(()) => {}
+            Err(err) => {
+                // Try to unpair
+                let _ = client
+                    .send_http::<UnpairEndpoint>(client_info, &http_address, &UnpairRequest {})
+                    .await;
 
+                return Err(err);
+            }
+        }
+
+        Ok(())
+    }
+    async fn pair_impl<Crypto>(
+        &self,
+        http_address: &str,
+        https_address: &str,
+        client_identifier: &ClientIdentifier,
+        client_secret: &ClientSecret,
+        client_info: ClientInfo<'_>,
+        pairing: &mut ClientPairing<Crypto>,
+        client: &mut Client,
+    ) -> Result<(), MoonlightClientError>
+    where
+        Crypto: PairingCryptoBackend,
+        Crypto::Error: Error + Send + Sync + 'static,
+    {
         loop {
             match pairing.poll_output().map_err(crypto_err)? {
                 ClientPairingOutput::SendHttpPairRequest(request) => {
                     let response = client
-                        .send_http::<PairEndpoint>(client_info, &http_address, &request)
+                        .send_http::<PairEndpoint>(client_info, http_address, &request)
                         .await
                         .map_err(req_err)?;
 
                     pairing.handle_response(response).map_err(crypto_err)?;
                 }
                 ClientPairingOutput::SetServerIdentifier(server_identifier) => {
-                    client = Client::with_certificates(
+                    *client = Client::with_certificates(
                         &client_secret.to_pem(),
                         &client_identifier.to_pem(),
                         &server_identifier.to_pem(),
@@ -375,7 +398,7 @@ where
                 }
                 ClientPairingOutput::SendHttpsPairRequest(request) => {
                     let response = client
-                        .send_https::<PairEndpoint>(client_info, &http_address, &request)
+                        .send_https::<PairEndpoint>(client_info, https_address, &request)
                         .await
                         .map_err(req_err)?;
 
@@ -386,16 +409,14 @@ where
 
                     self.update().await.map_err(req_err)?;
 
-                    break;
+                    return Ok(());
                 }
             };
         }
-
-        Ok(())
     }
 
     pub async fn unpair(&self) -> Result<(), MoonlightClientError> {
-        self.check_paired()?;
+        self.check_paired().await?;
 
         let https_address = self.https_address().await?;
         let client_info = ClientInfo {
@@ -421,7 +442,7 @@ where
     pub async fn apollo_permissions(
         &self,
     ) -> Result<Option<ApolloPermissions>, MoonlightClientError> {
-        self.check_paired()?;
+        self.check_paired().await?;
 
         self.server_info(|info| info.apollo_permissions.clone())
             .await
@@ -435,7 +456,7 @@ where
         &mut self,
         app_id: u32,
     ) -> Result<Vec<u8>, MoonlightClientError> {
-        self.check_paired()?;
+        self.check_paired().await?;
 
         let https_address = self.https_address().await?;
 
@@ -457,8 +478,85 @@ where
         Ok(response)
     }
 
+    /// Starts a stream.
+    /// The returned [MoonlightStreamConfig] must be passed into a stream implementation.
+    ///
+    /// Before starting the stream you should adjust the settings using [MoonlightStreamSettings::adjust_for_server].
+    pub async fn start_stream(
+        &mut self,
+        app_id: u32,
+        settings: &MoonlightStreamSettings,
+        aes_key: AesKey,
+        aes_iv: AesIv,
+        launch_url_query_parameters: &str,
+    ) -> Result<MoonlightStreamConfig, MoonlightClientError> {
+        // Clearing cache so we refresh and can see if there's a game -> launch or resume?
+        self.update().await?;
+
+        let address = self.address.clone();
+        let https_address = self.https_address().await?;
+
+        let current_game = self.current_game().await?;
+
+        let request = ClientStreamRequest {
+            app_id,
+            mode_width: settings.width,
+            mode_height: settings.height,
+            mode_fps: settings.fps,
+            hdr: settings.hdr,
+            sops: settings.sops,
+            local_audio_play_mode: settings.local_audio_play_mode,
+            gamepads_attached_mask: settings.gamepads_attached.bits() as i32,
+            gamepads_persist_after_disconnect: settings.gamepads_persist_after_disconnect,
+            ri_key: aes_key,
+            ri_key_id: aes_iv,
+            additional_query_parameters: launch_url_query_parameters.to_string(),
+        };
+
+        let client_info = ClientInfo {
+            unique_id: &self.client_unique_id,
+            uuid: Uuid::new_v4(),
+        };
+
+        let rtsp_session_url = {
+            let client = self.client.lock().await;
+
+            if current_game == 0 {
+                let launch_response = client
+                    .send_https::<LaunchEndpoint>(client_info, &https_address, &request)
+                    .await
+                    .map_err(req_err)?;
+
+                launch_response.rtsp_session_url
+            } else {
+                let resume_response = client
+                    .send_https::<ResumeEndpoint>(client_info, &https_address, &request)
+                    .await
+                    .map_err(req_err)?;
+
+                resume_response.rtsp_session_url
+            }
+        };
+
+        let app_version = self.version().await?;
+        let server_codec_mode_support = self.server_codec_mode_support().await?;
+        let gfe_version = self.gfe_version().await?.to_owned();
+        let apollo_permissions = self.apollo_permissions().await?;
+
+        Ok(MoonlightStreamConfig {
+            address,
+            gfe_version,
+            server_codec_mode_support,
+            rtsp_session_url: rtsp_session_url.to_string(),
+            remote_input_aes_iv: aes_iv,
+            remote_input_aes_key: aes_key,
+            version: app_version,
+            apollo_permissions,
+        })
+    }
+
     pub async fn cancel(&mut self) -> Result<bool, MoonlightClientError> {
-        self.check_paired()?;
+        self.check_paired().await?;
 
         let https_hostport = self.https_address().await?;
 
@@ -491,214 +589,3 @@ where
         Ok(response.cancel)
     }
 }
-
-// TODO: change that feature flags
-// mod stream {
-//     use openssl::rand::rand_bytes;
-//     use uuid::Uuid;
-//
-//     use crate::{
-//         high::{HostError, MoonlightClient, StreamConfigError},
-//         http::{
-//             ClientInfo,
-//             launch::{ClientStreamRequest, host_launch, host_resume},
-//             request_client::RequestClient,
-//         },
-//         pair::PairError,
-//         stream::{
-//             AesIv, AesKey, EncryptionFlags, MoonlightStreamConfig,
-//             audio::AudioConfig,
-//             control::ActiveGamepads,
-//             video::{ColorRange, ColorSpace, ServerCodecModeSupport, SupportedVideoFormats},
-//         },
-//     };
-//
-//     impl<C> MoonlightClient<C>
-//     where
-//         C: RequestClient,
-//     {
-//         // Stream config correction
-//         pub async fn is_hdr_supported(&mut self) -> Result<bool, HostError<C::Error>> {
-//             let server_codec_mode_support = self.server_codec_mode_support().await?;
-//
-//             Ok(
-//                 server_codec_mode_support.contains(ServerCodecModeSupport::HEVC_MAIN10)
-//                     || server_codec_mode_support.contains(ServerCodecModeSupport::AV1_MAIN10),
-//             )
-//         }
-//         pub async fn is_4k_supported(&mut self) -> Result<bool, HostError<C::Error>> {
-//             let is_nvidia = self.is_nvidia_software().await?;
-//             let server_codec_mode_support = self.server_codec_mode_support().await?;
-//
-//             Ok(
-//                 server_codec_mode_support.contains(ServerCodecModeSupport::HEVC_MAIN10)
-//                     || !is_nvidia,
-//             )
-//         }
-//         pub async fn is_4k_supported_gfe(&mut self) -> Result<bool, HostError<C::Error>> {
-//             let gfe = self.gfe_version().await?;
-//
-//             Ok(!gfe.starts_with("2."))
-//         }
-//
-//         pub async fn is_resolution_supported(
-//             &mut self,
-//             width: usize,
-//             height: usize,
-//             supported_video_formats: SupportedVideoFormats,
-//         ) -> Result<(), HostError<C::Error>> {
-//             let resolution_above_4k = width > 4096 || height > 4096;
-//
-//             if resolution_above_4k && !self.is_4k_supported().await? {
-//                 return Err(StreamConfigError::NotSupported4k.into());
-//             } else if resolution_above_4k
-//                 && supported_video_formats.contains(!SupportedVideoFormats::MASK_H264)
-//             {
-//                 return Err(StreamConfigError::NotSupported4kCodecMissing.into());
-//             } else if height > 2160 && self.is_4k_supported_gfe().await? {
-//                 return Err(StreamConfigError::NotSupported4kUpdateGfe.into());
-//             }
-//
-//             Ok(())
-//         }
-//
-//         pub async fn should_disable_sops(
-//             &mut self,
-//             width: usize,
-//             height: usize,
-//         ) -> Result<bool, HostError<C::Error>> {
-//             // Using an unsupported resolution (not 720p, 1080p, or 4K) causes
-//             // GFE to force SOPS to 720p60. This is fine for < 720p resolutions like
-//             // 360p or 480p, but it is not ideal for 1440p and other resolutions.
-//             // When we detect an unsupported resolution, disable SOPS unless it's under 720p.
-//             // FIXME: Detect support resolutions using the serverinfo response, not a hardcoded list
-//             const NVIDIA_SUPPORTED_RESOLUTIONS: &[(usize, usize)] =
-//                 &[(1280, 720), (1920, 1080), (3840, 2160)];
-//
-//             let is_nvidia = self.is_nvidia_software().await?;
-//
-//             Ok(!NVIDIA_SUPPORTED_RESOLUTIONS.contains(&(width, height)) && is_nvidia)
-//         }
-//
-//         pub async fn start_stream(
-//             &mut self,
-//             app_id: u32,
-//             width: u32,
-//             height: u32,
-//             mut fps: u32,
-//             hdr: bool,
-//             mut sops: bool,
-//             local_audio_play_mode: bool,
-//             gamepads_attached: ActiveGamepads,
-//             gamepads_persist_after_disconnect: bool,
-//             color_space: ColorSpace,
-//             color_range: ColorRange,
-//             bitrate: u32,
-//             packet_size: u32,
-//             encryption_flags: EncryptionFlags,
-//             audio_configuration: AudioConfig,
-//             supported_video_formats: SupportedVideoFormats,
-//             launch_url_query_parameters: &str,
-//         ) -> Result<MoonlightStreamConfig, HostError<C::Error>> {
-//             // Change streaming options if required
-//
-//             if hdr && !self.is_hdr_supported().await? {
-//                 return Err(HostError::StreamConfig(StreamConfigError::NotSupportedHdr));
-//             }
-//
-//             self.is_resolution_supported(width as usize, height as usize, supported_video_formats)
-//                 .await?;
-//
-//             if self.is_nvidia_software().await? {
-//                 // Using an FPS value over 60 causes SOPS to default to 720p60,
-//                 // so force it to 0 to ensure the correct resolution is set. We
-//                 // used to use 60 here but that locked the frame rate to 60 FPS
-//                 // on GFE 3.20.3. We don't need this hack for Sunshine.
-//                 if fps > 60 {
-//                     fps = 0;
-//                 }
-//
-//                 if self
-//                     .should_disable_sops(width as usize, height as usize)
-//                     .await?
-//                 {
-//                     sops = false;
-//                 }
-//             }
-//
-//             // Clearing cache so we refresh and can see if there's a game -> launch or resume?
-//             self.clear_cache();
-//
-//             let address = self.address.clone();
-//             let https_address = self.https_address().await?;
-//
-//             let current_game = self.current_game().await?;
-//
-//             let mut aes_key = [0u8; 16];
-//             rand_bytes(&mut aes_key).map_err(PairError::from)?;
-//
-//             let mut aes_iv = [0u8; 4];
-//             rand_bytes(&mut aes_iv).map_err(PairError::from)?;
-//             let aes_iv = u32::from_be_bytes(aes_iv);
-//
-//             let request = ClientStreamRequest {
-//                 app_id,
-//                 mode_width: width,
-//                 mode_height: height,
-//                 mode_fps: fps,
-//                 hdr,
-//                 sops,
-//                 local_audio_play_mode,
-//                 gamepads_attached_mask: gamepads_attached.bits() as i32,
-//                 gamepads_persist_after_disconnect,
-//                 ri_key: aes_key,
-//                 ri_key_id: aes_iv,
-//             };
-//
-//             let client_info = ClientInfo {
-//                 unique_id: &self.client_unique_id,
-//                 uuid: Uuid::new_v4(),
-//             };
-//
-//             let rtsp_session_url = if current_game == 0 {
-//                 let launch_response = host_launch(
-//                     &mut self.client,
-//                     &https_address,
-//                     client_info,
-//                     request,
-//                     launch_url_query_parameters,
-//                 )
-//                 .await?;
-//
-//                 launch_response.rtsp_session_url
-//             } else {
-//                 let resume_response = host_resume(
-//                     &mut self.client,
-//                     &https_address,
-//                     client_info,
-//                     request,
-//                     launch_url_query_parameters,
-//                 )
-//                 .await?;
-//
-//                 resume_response.rtsp_session_url
-//             };
-//
-//             let app_version = self.version().await?;
-//             let server_codec_mode_support = self.server_codec_mode_support().await?;
-//             let gfe_version = self.gfe_version().await?.to_owned();
-//             let apollo_permissions = self.apollo_permissions().await?;
-//
-//             Ok(MoonlightStreamConfig {
-//                 address,
-//                 gfe_version,
-//                 server_codec_mode_support,
-//                 rtsp_session_url: rtsp_session_url.to_string(),
-//                 remote_input_aes_iv: AesIv(aes_iv),
-//                 remote_input_aes_key: AesKey(aes_key),
-//                 version: app_version,
-//                 apollo_permissions,
-//             })
-//         }
-//     }
-// }

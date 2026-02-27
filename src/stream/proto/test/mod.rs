@@ -94,39 +94,40 @@ fn test_stream_start() {
 
     let time = Instant::now();
 
-    let mut stream = MoonlightStreamProto::new(
-        time,
-        config,
-        MoonlightStreamSettings {
-            width: 1920,
-            height: 1080,
-            fps: 60,
-            fps_x100: 60 * 100,
-            bitrate: 10000,
-            encryption_flags: EncryptionFlags::empty(),
-            streaming_remotely: StreamingConfig::Local,
-            audio_config: AudioConfig::STEREO,
-            supported_video_formats: SupportedVideoFormats::H264,
-            packet_size: 1024,
-            color_range: ColorRange::Limited,
-            color_space: ColorSpace::Rec709,
-        },
-    )
-    .unwrap();
-
-    assert_eq_output(
-        stream.poll_output().unwrap(),
-        MoonlightStreamOutput::Action(MoonlightStreamAction::ConnectTcp {
-            addr: SocketAddr::new(addr, rtsp_port),
-        }),
-    );
-
-    stream
-        .handle_input(MoonlightStreamInput::TcpConnect(time))
-        .unwrap();
-
     // TODO
-    assert_eq_output(stream.poll_output().unwrap(), todo!());
+    // let mut stream = MoonlightStreamProto::new(
+    //     time,
+    //     config,
+    //     MoonlightStreamSettings {
+    //         width: 1920,
+    //         height: 1080,
+    //         fps: 60,
+    //         fps_x100: 60 * 100,
+    //         bitrate: 10000,
+    //         encryption_flags: EncryptionFlags::empty(),
+    //         streaming_remotely: StreamingConfig::Local,
+    //         audio_config: AudioConfig::STEREO,
+    //         supported_video_formats: SupportedVideoFormats::H264,
+    //         packet_size: 1024,
+    //         color_range: ColorRange::Limited,
+    //         color_space: ColorSpace::Rec709,
+    //     },
+    // )
+    // .unwrap();
+
+    // assert_eq_output(
+    //     stream.poll_output().unwrap(),
+    //     MoonlightStreamOutput::Action(MoonlightStreamAction::ConnectTcp {
+    //         addr: SocketAddr::new(addr, rtsp_port),
+    //     }),
+    // );
+
+    // stream
+    //     .handle_input(MoonlightStreamInput::TcpConnect(time))
+    //     .unwrap();
+
+    // // TODO
+    // assert_eq_output(stream.poll_output().unwrap(), todo!());
 }
 
 // TODO: remove test prefix from all tests

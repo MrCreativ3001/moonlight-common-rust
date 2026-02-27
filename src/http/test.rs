@@ -16,7 +16,7 @@ use crate::{
         server_info::{ApolloPermissions, ServerInfoRequest, ServerInfoResponse},
     },
     mac::MacAddress,
-    stream::{control::ActiveGamepads, video::ServerCodecModeSupport},
+    stream::{AesIv, AesKey, control::ActiveGamepads, video::ServerCodecModeSupport},
 };
 
 #[derive(Debug, Default)]
@@ -266,8 +266,8 @@ fn request_launch_and_resume() {
             gamepads_attached_mask: ActiveGamepads::GAMEPAD_1.bits() as i32,
             gamepads_persist_after_disconnect: false,
             sops: true,
-            ri_key_id: 0,
-            ri_key: [0; _],
+            ri_key_id: AesIv(0),
+            ri_key: AesKey([0; _]),
             additional_query_parameters: "&corever=1".to_string(),
         },
         &[

@@ -11,7 +11,7 @@ use crate::stream::proto::audio::{
     },
 };
 
-use log::warn;
+use tracing::warn;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum AudioDepayloaderError {

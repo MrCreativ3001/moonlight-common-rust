@@ -8,6 +8,7 @@ use num_derive::FromPrimitive;
 
 use crate::{
     ServerVersion,
+    high::tokio::StreamConfigError,
     http::server_info::ApolloPermissions,
     stream::{
         audio::AudioConfig,
@@ -15,6 +16,7 @@ use crate::{
             ENCFLG_ALL, ENCFLG_AUDIO, ENCFLG_NONE, ENCFLG_VIDEO, LI_FF_CONTROLLER_TOUCH_EVENTS,
             LI_FF_PEN_TOUCH_EVENTS, STREAM_CFG_AUTO, STREAM_CFG_LOCAL, STREAM_CFG_REMOTE,
         },
+        control::ActiveGamepads,
         video::{ColorRange, ColorSpace, ServerCodecModeSupport, SupportedVideoFormats},
     },
 };
@@ -39,7 +41,7 @@ pub mod video;
 #[allow(unused)]
 mod bindings;
 
-#[derive(Clone)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct AesKey(pub [u8; 16]);
 
 impl Deref for AesKey {
@@ -56,6 +58,7 @@ impl Debug for AesKey {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
 pub struct AesIv(pub u32);
 
 impl Debug for AesIv {
@@ -73,6 +76,8 @@ impl Deref for AesIv {
 }
 
 /// This contains technical details that are required for a stream to start.
+///
+/// Before starting a stream [MoonlightStreamConfig::adjust_for_server] should be called to support older servers.
 #[derive(Debug)]
 pub struct MoonlightStreamConfig {
     /// The address of the server
@@ -106,18 +111,112 @@ pub struct MoonlightStreamConfig {
 }
 
 pub struct MoonlightStreamSettings {
-    pub width: usize,
-    pub height: usize,
-    pub fps: usize,
-    pub fps_x100: usize,
-    pub bitrate: usize,
-    pub packet_size: usize,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub fps_x100: u32,
+    pub bitrate: u32,
+    pub packet_size: u32,
     pub encryption_flags: EncryptionFlags,
     pub streaming_remotely: StreamingConfig,
+    pub sops: bool,
+    pub hdr: bool,
     pub supported_video_formats: SupportedVideoFormats,
     pub color_space: ColorSpace,
     pub color_range: ColorRange,
+    pub local_audio_play_mode: bool,
     pub audio_config: AudioConfig,
+    pub gamepads_attached: ActiveGamepads,
+    pub gamepads_persist_after_disconnect: bool,
+}
+
+impl MoonlightStreamSettings {
+    /// Some servers don't support certain settings.
+    /// This will try to make the settings compatible with older servers.
+    ///
+    /// If this doesn't work it'll fail.
+    pub fn adjust_for_server(
+        &mut self,
+        version: ServerVersion,
+        gfe_version: &str,
+        server_codec_mode_support: ServerCodecModeSupport,
+    ) -> Result<(), StreamConfigError> {
+        let supports_hdr = Self::is_hdr_supported(server_codec_mode_support);
+
+        if self.hdr && !supports_hdr {
+            return Err(StreamConfigError::NotSupportedHdr);
+        }
+
+        self.check_resolution_supported(version, server_codec_mode_support)?;
+
+        if version.is_nvidia_software() {
+            // Using an FPS value over 60 causes SOPS to default to 720p60,
+            // so force it to 0 to ensure the correct resolution is set. We
+            // used to use 60 here but that locked the frame rate to 60 FPS
+            // on GFE 3.20.3. We don't need this hack for Sunshine.
+            if self.fps > 60 {
+                self.fps = 0;
+            }
+
+            if self.should_disable_sops(version) {
+                self.sops = false;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_hdr_supported(server_codec_mode_support: ServerCodecModeSupport) -> bool {
+        server_codec_mode_support.contains(ServerCodecModeSupport::HEVC_MAIN10)
+            || server_codec_mode_support.contains(ServerCodecModeSupport::AV1_MAIN10)
+    }
+    fn is_4k_supported(
+        version: ServerVersion,
+        server_codec_mode_support: ServerCodecModeSupport,
+    ) -> bool {
+        server_codec_mode_support.contains(ServerCodecModeSupport::HEVC_MAIN10)
+            || !version.is_nvidia_software()
+    }
+    fn is_4k_supported_gfe(gfe_version: &str) -> bool {
+        !gfe_version.starts_with("2.")
+    }
+
+    fn check_resolution_supported(
+        &self,
+        version: ServerVersion,
+        server_codec_mode_support: ServerCodecModeSupport,
+    ) -> Result<(), StreamConfigError> {
+        let resolution_above_4k = self.width > 4096 || self.height > 4096;
+        let supports_4k = Self::is_4k_supported(version, server_codec_mode_support);
+
+        if resolution_above_4k && !supports_4k {
+            return Err(StreamConfigError::NotSupported4k.into());
+        } else if resolution_above_4k
+            && self
+                .supported_video_formats
+                .contains(!SupportedVideoFormats::MASK_H264)
+        {
+            return Err(StreamConfigError::NotSupported4kCodecMissing.into());
+        } else if self.height > 2160 && supports_4k {
+            return Err(StreamConfigError::NotSupported4kUpdateGfe.into());
+        }
+
+        Ok(())
+    }
+
+    pub fn should_disable_sops(&self, version: ServerVersion) -> bool {
+        // Using an unsupported resolution (not 720p, 1080p, or 4K) causes
+        // GFE to force SOPS to 720p60. This is fine for < 720p resolutions like
+        // 360p or 480p, but it is not ideal for 1440p and other resolutions.
+        // When we detect an unsupported resolution, disable SOPS unless it's under 720p.
+        // FIXME: Detect support resolutions using the serverinfo response, not a hardcoded list
+        const NVIDIA_SUPPORTED_RESOLUTIONS: &[(u32, u32)] =
+            &[(1280, 720), (1920, 1080), (3840, 2160)];
+
+        let is_nvidia = version.is_nvidia_software();
+
+        !NVIDIA_SUPPORTED_RESOLUTIONS.contains(&(self.width, self.height)) && is_nvidia
+    }
 }
 
 bitflags! {

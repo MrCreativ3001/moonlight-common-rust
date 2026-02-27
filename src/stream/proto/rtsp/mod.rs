@@ -7,8 +7,8 @@ use std::{
     str::Utf8Error,
 };
 
-use log::trace;
 use thiserror::Error;
+use tracing::trace;
 
 use crate::stream::proto::rtsp::raw::{
     ParseRtspResponseError, RtspAddr, RtspRequest, RtspResponse,

@@ -38,6 +38,9 @@ pub mod crypto;
 
 pub mod high;
 
+#[cfg(test)]
+pub(crate) mod test;
+
 #[derive(Debug, Error, Clone)]
 #[error("failed to parse the state of the server")]
 pub struct ParseServerStateError;
@@ -122,6 +125,11 @@ impl ServerVersion {
             mini_patch,
             server_type,
         }
+    }
+
+    /// If the server software is the old nvidia server
+    pub fn is_nvidia_software(&self) -> bool {
+        matches!(self.server_type, ServerType::NvidiaGameStream)
     }
 
     /// This includes Sunshine, Apollo, Wolf and likely any other version that isn't Nvidia's Gamestream and supports newer protocols

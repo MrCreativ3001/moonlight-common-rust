@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use log::trace;
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use thiserror::Error;
+use tracing::trace;
 
 use crate::stream::proto::video::packet::{
     RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader, VideoHeaderFlags,

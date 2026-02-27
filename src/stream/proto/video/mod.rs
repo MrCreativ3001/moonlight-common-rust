@@ -5,8 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::trace;
 use thiserror::Error;
+use tracing::trace;
 
 use crate::{
     ServerVersion,

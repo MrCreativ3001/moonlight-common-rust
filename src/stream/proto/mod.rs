@@ -9,8 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{debug, trace};
 use thiserror::Error;
+use tracing::{debug, trace};
 
 use crate::{
     ServerVersion,
@@ -370,7 +370,7 @@ impl MoonlightStreamProto {
                                     queue: VideoDepayloaderConfig {
                                         // Packet size will always exist
                                         #[allow(clippy::unwrap_used)]
-                                        packet_size: sdp.client_sdp.packet_size.unwrap(),
+                                        packet_size: sdp.client_sdp.packet_size.unwrap() as usize,
                                     },
                                     sunshine_ping: video_setup.sunshine_ping.clone(),
                                     sunshine_encryption: None, // TODO <--

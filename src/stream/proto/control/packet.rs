@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use log::trace;
 use thiserror::Error;
+use tracing::trace;
 
 use crate::ServerVersion;
 

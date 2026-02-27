@@ -5,9 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{debug, trace};
 use reed_solomon_erasure::{galois_8::ReedSolomon, matrix::Matrix};
 use thiserror::Error;
+use tracing::{debug, trace};
 
 use crate::stream::{
     AesIv, AesKey,

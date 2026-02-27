@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 use pem::Pem;
 use roxmltree::Document;
@@ -41,7 +41,7 @@ impl Request for PairPhase1Request {
             value: &salt_str,
         })?;
 
-        let client_cert_pem_str = hex::encode_upper(&self.client_certificate.to_string());
+        let client_cert_pem_str = hex::encode_upper(self.client_certificate.to_string());
         query_builder.append(QueryParam {
             key: "clientcert",
             value: &client_cert_pem_str,
@@ -58,13 +58,14 @@ impl Request for PairPhase1Request {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase1Response {
     pub paired: bool,
     pub certificate: Option<Pem>,
 }
 
 impl TextResponse for PairPhase1Response {
-    fn serialize_into(&self, body_writer: &mut impl std::fmt::Write) -> std::fmt::Result {
+    fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
         todo!()
     }
 }

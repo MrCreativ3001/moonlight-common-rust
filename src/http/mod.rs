@@ -250,6 +250,7 @@ impl ClientIdentifier {
 /// The secret of the client.
 /// This MUST NOT be shared and MUST be kept secret.
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "__tracing_sensitive", derive(Debug))]
 pub struct ClientSecret(Pem);
 
 impl ClientSecret {
@@ -263,6 +264,7 @@ impl ClientSecret {
     }
 }
 
+#[cfg(not(feature = "__tracing_sensitive"))]
 impl Debug for ClientSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[ClientSecret]")

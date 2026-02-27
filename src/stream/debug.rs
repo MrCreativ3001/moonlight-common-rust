@@ -1,4 +1,4 @@
-use log::info;
+use tracing::info;
 
 use crate::stream::{
     AudioConfig, SupportedVideoFormats,
@@ -163,7 +163,7 @@ impl ConnectionListener for DebugHandler {
 
 #[cfg(feature = "stream-c")]
 mod stream_c {
-    use log::info;
+    use tracing::info;
 
     use crate::stream::{
         c::{

@@ -5,12 +5,15 @@ use std::{
 
 use roxmltree::Document;
 
-use crate::http::{
-    Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, QueryParam, Request,
-    TextResponse,
-    helper::{
-        fmt_write_to_buffer, i32_to_str, parse_xml_child_text, parse_xml_root_node, u32_to_str,
+use crate::{
+    http::{
+        Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, QueryParam, Request,
+        TextResponse,
+        helper::{
+            fmt_write_to_buffer, i32_to_str, parse_xml_child_text, parse_xml_root_node, u32_to_str,
+        },
     },
+    stream::{AesIv, AesKey},
 };
 
 /// Launches a new session.
@@ -43,8 +46,8 @@ pub struct ClientStreamRequest {
     pub local_audio_play_mode: bool,
     pub gamepads_attached_mask: i32,
     pub gamepads_persist_after_disconnect: bool,
-    pub ri_key: [u8; 16usize],
-    pub ri_key_id: u32,
+    pub ri_key: AesKey,
+    pub ri_key_id: AesIv,
     pub additional_query_parameters: String,
 }
 
@@ -58,7 +61,7 @@ impl Request for ClientStreamRequest {
             query_builder.append(QueryParam {
                 key: &name,
                 value: &value,
-            });
+            })?;
         }
 
         let mut appid_buffer = [0u8; _];
@@ -66,7 +69,7 @@ impl Request for ClientStreamRequest {
         query_builder.append(QueryParam {
             key: "appid",
             value: appid,
-        });
+        })?;
 
         let mut mode_buffer = [0u8; (11 * 3) + 2];
         let mode = fmt_write_to_buffer(&mut mode_buffer, |writer| {
@@ -80,58 +83,58 @@ impl Request for ClientStreamRequest {
         query_builder.append(QueryParam {
             key: "mode",
             value: mode,
-        });
+        })?;
 
         query_builder.append(QueryParam {
             key: "additionalStates",
             value: "1",
-        });
+        })?;
         query_builder.append(QueryParam {
             key: "sops",
             value: if self.sops { "1" } else { "0" },
-        });
+        })?;
 
         if self.hdr {
             query_builder.append(QueryParam {
                 key: "hdrMode",
                 value: "1",
-            });
+            })?;
             query_builder.append(QueryParam {
                 key: "clientHdrCapVersion",
                 value: "0",
-            });
+            })?;
             query_builder.append(QueryParam {
                 key: "clientHdrCapSupportedFlagsInUint32",
                 value: "0",
-            });
+            })?;
             query_builder.append(QueryParam {
                 key: "clientHdrCapMetaDataId",
                 value: "NV_STATIC_METADATA_TYPE_1",
-            });
+            })?;
             query_builder.append(QueryParam {
                 key: "clientHdrCapDisplayData",
                 value: "0x0x0x0x0x0x0x0x0x0x0",
-            });
+            })?;
         }
 
         let mut ri_key_str_bytes = [0u8; 16 * 2];
-        hex::encode_to_slice(self.ri_key, &mut ri_key_str_bytes).expect("encode ri key");
+        hex::encode_to_slice(&*self.ri_key, &mut ri_key_str_bytes).expect("encode ri key");
         query_builder.append(QueryParam {
             key: "rikey",
             value: str::from_utf8(&ri_key_str_bytes).expect("valid ri key str"),
-        });
+        })?;
 
         let mut ri_key_id_str_bytes = [0; 11];
-        let ri_key_id_str = u32_to_str(self.ri_key_id, &mut ri_key_id_str_bytes);
+        let ri_key_id_str = u32_to_str(*self.ri_key_id, &mut ri_key_id_str_bytes);
         query_builder.append(QueryParam {
             key: "rikeyid",
             value: ri_key_id_str,
-        });
+        })?;
 
         query_builder.append(QueryParam {
             key: "localAudioPlayMode",
             value: if self.local_audio_play_mode { "1" } else { "0" },
-        });
+        })?;
 
         // TODO: what is this?
         // query_params.append(query_param("surroundAudioInfo", "todo"));
@@ -144,11 +147,11 @@ impl Request for ClientStreamRequest {
         query_builder.append(QueryParam {
             key: "remoteControllersBitmap",
             value: gamepad_attached_mask_value,
-        });
+        })?;
         query_builder.append(QueryParam {
             key: "gcmap",
             value: gamepad_attached_mask_value,
-        });
+        })?;
 
         query_builder.append(QueryParam {
             key: "gcpersist",

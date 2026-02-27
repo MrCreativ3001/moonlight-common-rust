@@ -8,6 +8,9 @@ pub mod blocking_client;
 #[cfg(feature = "reqwest")]
 pub mod reqwest;
 
+#[cfg(feature = "reqwest-blocking")]
+pub mod reqwest_blocking;
+
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_LONG_TIMEOUT: Duration = Duration::from_secs(90);
 

@@ -12,13 +12,13 @@ use std::{
     time::Duration,
 };
 
-use log::debug;
 use moonlight_common_sys::limelight::{
     _DECODER_RENDERER_CALLBACKS, LiCompleteVideoFrame, LiPollNextVideoFrame,
     LiWaitForNextVideoFrame, PDECODE_UNIT, VIDEO_FRAME_HANDLE,
 };
 use num::FromPrimitive;
 use thiserror::Error;
+use tracing::debug;
 
 use crate::stream::{
     ColorSpace, SupportedVideoFormats,

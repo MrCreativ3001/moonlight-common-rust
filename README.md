@@ -1,4 +1,4 @@
-# moonlight-common-rust
+# moonlight-common-rust [WIP]
 
 `moonlight-common-rust` is a Rust implementation of the Moonlight game streaming protocol built around a Sans-IO architecture.
 
@@ -17,4 +17,12 @@ Because the core does not depend on native sockets or a specific runtime, it can
 
 This design allows the same protocol implementation to be reused across native and web targets while remaining modular and easy to embed.
 
-## Examples
+## Usage
+
+The [`examples/`](./examples) directory contains examples demonstrating how to use the crate with the I/O implementations this library provides:
+- Creating and initializing a Moonlight client
+- Pairing with a host
+- Establishing a streaming session
+  - Receiving Video and Audio
+  - Sending Inputs to the host
+

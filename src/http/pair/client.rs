@@ -1,4 +1,5 @@
 use thiserror::Error;
+use tracing::{Level, Span, debug, debug_span, instrument};
 
 use crate::{
     ServerVersion,
@@ -45,7 +46,7 @@ pub enum ClientPairingError<CryptoError> {
     FailedAlreadyInProgress,
     #[error("failed to pair because the pin was incorrect")]
     FailedWrongPin,
-    #[error("failed because of an unknown reason")]
+    #[error("failed")]
     Failed,
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
@@ -81,6 +82,7 @@ const CLIENT_PAIR_SECRET_LENGTH: usize = 16;
 /// ```
 ///
 pub struct ClientPairing<Crypto> {
+    span: Span,
     client_identifier: ClientIdentifier,
     client_secret: ClientSecret,
     hash_algorithm: HashAlgorithm,
@@ -92,6 +94,7 @@ pub struct ClientPairing<Crypto> {
     state: Option<State>,
 }
 
+#[derive(Debug)]
 enum State {
     Error,
     SendPhase1 {
@@ -118,12 +121,11 @@ enum State {
         challenge: [u8; CHALLENGE_LENGTH],
         server_certificate: ServerIdentifier,
         server_response_hash: [u8; HashAlgorithm::MAX_HASH_LEN],
-        server_challenge: [u8; CHALLENGE_LENGTH],
     },
     SendPhase4 {},
     RecvPhase4 {},
-    SendPhase5,
-    RecvPhase5,
+    SendPhase5 {},
+    RecvPhase5 {},
     Success,
 }
 
@@ -174,7 +176,10 @@ where
         let hash_algorithm = hash_algorithm_for_server(server_version);
         let aes_key = generate_aes_key(&crypto_provider, hash_algorithm, salt, pin)?;
 
+        let span = debug_span!("moonlight::client::pairing");
+
         Ok(Self {
+            span,
             client_identifier,
             client_secret,
             device_name,
@@ -188,8 +193,7 @@ where
     }
 
     /// Handle the response after sending a request.
-    ///
-    /// response is [None] if an error occured in that response.
+    #[instrument(level = Level::DEBUG, parent = &self.span, fields(state = ?&self.state), skip(self), ret, err)]
     pub fn handle_response(
         &mut self,
         response: PairResponse,
@@ -207,16 +211,22 @@ where
             }
             State::RecvPhase1 { challenge } => {
                 let PairResponse::Phase1(response) = response else {
+                    debug!(reason = "wrong response", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 };
 
                 if !response.paired {
+                    debug!(reason = "response.paired = false", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 }
 
                 let Some(server_certificate) = response.certificate else {
+                    debug!(reason = "no certificate", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 };
@@ -233,11 +243,15 @@ where
                 server_certificate,
             } => {
                 let PairResponse::Phase2(response) = response else {
+                    debug!(reason = "wrong response", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 };
 
                 if !response.paired {
+                    debug!(reason = "response.paired = false", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 }
@@ -246,20 +260,27 @@ where
                     .crypto_backend
                     .decrypt_aes(&self.aes_key, &response.encrypted_response)?;
 
-                if response.len() > self.hash_algorithm.hash_len() + CHALLENGE_LENGTH {
+                let required_len = self.hash_algorithm.hash_len() + CHALLENGE_LENGTH;
+                if response.len() < required_len {
+                    debug!(
+                        reason = "response is smaller than expected",
+                        len_got = response.len(),
+                        len_expected = required_len,
+                        "pairing failed"
+                    );
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 }
 
+                let hash_len = self.hash_algorithm.hash_len();
+
                 let mut server_response_hash = [0; _];
-                server_response_hash[0..self.hash_algorithm.hash_len()]
-                    .copy_from_slice(&response[0..self.hash_algorithm.hash_len()]);
+                server_response_hash[0..hash_len].copy_from_slice(&response[0..hash_len]);
 
                 let mut server_challenge = [0; _];
-                server_challenge[0..CHALLENGE_LENGTH].copy_from_slice(
-                    &response[self.hash_algorithm.hash_len()
-                        ..(self.hash_algorithm.hash_len() + CHALLENGE_LENGTH)],
-                );
+                server_challenge[0..CHALLENGE_LENGTH]
+                    .copy_from_slice(&response[hash_len..(hash_len + CHALLENGE_LENGTH)]);
 
                 self.state = Some(State::SendPhase3 {
                     challenge,
@@ -274,30 +295,50 @@ where
                 challenge,
                 server_certificate,
                 server_response_hash,
-                server_challenge,
             } => {
                 let PairResponse::Phase3(response) = response else {
+                    debug!(reason = "wrong response", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 };
 
                 if !response.paired {
+                    debug!(reason = "response.paired = false", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 }
 
                 // Validate server response
-                // TODO: check length
+                let expected_len = 16;
+                if response.server_pairing_secret.len() < expected_len {
+                    debug!(
+                        reason = "response.server_pairing_secret too short",
+                        got_len = response.server_pairing_secret.len(),
+                        expected_len = expected_len,
+                        "pairing failed"
+                    );
+
+                    self.state = Some(State::Error);
+                    return Err(ClientPairingError::Failed);
+                }
+
                 let mut server_secret = [0; 16];
                 server_secret.copy_from_slice(&response.server_pairing_secret[0..16]);
 
-                let server_signature = &response.server_pairing_secret[0..16];
+                let server_signature = &response.server_pairing_secret[16..];
 
                 if !self.crypto_backend.verify_signature(
                     &server_secret,
                     server_signature,
                     &server_certificate,
                 )? {
+                    debug!(
+                        reason = "verify signature failed -> MITM likely -> cancelling pairing",
+                        "pairing failed"
+                    );
+
                     // MITM likely, cancel here
 
                     self.state = Some(State::Error);
@@ -307,7 +348,7 @@ where
                 let mut expected_response = Vec::new();
                 expected_response.extend_from_slice(&challenge);
                 expected_response
-                    .extend_from_slice(&self.crypto_backend.signature(&server_certificate)?);
+                    .extend_from_slice(&self.crypto_backend.server_signature(&server_certificate)?);
                 expected_response.extend_from_slice(&server_secret);
 
                 let mut expected_response_hash = [0; HashAlgorithm::MAX_HASH_LEN];
@@ -319,6 +360,11 @@ where
                 )?;
 
                 if server_response_hash != expected_response_hash {
+                    debug!(
+                        reason = "server_response_hash != expected_response_hash, user likely entered wrong pin",
+                        "pairing failed"
+                    );
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::FailedWrongPin);
                 }
@@ -329,26 +375,34 @@ where
             }
             State::RecvPhase4 {} => {
                 let PairResponse::Phase4(response) = response else {
+                    debug!(reason = "wrong response", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 };
 
                 if !response.paired {
+                    debug!(reason = "response.paired = false", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 }
 
-                self.state = Some(State::SendPhase5);
+                self.state = Some(State::SendPhase5 {});
 
                 Ok(())
             }
-            State::RecvPhase5 => {
-                let PairResponse::Phase5(response) = response else {
+            State::RecvPhase5 {} => {
+                let PairResponse::Phase4(response) = response else {
+                    debug!(reason = "wrong response", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 };
 
                 if !response.paired {
+                    debug!(reason = "response.paired = false", "pairing failed");
+
                     self.state = Some(State::Error);
                     return Err(ClientPairingError::Failed);
                 }
@@ -362,6 +416,7 @@ where
     }
 
     /// Poll for new actions or events.
+    #[instrument(level = Level::DEBUG, parent = &self.span, fields(state = ?&self.state), skip(self), ret, err)]
     pub fn poll_output(
         &mut self,
     ) -> Result<ClientPairingOutput, ClientPairingError<Crypto::Error>> {
@@ -414,9 +469,12 @@ where
             } => {
                 let mut challenge_response = Vec::new();
                 challenge_response.extend_from_slice(&server_challenge);
-                challenge_response
-                    .extend_from_slice(&self.crypto_backend.signature(&server_certificate)?);
-                challenge_response.extend_from_slice(self.client_secret.to_pem().contents());
+                challenge_response.extend_from_slice(
+                    &self
+                        .crypto_backend
+                        .client_signature(&self.client_identifier)?,
+                );
+                challenge_response.extend_from_slice(&self.secret);
 
                 let mut challenge_response_hash = [0; HashAlgorithm::MAX_HASH_LEN];
                 hash_size_uneq(
@@ -434,7 +492,6 @@ where
                 self.state = Some(State::RecvPhase3 {
                     challenge,
                     server_certificate,
-                    server_challenge,
                     server_response_hash,
                 });
 
@@ -464,11 +521,15 @@ where
                     }),
                 ))
             }
-            State::SendPhase5 => Ok(ClientPairingOutput::SendHttpsPairRequest(
-                PairRequest::Phase5(PairPhase5Request {
-                    device_name: self.device_name.clone(),
-                }),
-            )),
+            State::SendPhase5 {} => {
+                self.state = Some(State::RecvPhase5 {});
+
+                Ok(ClientPairingOutput::SendHttpsPairRequest(
+                    PairRequest::Phase5(PairPhase5Request {
+                        device_name: self.device_name.clone(),
+                    }),
+                ))
+            }
             State::Success => Ok(ClientPairingOutput::Success),
             _ => panic!(
                 "After a call to [ClientPairing::poll_output] [ClientPairing::handle_response] must be called. Please see the usage of ClientPairing."
@@ -519,7 +580,7 @@ where
 {
     let mut hash = [0u8; KEY_LENGTH];
 
-    let salted = self::salt_pin(salt, pin);
+    let salted = salt_pin(salt, pin);
     hash_size_uneq(provider, algorithm, &salted, &mut hash)?;
 
     Ok(hash)
@@ -544,13 +605,14 @@ mod test {
                 phase2::{PairPhase2Request, PairPhase2Response},
                 phase3::{PairPhase3Request, PairPhase3Response},
                 phase4::{PairPhase4Request, PairPhase4Response},
-                phase5::{PairPhase5Request, PairPhase5Response},
+                phase5::PairPhase5Request,
                 test::{
                     PAIR_CLIENT_CERTIFICATE_PEM, PAIR_CLIENT_PRIVATE_KEY_PEM,
                     PAIR_SERVER_CERTIFICATE_PEM,
                 },
             },
         },
+        test::init_test,
     };
 
     struct PanicCryptoProvider;
@@ -583,7 +645,13 @@ mod test {
         fn encrypt_aes(&self, _key: &[u8], _plaintext: &[u8]) -> Result<Vec<u8>, Self::Error> {
             unimplemented!()
         }
-        fn signature(
+        fn client_signature(
+            &self,
+            _client_certificate: &ClientIdentifier,
+        ) -> Result<Vec<u8>, Self::Error> {
+            unimplemented!()
+        }
+        fn server_signature(
             &self,
             _server_certificate: &ServerIdentifier,
         ) -> Result<Vec<u8>, Self::Error> {
@@ -608,6 +676,8 @@ mod test {
 
     #[test]
     fn pair_already_in_progress() {
+        init_test();
+
         let mut pairing = ClientPairing::new(
             ClientIdentifier::from_pem(Pem::from_str(PAIR_CLIENT_CERTIFICATE_PEM).unwrap()),
             ClientSecret::from_pem(Pem::from_str(PAIR_CLIENT_PRIVATE_KEY_PEM).unwrap()),
@@ -635,18 +705,18 @@ mod test {
         C: PairingCryptoBackend,
         C::Error: Debug,
     {
-        let pin = PairPin::new(9, 4, 9, 3).unwrap();
+        let pin = PairPin::new(6, 0, 0, 2).unwrap();
         let device_name = "roth".to_string();
 
         let challenge = [
-            108, 93, 159, 29, 132, 223, 45, 18, 69, 127, 100, 195, 0, 242, 115, 228,
+            255, 100, 238, 159, 252, 80, 98, 231, 40, 13, 124, 105, 196, 106, 151, 173,
         ];
-        let salt = *hex::decode("17CA4D60C3A445B67E45BD71933B6D7E")
-            .unwrap()
-            .as_array()
-            .unwrap();
-        // TODO: fix this pair_secret
-        let client_pair_secret = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let salt = [
+            130, 128, 118, 7, 221, 223, 88, 215, 115, 12, 225, 224, 23, 37, 189, 189,
+        ];
+        let client_pair_secret = [
+            87, 250, 40, 120, 155, 247, 206, 105, 245, 223, 62, 84, 243, 5, 108, 219,
+        ];
 
         let mut pairing = ClientPairing::new_inner(
             ClientIdentifier::from_pem(Pem::from_str(PAIR_CLIENT_CERTIFICATE_PEM).unwrap()),
@@ -685,13 +755,13 @@ mod test {
             pairing.poll_output().unwrap(),
             ClientPairingOutput::SendHttpPairRequest(PairRequest::Phase2(PairPhase2Request {
                 device_name: device_name.clone(),
-                encrypted_challenge: hex::decode("FCF9B608577AAE74F1A3FA02CF01128E").unwrap(),
+                encrypted_challenge: hex::decode("97A0935E210C8C34AC35EA42FECFE6B8").unwrap(),
             })),
         );
 
         pairing.handle_response(PairResponse::Phase2(PairPhase2Response {
             paired: true,
-            encrypted_response: hex::decode("AEB1A10071A8FD93B1D62651103CBB971DCCE4432248858652CB2890F781B90EDDF5572014F6DEF6C7E337CBEB049CCC").unwrap(),
+            encrypted_response: hex::decode("EFAB7A5E54EC2703D13EC83D0D3ADADBC4F4FD4C941EE8FFB3B426BC5D959EC53C7372885AFAACA0660AF413C924DE83").unwrap(),
         })).unwrap();
 
         // Phase 3
@@ -700,7 +770,7 @@ mod test {
             ClientPairingOutput::SendHttpPairRequest(PairRequest::Phase3(PairPhase3Request {
                 device_name: device_name.to_string(),
                 encrypted_challenge_response_hash: hex::decode(
-                    "6ECA266A3E6CE115DB8B0951AC11C713DBB5EEB1EFD53DC6C9B7245E8DDB1026",
+                    "E21701F44FED0F539053799A50DFDE1073E30F2541FDEADFA22703941948501F",
                 )
                 .unwrap(),
             }))
@@ -708,7 +778,7 @@ mod test {
 
         pairing.handle_response(PairResponse::Phase3(PairPhase3Response {
             paired: true,
-            server_pairing_secret: hex::decode("2B350A80904FC1F7AFEE26F9D3775F620B2DD3E92B1E4D300D95C24579075D5CC238792FA24D367DC9DB040F9E4CB1F3819E17E28CC8941CDB37F149FFDA86E6A1B22042A98FAC594E07A05FFEC86BB8130461CB40BC075080801D501969C6D6B1D29AEA20CF01CB6DD478C349A488616D2755804283B3ACBEAF55101E91B6C1AC62C99D3CA224FC7ADBE692A32657C52D5675626B4A1EE9170EE0CA27D65F0C0FE05CE410EF88A3DA4DAAFE79E4DD51FE078E063B6926957CE1599DAEB9F167DA1B816140EBF3EFDA438F3DA1AE78F1596113E1F95CB954CA3FFF77A9816EC8E0D79A4F1996FA8D3BAE896498E30D9F104F1AA8969476A6820A085A1CB56480F327096ED62AF8DF8BF6269BA380C335").unwrap(),
+            server_pairing_secret: hex::decode("B2A62490129E15563B30DB692122105239DF685779A1A42951C9E7D27C786391E9D1A4E24729B63DC594D18AB66377F9234D4F5266478101C599FDF4B3EE9CFDE5855CAF7339E09103A03A1C39EC86FB14FD31DFA2D3F6C8B2B87D5A08183152BCDE9396046B3646391B3789D5CAAEC49B1329E6D4AEF3DAFFC97D756AB4DDF72D78F6E672772A4C488F6D12DF480971CA66FEA2771C09055C2F4070732005E27B583A2032FBD40EF8037034C25713F95E0DB5422D9C4EFF2274A6324CF056F255B64416F0856384A1E0948CE444AC9FB417C2443286245C40904E59B5EF018EC472218D68C4D7F6E0DAF4DA88539D6E52BEF8E9E8332CEFC8B72697D89D7D3CA8A14092147C0F3A9ECB5287D65B5840").unwrap(),
         })).unwrap();
 
         // Phase 4
@@ -717,7 +787,7 @@ mod test {
             ClientPairingOutput::SendHttpPairRequest(PairRequest::Phase4(PairPhase4Request {
                 device_name: device_name.to_string(),
                 client_pairing_secret: hex::decode(
-                    "87720E7BCAA43F2AF6A25B8B010AA77439EF79EC1066A87C55F7EB2BA2C415B8D03068AC044F9A7D4D1203B97420A949A861B69EFA5BCD327A51A54C18ED3B4CE83BD15C363E9FC77C640DB630CE1A3C54A7E2D7933AF643A711175FFCC2CF1B683E98C84726477FB0E6954C13FB3DFAE81BDC00B60C10249BD21B795F3F8883F02E0D8863FBFEBA0273DE84A07D0A7F1F4BB41B84722BF17B8F26E9746E9623DEBA471C037BF87A5F83BABFFBAB30294336527E5F95A1AEC8E8FB59A0D50841C00E865F1C60EA7D3F7F6D98260CD57C512D9EABCDF1176D13C335320573B36B2B873CBFB8FB0B7FC4AE891BA4DE5F29151E817B210C98D6F9EC1E970AF0A9D755EB62A71A3D8FC6682BA6E411934D1C",
+                    "57FA28789BF7CE69F5DF3E54F3056CDB221C46E0892C5147D9D9B17A29ED4B35ED746CAD0B9789BA9D05A7B121B44C25461366CF1FDD2A319DE946B93F3C2AC0A16C9F88B44BF29FD52E6BA94536315D5016CB9A3CD330854BF00C58D544E765603ED7D262051B0E575487A40BB7CE404E5B9F344E180908FDA5C7C31B643403057805C979A4D12D7B9B88ABE94C0A11605120BA46F8F1FF12097C30373EC23224A91E39B2864D5503F6E1641012467BC5452F82B736D208D5DD92BF16AF7F37058E5BCA272F1B3D35EDD490B969BF9170CE3E8F2B86619799F08DF5657E16403656FA15510F3BF0209B95EEE85682515756DBAB758458CFDD84B9EC95656D050655763DA5C7D9FF1DA19E153E12BEE7",
                 ).unwrap(),
     })),
         );
@@ -729,13 +799,13 @@ mod test {
         // Phase 5
         assert_eq!(
             pairing.poll_output().unwrap(),
-            ClientPairingOutput::SendHttpPairRequest(PairRequest::Phase5(PairPhase5Request {
+            ClientPairingOutput::SendHttpsPairRequest(PairRequest::Phase5(PairPhase5Request {
                 device_name: device_name.to_string(),
             })),
         );
 
         pairing
-            .handle_response(PairResponse::Phase5(PairPhase5Response { paired: true }))
+            .handle_response(PairResponse::Phase4(PairPhase4Response { paired: true }))
             .unwrap();
 
         // Success
@@ -747,6 +817,8 @@ mod test {
     fn pair_openssl() {
         use crate::crypto::openssl::OpenSSLCryptoBackend;
 
-        test_pair_with(OpenSSLCryptoBackend);
+        init_test();
+
+        test_pair_with(OpenSSLCryptoBackend::default());
     }
 }

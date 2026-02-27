@@ -21,17 +21,17 @@ impl Request for PairPhase4Request {
         query_builder.append(QueryParam {
             key: "devicename",
             value: &self.device_name,
-        });
+        })?;
         query_builder.append(QueryParam {
             key: "updateState",
             value: "1",
-        });
+        })?;
 
         let client_pairing_secret_str = hex::encode_upper(&self.client_pairing_secret);
         query_builder.append(QueryParam {
             key: "clientpairingsecret",
             value: &client_pairing_secret_str,
-        });
+        })?;
 
         Ok(())
     }
@@ -44,6 +44,7 @@ impl Request for PairPhase4Request {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase4Response {
     pub paired: bool,
 }
