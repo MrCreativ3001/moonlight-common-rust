@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use reqwest::{
-    Certificate, Identity,
+    Certificate,
     blocking::{self, ClientBuilder},
 };
 use tracing::{debug, instrument};
@@ -22,7 +22,7 @@ fn default_builder() -> ClientBuilder {
         .timeout(DEFAULT_LONG_TIMEOUT)
         // Use rustls because other backends could have varying support for custom certs
         // e.g. schannel (windows)
-        .tls_backend_rustls()
+        .use_rustls_tls()
         // https://github.com/seanmonstar/reqwest/issues/2021
         .pool_max_idle_per_host(0)
         // Sunshine only likes http 1.0

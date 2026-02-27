@@ -2,9 +2,15 @@ use std::sync::Arc;
 
 use moonlight_common::{
     crypto::openssl::OpenSSLCryptoBackend,
-    high::std::MoonlightHost,
-    http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::reqwest_blocking::ReqwestClient},
+    high::tokio::MoonlightHost,
+    http::{
+        DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
+        client::reqwest_blocking::ReqwestClient,
+        pair::{PairPin, PairingCryptoBackend},
+    },
 };
+
+use crate::common::{save_identity, try_load_identity};
 
 mod common;
 

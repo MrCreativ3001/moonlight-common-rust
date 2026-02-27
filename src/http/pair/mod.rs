@@ -46,6 +46,26 @@ pub struct PairPin {
 }
 
 impl PairPin {
+    pub fn new_random<Crypto>(crypto_backend: &Crypto) -> Result<Self, Crypto::Error>
+    where
+        Crypto: PairingCryptoBackend,
+    {
+        let mut random = [0; 4];
+        crypto_backend.random_bytes(&mut random)?;
+
+        // The values must be inside of the range
+        #[allow(clippy::unwrap_used)]
+        let pin = PairPin::new(
+            random[0] % 10,
+            random[1] % 10,
+            random[2] % 10,
+            random[3] % 10,
+        )
+        .unwrap();
+
+        Ok(pin)
+    }
+
     pub fn new(n1: u8, n2: u8, n3: u8, n4: u8) -> Option<Self> {
         let range = 0..10;
 

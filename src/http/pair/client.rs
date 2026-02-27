@@ -122,8 +122,15 @@ enum State {
         server_certificate: ServerIdentifier,
         server_response_hash: [u8; HashAlgorithm::MAX_HASH_LEN],
     },
-    SendPhase4 {},
-    RecvPhase4 {},
+    SendPhase4 {
+        server_certificate: ServerIdentifier,
+    },
+    RecvPhase4 {
+        server_certificate: ServerIdentifier,
+    },
+    SetCertificate {
+        server_certificate: ServerIdentifier,
+    },
     SendPhase5 {},
     RecvPhase5 {},
     Success,
@@ -369,11 +376,11 @@ where
                     return Err(ClientPairingError::FailedWrongPin);
                 }
 
-                self.state = Some(State::SendPhase4 {});
+                self.state = Some(State::SendPhase4 { server_certificate });
 
                 Ok(())
             }
-            State::RecvPhase4 {} => {
+            State::RecvPhase4 { server_certificate } => {
                 let PairResponse::Phase4(response) = response else {
                     debug!(reason = "wrong response", "pairing failed");
 
@@ -388,7 +395,7 @@ where
                     return Err(ClientPairingError::Failed);
                 }
 
-                self.state = Some(State::SendPhase5 {});
+                self.state = Some(State::SetCertificate { server_certificate });
 
                 Ok(())
             }
@@ -416,6 +423,8 @@ where
     }
 
     /// Poll for new actions or events.
+    ///
+    /// If this returns [ClientPairingOutput::SetServerIdentifier] you MUST poll this function again, without calling [ClientPairing::handle_response]
     #[instrument(level = Level::DEBUG, parent = &self.span, fields(state = ?&self.state), skip(self), ret, err)]
     pub fn poll_output(
         &mut self,
@@ -502,7 +511,7 @@ where
                     }),
                 ))
             }
-            State::SendPhase4 {} => {
+            State::SendPhase4 { server_certificate } => {
                 // Send the server out signed certificate
                 let mut client_pairing_secret = Vec::new();
                 client_pairing_secret.extend_from_slice(&self.secret);
@@ -512,7 +521,7 @@ where
                         .sign_data(&self.client_secret, &self.secret)?,
                 );
 
-                self.state = Some(State::RecvPhase4 {});
+                self.state = Some(State::RecvPhase4 { server_certificate });
 
                 Ok(ClientPairingOutput::SendHttpPairRequest(
                     PairRequest::Phase4(PairPhase4Request {
@@ -520,6 +529,11 @@ where
                         client_pairing_secret,
                     }),
                 ))
+            }
+            State::SetCertificate { server_certificate } => {
+                self.state = Some(State::SendPhase5 {});
+
+                Ok(ClientPairingOutput::SetServerIdentifier(server_certificate))
             }
             State::SendPhase5 {} => {
                 self.state = Some(State::RecvPhase5 {});
@@ -795,6 +809,14 @@ mod test {
         pairing
             .handle_response(PairResponse::Phase4(PairPhase4Response { paired: true }))
             .unwrap();
+
+        // Before phase 5 we need to set the server certificate
+        assert_eq!(
+            pairing.poll_output().unwrap(),
+            ClientPairingOutput::SetServerIdentifier(ServerIdentifier::from_pem(
+                Pem::from_str(PAIR_SERVER_CERTIFICATE_PEM).unwrap()
+            ))
+        );
 
         // Phase 5
         assert_eq!(

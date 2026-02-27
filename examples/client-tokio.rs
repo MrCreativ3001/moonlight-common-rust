@@ -11,6 +11,7 @@ use moonlight_common::{
         pair::{PairPin, PairingCryptoBackend},
     },
 };
+use tracing::info;
 
 use crate::common::{save_identity_async, try_load_identity_async};
 
@@ -21,7 +22,7 @@ async fn main() {
     common::init();
 
     // Create a new client that'll use the [reqwest::Client] in the background to make requests
-    let address = "192.168.178.140".to_string();
+    let address = "192.168.178.139".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;
@@ -48,10 +49,13 @@ async fn main() {
                 crypto_provider.generate_client_identity().unwrap();
 
             // Pair to sunshine server and print a message
+            // This device name doesn't get used (i think), the default is "roth"
             let device_name = "roth".to_string();
-            let pin = PairPin::new(1, 2, 3, 4).unwrap();
 
-            println!("Enter the pin {pin} for the host \"{address}\" to pair.");
+            // Generate new pin
+            let pin = PairPin::new_random(&crypto_provider).unwrap();
+
+            info!("Enter the pin {pin} for the host \"{address}\" to pair.");
 
             client
                 .pair(

@@ -51,7 +51,7 @@ fn default_builder() -> ClientBuilder {
         .timeout(DEFAULT_LONG_TIMEOUT)
         // Use rustls because other backends could have varying support for custom certs
         // e.g. schannel (windows)
-        .tls_backend_rustls()
+        .use_rustls_tls()
         // https://github.com/seanmonstar/reqwest/issues/2021
         .pool_max_idle_per_host(0)
         // Sunshine only likes http 1.0
@@ -101,6 +101,7 @@ impl RequestClient for Client {
         client_certificate: &Pem,
         server_certificate: &Pem,
     ) -> Result<Self, Self::Error> {
+        tracing::info!("{}", server_certificate.to_string());
         let server_certificate = Certificate::from_pem(server_certificate.to_string().as_bytes())?;
 
         let mut client_pem = String::new();
@@ -110,13 +111,10 @@ impl RequestClient for Client {
 
         let identity = Identity::from_pem(client_pem.as_bytes())?;
 
-        // TODO: fix this
-        // https://github.com/seanmonstar/reqwest/issues/1260
-        // https://github.com/seanmonstar/reqwest/issues/1554
-
         Ok(timeout_builder()
             .identity(identity)
-            .tls_certs_only([server_certificate])
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true)
             .build()?)
     }
 

@@ -378,6 +378,8 @@ where
         Crypto: PairingCryptoBackend,
         Crypto::Error: Error + Send + Sync + 'static,
     {
+        let mut server_identifier = None;
+
         loop {
             match pairing.poll_output().map_err(crypto_err)? {
                 ClientPairingOutput::SendHttpPairRequest(request) => {
@@ -388,15 +390,22 @@ where
 
                     pairing.handle_response(response).map_err(crypto_err)?;
                 }
-                ClientPairingOutput::SetServerIdentifier(server_identifier) => {
+                ClientPairingOutput::SetServerIdentifier(new_server_identifier) => {
                     *client = Client::with_certificates(
                         &client_secret.to_pem(),
                         &client_identifier.to_pem(),
-                        &server_identifier.to_pem(),
+                        &new_server_identifier.to_pem(),
                     )
                     .map_err(req_err)?;
+
+                    server_identifier = Some(new_server_identifier);
                 }
                 ClientPairingOutput::SendHttpsPairRequest(request) => {
+                    assert!(
+                        server_identifier.is_some(),
+                        "ClientPairing didn't set ServerIdentifier but tried to make a https request"
+                    );
+
                     let response = client
                         .send_https::<PairEndpoint>(client_info, https_address, &request)
                         .await
@@ -405,7 +414,16 @@ where
                     pairing.handle_response(response).map_err(crypto_err)?;
                 }
                 ClientPairingOutput::Success => {
-                    // TODO: set the identity of the client and server
+                    {
+                        let mut cache_lock = self.cache.write().await;
+                        cache_lock.authenticated = Some(Authenticated {
+                            client_identifier: client_identifier.clone(),
+                            client_secret: client_secret.clone(),
+                            server_identifier: server_identifier
+                                .take()
+                                .expect("PairingClient didn't set "),
+                        });
+                    }
 
                     self.update().await.map_err(req_err)?;
 
