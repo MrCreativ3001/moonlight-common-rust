@@ -49,10 +49,12 @@ rusty_enet = "0.4.0"
 moonlight-common-sys = { workspace = true, optional = true }
 
 # Reqwest
-# TODO: reqwest >0.12 uses the default certificate store which will disallow self signed certificates on windows
-reqwest = { version = "0.12.28", features = [
-    "rustls-tls",
-], default-features = false, optional = true }
+rustls = { version = "0.23.37", optional = true }
+# TODO: ureq seems like a good blocking client
+# Actix Web Client
+awc = { version = "3.8.2", default-features = false, features = [
+    "rustls-0_23",
+], optional = true }
 
 # Tokio
 # TODO: only pick needed features, maybe also behind a feature lock
@@ -67,7 +69,7 @@ openssl = { workspace = true, optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 [features]
-default = ["reqwest-blocking", "std"]
+default = ["std"]
 
 serde = ["dep:serde"]
 
@@ -84,9 +86,7 @@ openssl = ["dep:openssl"]
 rustcrypto = []
 
 # Request implementations
-reqwest = ["dep:reqwest"]
-# TODO: implement reqwest blocking
-reqwest-blocking = ["reqwest", "reqwest/blocking"]
+awc = ["tokio", "dep:awc", "dep:rustls"]
 
 # Logs sensitive information: e.g. private keys and sensitive values used in encryption / decryption
 __tracing_sensitive = []
@@ -106,19 +106,19 @@ openssl-sys = { version = "=0.9.109" }
 [[example]]
 name = "simple-client"
 path = "examples/simple-client.rs"
-required-features = ["reqwest-blocking", "std", "openssl"]
+required-features = ["std", "openssl"]
 
 [[example]]
 name = "client-stream"
 path = "examples/client-stream.rs"
-required-features = ["reqwest-blocking", "std", "rustcrypto"]
+required-features = ["std", "rustcrypto"]
 
 [[example]]
 name = "client-common-c"
 path = "examples/client-common-c.rs"
-required-features = ["reqwest-blocking", "stream-c"]
+required-features = ["stream-c"]
 
 [[example]]
 name = "client-tokio"
 path = "examples/client-tokio.rs"
-required-features = ["reqwest", "tokio", "openssl"]
+required-features = ["tokio", "openssl"]

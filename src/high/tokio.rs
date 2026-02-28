@@ -91,13 +91,13 @@ struct Authenticated {
 
 fn req_err<Err>(err: Err) -> MoonlightClientError
 where
-    Err: Error + Send + Sync + 'static,
+    Err: Error + 'static,
 {
     MoonlightClientError::Backend(Box::new(err))
 }
 fn crypto_err<Err>(err: ClientPairingError<Err>) -> MoonlightClientError
 where
-    Err: Error + Send + Sync + 'static,
+    Err: Error + 'static,
 {
     MoonlightClientError::Pairing(ClientPairingError::from_err(err))
 }
@@ -106,7 +106,7 @@ where
 impl<Client> MoonlightHost<Client>
 where
     Client: RequestClient,
-    <Client as RequestClient>::Error: Error + Send + Sync + 'static,
+    <Client as RequestClient>::Error: Error + 'static,
 {
     pub fn new(
         address: String,
@@ -362,6 +362,15 @@ where
             }
         }
 
+        // Replace client
+        {
+            let mut client_lock = self.client.lock().await;
+            *client_lock = client;
+        }
+
+        // Update our info
+        self.update().await.map_err(req_err)?;
+
         Ok(())
     }
     async fn pair_impl<Crypto>(
@@ -424,8 +433,6 @@ where
                                 .expect("PairingClient didn't set "),
                         });
                     }
-
-                    self.update().await.map_err(req_err)?;
 
                     return Ok(());
                 }

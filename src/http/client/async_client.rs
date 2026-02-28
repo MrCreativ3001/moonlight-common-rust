@@ -22,7 +22,7 @@ pub trait RequestClient: Sized + Clone {
         client_info: ClientInfo<'_>,
         hostport: &str,
         request: &E::Request,
-    ) -> impl Future<Output = Result<E::Response, Self::Error>> + Send
+    ) -> impl Future<Output = Result<E::Response, Self::Error>>
     where
         E: Endpoint,
         E::Request: Sync,
@@ -33,7 +33,7 @@ pub trait RequestClient: Sized + Clone {
         client_info: ClientInfo<'_>,
         hostport: &str,
         request: &E::Request,
-    ) -> impl Future<Output = Result<E::Response, Self::Error>> + Send
+    ) -> impl Future<Output = Result<E::Response, Self::Error>>
     where
         E: Endpoint,
         E::Request: Sync,
@@ -44,7 +44,7 @@ pub trait RequestClient: Sized + Clone {
         client_info: ClientInfo<'_>,
         hostport: &str,
         request: &E::Request,
-    ) -> impl Future<Output = Result<E::Response, Self::Error>> + Send
+    ) -> impl Future<Output = Result<E::Response, Self::Error>>
     where
         E: Endpoint<Response = Vec<u8>>,
         E::Request: Sync;

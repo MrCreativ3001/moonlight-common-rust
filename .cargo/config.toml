@@ -1,0 +1,3 @@
+# tokio::main(flavor = "local") requires unstable tokio
+[build]
+rustflags = ["--cfg", "tokio_unstable"]

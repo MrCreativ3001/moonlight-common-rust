@@ -7,7 +7,7 @@ use moonlight_common::{
     high::tokio::MoonlightHost,
     http::{
         DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
-        client::reqwest::ReqwestClient,
+        client::awc::AwcClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
@@ -17,19 +17,21 @@ use crate::common::{save_identity_async, try_load_identity_async};
 
 mod common;
 
-#[tokio::main]
+// Using the awc client requires thread local execution of futures
+#[allow(unexpected_cfgs)]
+#[tokio::main(flavor = "local")]
 async fn main() {
     common::init();
 
     // Create a new client that'll use the [reqwest::Client] in the background to make requests
-    let address = "192.168.178.139".to_string();
+    let address = "192.168.178.140".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
     let client =
-        MoonlightHost::<ReqwestClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<AwcClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_provider = Arc::new(OpenSSLCryptoBackend::default());
@@ -37,6 +39,8 @@ async fn main() {
     // Try to get existing identity
     match try_load_identity_async().await {
         Some((client_identifier, client_secret, server_identifier)) => {
+            info!("Using existing identity");
+
             // Set already existing identity identity
             client
                 .set_identity(&client_identifier, &client_secret, &server_identifier)
@@ -44,6 +48,8 @@ async fn main() {
                 .unwrap();
         }
         None => {
+            info!("Initializing pairing");
+
             // Pair using new identity
             let (client_identifier, client_secret) =
                 crypto_provider.generate_client_identity().unwrap();
@@ -73,6 +79,8 @@ async fn main() {
 
             // Save identity and server identifier
             save_identity_async(&client_identifier, &client_secret, &server_identifier).await;
+
+            info!("Successfully paired to host");
         }
     };
 

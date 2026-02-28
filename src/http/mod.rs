@@ -216,6 +216,8 @@ impl<'b> Request for ClientInfo<'b> {
 
 // TODO: use those types instead of directly using Pem
 // TODO: make a from_pem_str fn, so you don't need to include the pem lib
+// TODO: maybe arc the data?
+// TODO: use the der data instead of the whole cert / pk
 
 /// This is used to identify and verify a server.
 #[derive(Debug, Clone, PartialEq)]
