@@ -9,9 +9,8 @@ use tokio::task::spawn_blocking;
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-fn main() {
-    unimplemented!()
-}
+pub mod gstreamer_audio;
+pub mod gstreamer_video;
 
 pub const CLIENT_DIR: &str = "./client";
 pub const KEY_PATH: &str = "./client/key.pem";

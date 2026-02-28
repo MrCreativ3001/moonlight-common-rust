@@ -731,6 +731,7 @@ impl MoonlightStream {
 
 impl Drop for MoonlightStream {
     fn drop(&mut self) {
+        // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
         unsafe {
             // # Safety
             // LiStopConnection is not thread safe so we need a mutex

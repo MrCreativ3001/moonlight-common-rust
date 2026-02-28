@@ -9,14 +9,17 @@ use moonlight_common::{
     stream::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::AudioConfig,
-        c::{MoonlightInstance, MoonlightStream},
-        control::{ActiveGamepads, MouseButton, MouseButtonAction},
-        debug::{DebugListener, NullListener},
+        c::MoonlightInstance,
+        control::ActiveGamepads,
+        debug::DebugListener,
         video::{ColorRange, ColorSpace, SupportedVideoFormats},
     },
 };
 
-use crate::common::try_load_identity;
+use crate::common::{
+    gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
+    try_load_identity,
+};
 
 mod common;
 
@@ -85,6 +88,11 @@ fn main() {
         )
         .unwrap();
 
+    // -- Initialize Decoders
+    gstreamer::init().unwrap();
+    let audio_decoder = GStreamerAudioDecoder::new().unwrap();
+    let video_decoder = GStreamerVideoDecoder::new().unwrap();
+
     // Generate an aes key and aes iv
     let aes_key = AesKey::new_random(&crypto_backend).unwrap();
     let aes_iv = AesIv::new_random(&crypto_backend).unwrap();
@@ -107,18 +115,13 @@ fn main() {
             settings,
             DebugListener,
             DebugListener,
-            NullListener,
-            NullListener,
+            video_decoder,
+            audio_decoder,
         )
         .unwrap();
 
-    // Send inputs to the stream / wait until you want to destroy it
-
-    // In this example we'll just move the mouse from the left to the right
-    for i in 0..100 {
-        stream.send_mouse_position(i, 50, 100, 100).unwrap();
-        sleep(Duration::from_millis(100));
-    }
+    // Wait some time to stop the stream
+    sleep(Duration::from_secs(40));
 
     // Stop the stream: this will block
     // Dropping the [MoonlightStream] will stop the stream

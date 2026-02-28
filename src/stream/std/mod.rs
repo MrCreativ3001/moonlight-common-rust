@@ -5,12 +5,11 @@ use std::{
         Arc,
         mpsc::{Receiver, RecvTimeoutError, Sender, channel},
     },
-    thread::{sleep, spawn},
-    time::{Duration, Instant},
+    thread::spawn,
+    time::Instant,
 };
 
 use thiserror::Error;
-use tracing::trace;
 
 use crate::stream::{
     MoonlightStreamConfig, MoonlightStreamSettings,
@@ -45,6 +44,12 @@ pub enum MoonlightStreamError {
 pub struct MoonlightStream {}
 
 impl MoonlightStream {
+    pub fn launch_query_parameters() -> &'static str {
+        // TODO: change this to corever=1 when rtsp encryption is supported
+        // "&corever=1"
+        ""
+    }
+
     pub fn new(
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
@@ -71,6 +76,10 @@ impl MoonlightStream {
         });
 
         Ok(Self {})
+    }
+
+    pub fn stop(self) {
+        // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
     }
 }
 

@@ -153,8 +153,11 @@ pub struct VideoDecodeUnit<'a> {
     /// can be calculated by LiGetMillis() - enqueueTimeMs.
     // pub enqueue_time: Duration,
 
-    // TODO: what kHz rate?
     /// The timestamp that the server sent.
+    /// 90kHz clock time representation.
+    ///
+    /// References:
+    /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
     pub timestamp: u32,
     /// Determines if this frame is SDR or HDR
     ///
