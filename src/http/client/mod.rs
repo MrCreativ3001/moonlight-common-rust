@@ -7,8 +7,8 @@ use url::Url;
 pub mod async_client;
 pub mod blocking_client;
 
-#[cfg(feature = "awc")]
-pub mod awc;
+#[cfg(feature = "hyper")]
+pub mod hyper;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_LONG_TIMEOUT: Duration = Duration::from_secs(90);

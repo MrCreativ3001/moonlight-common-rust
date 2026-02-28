@@ -91,13 +91,13 @@ struct Authenticated {
 
 fn req_err<Err>(err: Err) -> MoonlightClientError
 where
-    Err: Error + 'static,
+    Err: Error + Send + Sync + 'static,
 {
     MoonlightClientError::Backend(Box::new(err))
 }
 fn crypto_err<Err>(err: ClientPairingError<Err>) -> MoonlightClientError
 where
-    Err: Error + 'static,
+    Err: Error + Send + Sync + 'static,
 {
     MoonlightClientError::Pairing(ClientPairingError::from_err(err))
 }
@@ -106,7 +106,7 @@ where
 impl<Client> MoonlightHost<Client>
 where
     Client: RequestClient,
-    <Client as RequestClient>::Error: Error + 'static,
+    <Client as RequestClient>::Error: Error + Send + Sync + 'static,
 {
     pub fn new(
         address: String,
@@ -142,8 +142,6 @@ where
             uuid: Uuid::new_v4(),
         };
 
-        let mut cache = Cache::default();
-
         let http_address = self.http_address();
         let server_info = client
             .send_http::<ServerInfoEndpoint>(client_info, &http_address, &ServerInfoRequest {})
@@ -151,7 +149,7 @@ where
             .map_err(req_err)?;
 
         let https_port = server_info.https_port;
-        cache.server_info = Some(server_info);
+        cache_lock.server_info = Some(server_info);
 
         if cache_lock.authenticated.is_some() {
             let https_address = Self::build_https_address(&self.address, https_port);
@@ -165,17 +163,17 @@ where
                 .await
                 .map_err(req_err)?;
 
-            cache.server_info = Some(server_info_secure);
+            cache_lock.server_info = Some(server_info_secure);
 
             let app_list = client
-                .send_https::<AppListEndpoint>(client_info, &http_address, &AppListRequest {})
+                .send_https::<AppListEndpoint>(client_info, &https_address, &AppListRequest {})
                 .await
                 .map_err(req_err)?;
 
-            cache.app_list = Some(app_list);
+            cache_lock.app_list = Some(app_list);
+        } else {
+            cache_lock.app_list = None;
         }
-
-        *cache_lock = cache;
 
         drop(cache_lock);
         drop(client);
@@ -430,7 +428,7 @@ where
                             client_secret: client_secret.clone(),
                             server_identifier: server_identifier
                                 .take()
-                                .expect("PairingClient didn't set "),
+                                .expect("PairingClient didn't set a server identifier"),
                         });
                     }
 

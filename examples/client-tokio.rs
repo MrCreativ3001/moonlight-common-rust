@@ -7,7 +7,7 @@ use moonlight_common::{
     high::tokio::MoonlightHost,
     http::{
         DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
-        client::awc::AwcClient,
+        client::hyper::HyperClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
@@ -17,9 +17,7 @@ use crate::common::{save_identity_async, try_load_identity_async};
 
 mod common;
 
-// Using the awc client requires thread local execution of futures
-#[allow(unexpected_cfgs)]
-#[tokio::main(flavor = "local")]
+#[tokio::main]
 async fn main() {
     common::init();
 
@@ -31,7 +29,7 @@ async fn main() {
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
     let client =
-        MoonlightHost::<AwcClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<HyperClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_provider = Arc::new(OpenSSLCryptoBackend::default());

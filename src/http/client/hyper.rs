@@ -1,10 +1,17 @@
 use std::{str::FromStr, sync::Arc};
 
-use awc::{ClientBuilder, Connector};
+use bytes::Bytes;
+use http_body_util::{BodyExt, Empty};
+use hyper::{Request, Response, Uri, body::Incoming, client::conn::http1};
+use hyper_rustls::HttpsConnector;
+use hyper_util::{
+    client::legacy::{Client, connect::HttpConnector},
+    rt::{TokioExecutor, TokioIo},
+};
 use rustls::{
     ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
     client::{
-        WebPkiServerVerifier,
+        Resumption, WebPkiServerVerifier,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     },
     pki_types::{
@@ -14,8 +21,12 @@ use rustls::{
     server::VerifierBuilderError,
 };
 use thiserror::Error;
-use tokio::task::{JoinError, spawn_local};
-use tracing::{debug, instrument};
+use tokio::{
+    io::{self, AsyncWriteExt},
+    net::TcpStream,
+    task::JoinError,
+};
+use tracing::{debug, error, instrument};
 
 use crate::http::{
     ClientInfo, Endpoint, ParseError, TextResponse,
@@ -24,14 +35,12 @@ use crate::http::{
     },
 };
 
-pub type AwcClient = awc::Client;
-
 #[derive(Debug, Error)]
-pub enum AwcError {
-    #[error("awc send: {0}")]
-    AwcSend(#[from] awc::error::SendRequestError),
-    #[error("awc payload: {0}")]
-    AwcPayload(#[from] awc::error::PayloadError),
+pub enum HyperError {
+    #[error("hyper client: {0}")]
+    HyperClient(#[from] hyper_util::client::legacy::Error),
+    #[error("hyper: {0}")]
+    Hyper(#[from] hyper::Error),
     #[error("rustls: {0}")]
     Rustls(#[from] rustls::Error),
     #[error("webpki build server certificate verifier: {0}")]
@@ -46,7 +55,7 @@ pub enum AwcError {
     Parse(#[from] ParseError),
 }
 
-impl RequestError for AwcError {
+impl RequestError for HyperError {
     fn is_connect(&self) -> bool {
         todo!()
     }
@@ -55,7 +64,7 @@ impl RequestError for AwcError {
     }
 }
 
-impl TryInto<ParseError> for AwcError {
+impl TryInto<ParseError> for HyperError {
     type Error = Self;
 
     fn try_into(self) -> Result<ParseError, Self::Error> {
@@ -109,19 +118,65 @@ where
     }
 }
 
-impl RequestClient for AwcClient {
-    type Error = AwcError;
+async fn response_to_bytes(mut response: Response<Incoming>) -> Result<Vec<u8>, HyperError> {
+    let mut bytes = Vec::new();
+    // Stream the body, writing each chunk to our response buffer
+    while let Some(next) = response.frame().await {
+        let frame = next?;
+        if let Some(chunk) = frame.data_ref() {
+            bytes.extend_from_slice(chunk);
+        }
+    }
+
+    Ok(bytes)
+}
+
+#[derive(Debug, Clone)]
+pub struct HyperClient {
+    client: Client<HttpsConnector<HttpConnector>, Empty<Bytes>>,
+}
+
+impl RequestClient for HyperClient {
+    type Error = HyperError;
 
     fn with_defaults_long_timeout() -> Result<Self, Self::Error> {
-        let client = ClientBuilder::new().timeout(DEFAULT_LONG_TIMEOUT).finish();
+        let config = ClientConfig::builder()
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
 
-        Ok(client)
+        // Build the hyper rustls connector
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(config)
+            .https_or_http()
+            .enable_http1()
+            .build();
+
+        // Build Client
+        let client = Client::builder(TokioExecutor::new())
+            .pool_max_idle_per_host(0)
+            .build(https);
+
+        Ok(Self { client })
     }
 
     fn with_defaults() -> Result<Self, Self::Error> {
-        let client = ClientBuilder::new().timeout(DEFAULT_TIMEOUT).finish();
+        let config = ClientConfig::builder()
+            .with_root_certificates(RootCertStore::empty())
+            .with_no_client_auth();
 
-        Ok(client)
+        // Build the hyper rustls connector
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(config)
+            .https_or_http()
+            .enable_http1()
+            .build();
+
+        // Build Client
+        let client = Client::builder(TokioExecutor::new())
+            .pool_max_idle_per_host(0)
+            .build(https);
+
+        Ok(Self { client })
     }
 
     #[cfg_attr(feature = "__tracing_sensitive", instrument(err))]
@@ -132,13 +187,13 @@ impl RequestClient for AwcClient {
     ) -> Result<Self, Self::Error> {
         // Client
         if !client_private_key.tag().eq_ignore_ascii_case("PRIVATE KEY") {
-            return Err(AwcError::InvalidPrivateKey);
+            return Err(HyperError::InvalidPrivateKey);
         }
         let private_key = PrivateKeyDer::from_pem(
             SectionKind::PrivateKey,
             client_private_key.contents().to_vec(),
         )
-        .ok_or(AwcError::InvalidPrivateKey)?
+        .ok_or(HyperError::InvalidPrivateKey)?
         .clone_key();
 
         let certificate = CertificateDer::from_slice(client_certificate.contents()).into_owned();
@@ -153,7 +208,8 @@ impl RequestClient for AwcClient {
             .with_root_certificates(root_certificates.clone())
             .with_client_auth_cert(vec![certificate], private_key)?;
 
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        // Disable resumption, Sunshine cannot handle them
+        config.resumption = Resumption::disabled();
 
         // Create custom server verifier that doesn't care about host names
         let verifier = NoHostnameVerifier {
@@ -166,15 +222,19 @@ impl RequestClient for AwcClient {
             .dangerous()
             .set_certificate_verifier(Arc::new(verifier));
 
+        // Build the hyper rustls connector
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(config)
+            .https_or_http()
+            .enable_http1()
+            .build();
+
         // Build Client
-        let connector = Connector::new().rustls_0_23(Arc::new(config));
+        let client = Client::builder(TokioExecutor::new())
+            .pool_max_idle_per_host(0)
+            .build(https);
 
-        let client = ClientBuilder::new()
-            .timeout(DEFAULT_TIMEOUT)
-            .connector(connector)
-            .finish();
-
-        Ok(client)
+        Ok(Self { client })
     }
 
     #[instrument(skip(self, request), fields(path = E::path()), err)]
@@ -193,18 +253,9 @@ impl RequestClient for AwcClient {
 
         debug!(url = %url, "sending request");
 
-        let client = self.clone();
-
-        let join: Result<_, Self::Error> = spawn_local(async move {
-            let bytes = client.get(url.as_str()).send().await?.body().await?;
-
-            Ok(bytes)
-        })
-        .await?;
-        let response = join?;
-
-        // TODO: convert this to from_utf8_lossy_owned
-        let response_text = String::from_utf8_lossy(&response);
+        let response = self.client.get(url.as_str().parse().unwrap()).await?;
+        let response_bytes = response_to_bytes(response).await?;
+        let response_text = String::from_utf8_lossy(&response_bytes);
 
         debug!(response = ?response_text, "received response");
 
@@ -227,18 +278,9 @@ impl RequestClient for AwcClient {
 
         debug!(url = %url, "sending request");
 
-        let client = self.clone();
-
-        let join: Result<_, Self::Error> = spawn_local(async move {
-            let bytes = client.get(url.as_str()).send().await?.body().await?;
-
-            Ok(bytes)
-        })
-        .await?;
-        let response = join?;
-
-        // TODO: convert this to from_utf8_lossy_owned
-        let response_text = String::from_utf8_lossy(&response);
+        let response = self.client.get(url.as_str().parse().unwrap()).await?;
+        let response_bytes = response_to_bytes(response).await?;
+        let response_text = String::from_utf8_lossy(&response_bytes);
 
         debug!(response = ?response_text, "received response");
 
@@ -260,18 +302,10 @@ impl RequestClient for AwcClient {
 
         debug!(url = %url, "sending request");
 
-        let client = self.clone();
+        todo!();
 
-        let join: Result<_, Self::Error> = spawn_local(async move {
-            let bytes = client.get(url.as_str()).send().await?.body().await?;
+        // debug!("received response");
 
-            Ok(bytes)
-        })
-        .await?;
-        let response = join?;
-
-        debug!("received response");
-
-        Ok(response.into())
+        // Ok(response.into())
     }
 }

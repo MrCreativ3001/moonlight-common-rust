@@ -49,12 +49,16 @@ rusty_enet = "0.4.0"
 moonlight-common-sys = { workspace = true, optional = true }
 
 # Reqwest
+bytes = { version = "1.11.1" }                    # TODO <-- optional?
 rustls = { version = "0.23.37", optional = true }
 # TODO: ureq seems like a good blocking client
-# Actix Web Client
-awc = { version = "3.8.2", default-features = false, features = [
-    "rustls-0_23",
-], optional = true }
+# Hyper Client
+hyper = { version = "1.8.1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["full"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper-rustls = { version = "0.27.7", features = [
+    "http1",
+], default-features = false, optional = true }
 
 # Tokio
 # TODO: only pick needed features, maybe also behind a feature lock
@@ -86,7 +90,14 @@ openssl = ["dep:openssl"]
 rustcrypto = []
 
 # Request implementations
-awc = ["tokio", "dep:awc", "dep:rustls"]
+hyper = [
+    "tokio",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:http-body-util",
+    "dep:hyper-rustls",
+    "dep:rustls",
+]
 
 # Logs sensitive information: e.g. private keys and sensitive values used in encryption / decryption
 __tracing_sensitive = []

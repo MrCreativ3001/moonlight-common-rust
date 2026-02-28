@@ -13,9 +13,10 @@ fn main() {
     unimplemented!()
 }
 
-pub const KEY_PATH: &str = "./key.pem";
-pub const CERTIFICATE_PATH: &str = "./certificate.pem";
-pub const SERVER_CERTIFICATE_PATH: &str = "./server_certificate.pem";
+pub const CLIENT_DIR: &str = "./client";
+pub const KEY_PATH: &str = "./client/key.pem";
+pub const CERTIFICATE_PATH: &str = "./client/certificate.pem";
+pub const SERVER_CERTIFICATE_PATH: &str = "./client/server_certificate.pem";
 
 pub fn init() {
     // Init tracing
@@ -24,7 +25,7 @@ pub fn init() {
         .with(fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive(Level::DEBUG.into())
+                .with_default_directive(Level::TRACE.into())
                 .from_env_lossy(),
         )
         .init();
@@ -57,6 +58,8 @@ pub fn save_identity(
     let key = client_secret.to_pem().to_string();
     let certificate = client_identifier.to_pem().to_string();
     let server_certificate = server_identifier.to_pem().to_string();
+
+    fs::create_dir_all(CLIENT_DIR).unwrap();
 
     fs::write(KEY_PATH, key).unwrap();
     fs::write(CERTIFICATE_PATH, certificate).unwrap();

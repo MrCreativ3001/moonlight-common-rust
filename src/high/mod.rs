@@ -23,9 +23,9 @@ pub enum MoonlightClientError {
     #[error("unauthenticated")]
     Unauthenticated,
     #[error("request: {0}")]
-    Backend(Box<dyn Error>),
+    Backend(Box<dyn Error + Send + Sync>),
     #[error("pairing: {0}")]
-    Pairing(ClientPairingError<Box<dyn Error>>),
+    Pairing(ClientPairingError<Box<dyn Error + Send + Sync>>),
 }
 
 #[cfg(feature = "tokio")]
