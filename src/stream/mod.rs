@@ -9,7 +9,7 @@ use num_derive::FromPrimitive;
 use crate::{
     ServerVersion,
     high::tokio::StreamConfigError,
-    http::server_info::ApolloPermissions,
+    http::{pair::PairingCryptoBackend, server_info::ApolloPermissions},
     stream::{
         audio::AudioConfig,
         bindings::{
@@ -44,6 +44,18 @@ mod bindings;
 #[derive(Clone, Copy, PartialEq)]
 pub struct AesKey(pub [u8; 16]);
 
+impl AesKey {
+    pub fn new_random<Crypto>(crypto_backend: &Crypto) -> Result<Self, Crypto::Error>
+    where
+        Crypto: PairingCryptoBackend,
+    {
+        let mut key = [0; _];
+        crypto_backend.random_bytes(&mut key)?;
+
+        Ok(Self(key))
+    }
+}
+
 impl Deref for AesKey {
     type Target = [u8];
 
@@ -60,6 +72,18 @@ impl Debug for AesKey {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct AesIv(pub u32);
+
+impl AesIv {
+    pub fn new_random<Crypto>(crypto_backend: &Crypto) -> Result<Self, Crypto::Error>
+    where
+        Crypto: PairingCryptoBackend,
+    {
+        let mut iv = [0; 4];
+        crypto_backend.random_bytes(&mut iv)?;
+
+        Ok(Self(u32::from_le_bytes(iv)))
+    }
+}
 
 impl Debug for AesIv {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

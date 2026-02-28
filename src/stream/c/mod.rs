@@ -70,7 +70,7 @@ impl MoonlightInstance {
         Ok(Self { handle })
     }
 
-    pub fn launch_url_query_parameters(&self) -> &str {
+    pub fn launch_query_parameters(&self) -> &str {
         unsafe {
             // # Safety
             // The returned string is not freed by the caller and lives long enough

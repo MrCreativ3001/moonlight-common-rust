@@ -8,9 +8,9 @@ use crate::stream::{
     video::{DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder, VideoSetup},
 };
 
-pub struct NullHandler;
+pub struct NullListener;
 
-impl VideoDecoder for NullHandler {
+impl VideoDecoder for NullListener {
     fn setup(&mut self, setup: VideoSetup) -> i32 {
         let _ = setup;
 
@@ -36,7 +36,7 @@ impl VideoDecoder for NullHandler {
     }
 }
 
-impl AudioDecoder for NullHandler {
+impl AudioDecoder for NullListener {
     fn setup(&mut self, audio_config: AudioConfig, stream_config: OpusMultistreamConfig) -> i32 {
         let _ = (audio_config, stream_config);
 
@@ -55,7 +55,7 @@ impl AudioDecoder for NullHandler {
     }
 }
 
-impl ConnectionListener for NullHandler {
+impl ConnectionListener for NullListener {
     fn set_hdr_mode(&mut self, hdr_enabled: bool) {
         let _ = hdr_enabled;
     }
@@ -107,9 +107,9 @@ impl ConnectionListener for NullHandler {
     }
 }
 
-pub struct DebugHandler;
+pub struct DebugListener;
 
-impl ConnectionListener for DebugHandler {
+impl ConnectionListener for DebugListener {
     fn set_hdr_mode(&mut self, hdr_enabled: bool) {
         info!(target: "moonlight", "HDR mode: {hdr_enabled}");
     }
@@ -170,10 +170,10 @@ mod stream_c {
             bindings::{ConnectionStatus, Stage},
             connection::ConnectionListenerC,
         },
-        debug::{DebugHandler, NullHandler},
+        debug::{DebugListener, NullListener},
     };
 
-    impl ConnectionListenerC for NullHandler {
+    impl ConnectionListenerC for NullListener {
         fn stage_starting(&mut self, stage: Stage) {
             let _ = stage;
         }
@@ -197,7 +197,7 @@ mod stream_c {
         }
     }
 
-    impl ConnectionListenerC for DebugHandler {
+    impl ConnectionListenerC for DebugListener {
         fn stage_starting(&mut self, stage: Stage) {
             info!(target: "moonlight", "Stage Starting: {stage:?}");
         }

@@ -25,7 +25,7 @@ pub fn init() {
         .with(fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive(Level::TRACE.into())
+                .with_default_directive(Level::DEBUG.into())
                 .from_env_lossy(),
         )
         .init();

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 use moonlight_common::{
     crypto::openssl::OpenSSLCryptoBackend,
@@ -13,31 +13,34 @@ use moonlight_common::{
 };
 use tracing::info;
 
-use crate::common::{save_identity, try_load_identity};
+use crate::common::{CLIENT_DIR, save_identity, try_load_identity};
 
 mod common;
 
 fn main() {
     common::init();
 
-    // Create a new client that'll use the [reqwest::Client] in the background to make requests
     let address = "192.168.178.140".to_string();
     // let address = "localhost".to_string();
+
     let http_port = DEFAULT_HTTP_PORT;
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
+    // Create a new client that'll use the [UreqClient] in the background to make requests
     let client =
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_provider = Arc::new(OpenSSLCryptoBackend::default());
 
+    // -- Create and pair to a host
+
     // Try to get existing identity
     match try_load_identity() {
         Some((client_identifier, client_secret, server_identifier)) => {
             // Set already existing identity identity
             client
-                .set_identity(&client_identifier, &client_secret, &server_identifier)
+                .set_identity(client_identifier, client_secret, server_identifier)
                 .unwrap();
         }
         None => {
@@ -69,5 +72,24 @@ fn main() {
         }
     };
 
-    // TODO: start stream using tokio
+    // -- Save all app images to the client directory by app name
+
+    // Create folder for the app images
+    fs::create_dir_all(format!("{CLIENT_DIR}/apps/")).unwrap();
+
+    // Get all apps the host has
+    let apps = client.app_list().unwrap();
+
+    // Iterate through those apps
+    for app in apps {
+        // Request the app image from the host (you should cache them somehow)
+        let app_image_bytes = client.request_app_image(app.id).unwrap();
+
+        // Write the image to a file
+        fs::write(
+            format!("{CLIENT_DIR}/apps/{}.png", app.title),
+            app_image_bytes,
+        )
+        .unwrap();
+    }
 }

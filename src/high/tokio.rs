@@ -260,9 +260,9 @@ where
 
     pub async fn set_identity(
         &self,
-        client_identifier: &ClientIdentifier,
-        client_secret: &ClientSecret,
-        server_identifier: &ServerIdentifier,
+        client_identifier: ClientIdentifier,
+        client_secret: ClientSecret,
+        server_identifier: ServerIdentifier,
     ) -> Result<(), MoonlightClientError> {
         let client = Client::with_certificates(
             &client_secret.to_pem(),
@@ -274,6 +274,16 @@ where
         {
             let mut client_lock = self.client.lock().await;
             *client_lock = client;
+
+            let mut cache = self.cache.write().await;
+
+            cache.authenticated = Some(Authenticated {
+                client_identifier,
+                client_secret,
+                server_identifier,
+            });
+
+            drop(client_lock);
         }
 
         self.update().await?;
@@ -472,13 +482,28 @@ where
     }
 
     pub async fn app_list(&self) -> Result<Vec<App>, MoonlightClientError> {
-        todo!()
+        let cache = self.cache.read().await;
+
+        if cache.authenticated.is_none() {
+            return Err(MoonlightClientError::Unauthenticated);
+        }
+
+        if let Some(app_list) = &cache.app_list {
+            Ok(app_list.apps.clone())
+        } else {
+            drop(cache);
+
+            self.update().await?;
+            let cache = self.cache.read().await;
+            let Some(app_list) = &cache.app_list else {
+                unreachable!()
+            };
+
+            Ok(app_list.apps.clone())
+        }
     }
 
-    pub async fn request_app_image(
-        &mut self,
-        app_id: u32,
-    ) -> Result<Vec<u8>, MoonlightClientError> {
+    pub async fn request_app_image(&self, app_id: u32) -> Result<Vec<u8>, MoonlightClientError> {
         self.check_paired().await?;
 
         let https_address = self.https_address().await?;
@@ -506,7 +531,7 @@ where
     ///
     /// Before starting the stream you should adjust the settings using [MoonlightStreamSettings::adjust_for_server].
     pub async fn start_stream(
-        &mut self,
+        &self,
         app_id: u32,
         settings: &MoonlightStreamSettings,
         aes_key: AesKey,

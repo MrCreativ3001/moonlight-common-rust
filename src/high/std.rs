@@ -257,9 +257,9 @@ where
 
     pub fn set_identity(
         &self,
-        client_identifier: &ClientIdentifier,
-        client_secret: &ClientSecret,
-        server_identifier: &ServerIdentifier,
+        client_identifier: ClientIdentifier,
+        client_secret: ClientSecret,
+        server_identifier: ServerIdentifier,
     ) -> Result<(), MoonlightClientError> {
         let client = Client::with_certificates(
             &client_secret.to_pem(),
@@ -271,6 +271,16 @@ where
         {
             let mut client_lock = self.client.lock().map_err(poison_err)?;
             *client_lock = client;
+
+            let mut cache = self.cache.write().map_err(poison_err)?;
+
+            cache.authenticated = Some(Authenticated {
+                client_identifier,
+                client_secret,
+                server_identifier,
+            });
+
+            drop(client_lock);
         }
 
         self.update()?;
@@ -462,10 +472,28 @@ where
     }
 
     pub fn app_list(&self) -> Result<Vec<App>, MoonlightClientError> {
-        todo!()
+        let cache = self.cache.read().map_err(poison_err)?;
+
+        if cache.authenticated.is_none() {
+            return Err(MoonlightClientError::Unauthenticated);
+        }
+
+        if let Some(app_list) = &cache.app_list {
+            Ok(app_list.apps.clone())
+        } else {
+            drop(cache);
+
+            self.update()?;
+            let cache = self.cache.read().map_err(poison_err)?;
+            let Some(app_list) = &cache.app_list else {
+                unreachable!()
+            };
+
+            Ok(app_list.apps.clone())
+        }
     }
 
-    pub fn request_app_image(&mut self, app_id: u32) -> Result<Vec<u8>, MoonlightClientError> {
+    pub fn request_app_image(&self, app_id: u32) -> Result<Vec<u8>, MoonlightClientError> {
         self.check_paired()?;
 
         let https_address = self.https_address()?;
@@ -492,12 +520,12 @@ where
     ///
     /// Before starting the stream you should adjust the settings using [MoonlightStreamSettings::adjust_for_server].
     pub fn start_stream(
-        &mut self,
+        &self,
         app_id: u32,
         settings: &MoonlightStreamSettings,
         aes_key: AesKey,
         aes_iv: AesIv,
-        launch_url_query_parameters: &str,
+        launch_query_parameters: &str,
     ) -> Result<MoonlightStreamConfig, MoonlightClientError> {
         // Clearing cache so we refresh and can see if there's a game -> launch or resume?
         self.update()?;
@@ -519,7 +547,7 @@ where
             gamepads_persist_after_disconnect: settings.gamepads_persist_after_disconnect,
             ri_key: aes_key,
             ri_key_id: aes_iv,
-            additional_query_parameters: launch_url_query_parameters.to_string(),
+            additional_query_parameters: launch_query_parameters.to_string(),
         };
 
         let client_info = ClientInfo {

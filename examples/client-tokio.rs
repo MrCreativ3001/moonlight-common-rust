@@ -21,13 +21,13 @@ mod common;
 async fn main() {
     common::init();
 
-    // Create a new client that'll use the [reqwest::Client] in the background to make requests
     let address = "192.168.178.140".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
+    // Create a new client that'll use the [TODO: CLIENT] in the background to make requests
     let client =
         MoonlightHost::<HyperClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
@@ -41,7 +41,7 @@ async fn main() {
 
             // Set already existing identity identity
             client
-                .set_identity(&client_identifier, &client_secret, &server_identifier)
+                .set_identity(client_identifier, client_secret, server_identifier)
                 .await
                 .unwrap();
         }

@@ -141,7 +141,7 @@ required-features = ["std", "rustcrypto"]
 [[example]]
 name = "client-common-c"
 path = "examples/client-common-c.rs"
-required-features = ["stream-c"]
+required-features = ["ureq", "std", "stream-c"]
 
 [[example]]
 name = "client-tokio"

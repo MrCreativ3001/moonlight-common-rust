@@ -1,3 +1,126 @@
+#![allow(clippy::unwrap_used)]
+
+use std::{sync::Arc, thread::sleep, time::Duration};
+
+use moonlight_common::{
+    crypto::openssl::OpenSSLCryptoBackend,
+    high::std::MoonlightHost,
+    http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::ureq::UreqClient},
+    stream::{
+        AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
+        audio::AudioConfig,
+        c::{MoonlightInstance, MoonlightStream},
+        control::{ActiveGamepads, MouseButton, MouseButtonAction},
+        debug::{DebugListener, NullListener},
+        video::{ColorRange, ColorSpace, SupportedVideoFormats},
+    },
+};
+
+use crate::common::try_load_identity;
+
+mod common;
+
 fn main() {
-    // TODO
+    common::init();
+
+    let address = "192.168.178.140".to_string();
+    // let address = "localhost".to_string();
+
+    let http_port = DEFAULT_HTTP_PORT;
+    let unique_id = DEFAULT_UNIQUE_ID.to_string();
+
+    // Create a new client that'll use the [UreqClient] in the background to make requests
+    let client =
+        MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+
+    // Create a Crypto Backend
+    let crypto_backend = Arc::new(OpenSSLCryptoBackend::default());
+
+    // -- Load identity
+    let (client_identifier, client_secret, server_identifier) = try_load_identity().unwrap();
+
+    client
+        .set_identity(client_identifier, client_secret, server_identifier)
+        .unwrap();
+
+    // -- Start a stream
+
+    // Get all apps
+    let apps = client.app_list().unwrap();
+
+    // Use the first app
+    let app = &apps[0];
+
+    // Get the moonlight common c library instance
+    let instance = MoonlightInstance::global().unwrap();
+
+    // Set settings for the stream
+    let mut settings = MoonlightStreamSettings {
+        width: 1920,
+        height: 1080,
+        fps: 60,
+        fps_x100: 60 * 100,
+        bitrate: 2000,
+        packet_size: 1024,
+        encryption_flags: EncryptionFlags::all(),
+        streaming_remotely: StreamingConfig::Auto,
+        sops: true,
+        hdr: false,
+        supported_video_formats: SupportedVideoFormats::H264,
+        color_space: ColorSpace::Rec709,
+        color_range: ColorRange::Limited,
+        local_audio_play_mode: false,
+        audio_config: AudioConfig::STEREO,
+        gamepads_attached: ActiveGamepads::empty(),
+        gamepads_persist_after_disconnect: false,
+    };
+
+    // Adjust the settings for the host, required because older hosts might not support some settings
+    // This can fail if the host doesn't support some configuration detail
+    settings
+        .adjust_for_server(
+            client.version().unwrap(),
+            &client.gfe_version().unwrap(),
+            client.server_codec_mode_support().unwrap(),
+        )
+        .unwrap();
+
+    // Generate an aes key and aes iv
+    let aes_key = AesKey::new_random(&crypto_backend).unwrap();
+    let aes_iv = AesIv::new_random(&crypto_backend).unwrap();
+
+    // Initialize the starting phase on the server
+    let config = client
+        .start_stream(
+            app.id,
+            &settings,
+            aes_key,
+            aes_iv,
+            instance.launch_query_parameters(),
+        )
+        .unwrap();
+
+    // Transition from the starting phase into the streaming phase
+    let stream = instance
+        .start_connection(
+            config,
+            settings,
+            DebugListener,
+            DebugListener,
+            NullListener,
+            NullListener,
+        )
+        .unwrap();
+
+    // Send inputs to the stream / wait until you want to destroy it
+
+    // In this example we'll just move the mouse from the left to the right
+    for i in 0..100 {
+        stream.send_mouse_position(i, 50, 100, 100).unwrap();
+        sleep(Duration::from_millis(100));
+    }
+
+    // Stop the stream: this will block
+    // Dropping the [MoonlightStream] will stop the stream
+    stream.stop();
 }
