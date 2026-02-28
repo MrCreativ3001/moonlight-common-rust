@@ -1,12 +1,12 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Empty};
-use hyper::{Request, Response, Uri, body::Incoming, client::conn::http1};
+use hyper::{Response, body::Incoming};
 use hyper_rustls::HttpsConnector;
 use hyper_util::{
     client::legacy::{Client, connect::HttpConnector},
-    rt::{TokioExecutor, TokioIo},
+    rt::TokioExecutor,
 };
 use rustls::{
     ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
@@ -21,12 +21,8 @@ use rustls::{
     server::VerifierBuilderError,
 };
 use thiserror::Error;
-use tokio::{
-    io::{self, AsyncWriteExt},
-    net::TcpStream,
-    task::JoinError,
-};
-use tracing::{debug, error, instrument};
+use tokio::task::JoinError;
+use tracing::{debug, instrument};
 
 use crate::http::{
     ClientInfo, Endpoint, ParseError, TextResponse,
@@ -57,10 +53,17 @@ pub enum HyperError {
 
 impl RequestError for HyperError {
     fn is_connect(&self) -> bool {
-        todo!()
+        match self {
+            Self::HyperClient(err) => err.is_connect(),
+            Self::Hyper(err) => err.is_timeout(),
+            _ => false,
+        }
     }
     fn is_encryption(&self) -> bool {
-        todo!()
+        match self {
+            Self::Hyper(err) => err.is_incomplete_message() || err.is_parse(),
+            _ => false,
+        }
     }
 }
 
@@ -118,8 +121,35 @@ where
     }
 }
 
+fn build_http_connector(timeout: Duration) -> HttpConnector {
+    let mut http = HttpConnector::new();
+    http.set_connect_timeout(Some(timeout));
+    http
+}
+
+fn build_empty_rustls_connector(timeout: Duration) -> hyper_rustls::HttpsConnector<HttpConnector> {
+    let config = ClientConfig::builder()
+        .with_root_certificates(RootCertStore::empty())
+        .with_no_client_auth();
+
+    hyper_rustls::HttpsConnectorBuilder::new()
+        .with_tls_config(config)
+        .https_or_http()
+        .enable_http1()
+        .wrap_connector(build_http_connector(timeout))
+}
+
+fn build_client(
+    https_connector: HttpsConnector<HttpConnector>,
+) -> Client<HttpsConnector<HttpConnector>, Empty<Bytes>> {
+    Client::builder(TokioExecutor::new())
+        .pool_max_idle_per_host(0)
+        .build(https_connector)
+}
+
 async fn response_to_bytes(mut response: Response<Incoming>) -> Result<Vec<u8>, HyperError> {
     let mut bytes = Vec::new();
+
     // Stream the body, writing each chunk to our response buffer
     while let Some(next) = response.frame().await {
         let frame = next?;
@@ -140,45 +170,18 @@ impl RequestClient for HyperClient {
     type Error = HyperError;
 
     fn with_defaults_long_timeout() -> Result<Self, Self::Error> {
-        let config = ClientConfig::builder()
-            .with_root_certificates(RootCertStore::empty())
-            .with_no_client_auth();
-
-        // Build the hyper rustls connector
-        let https = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(config)
-            .https_or_http()
-            .enable_http1()
-            .build();
-
-        // Build Client
-        let client = Client::builder(TokioExecutor::new())
-            .pool_max_idle_per_host(0)
-            .build(https);
+        let client = build_client(build_empty_rustls_connector(DEFAULT_LONG_TIMEOUT));
 
         Ok(Self { client })
     }
 
     fn with_defaults() -> Result<Self, Self::Error> {
-        let config = ClientConfig::builder()
-            .with_root_certificates(RootCertStore::empty())
-            .with_no_client_auth();
-
-        // Build the hyper rustls connector
-        let https = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(config)
-            .https_or_http()
-            .enable_http1()
-            .build();
-
-        // Build Client
-        let client = Client::builder(TokioExecutor::new())
-            .pool_max_idle_per_host(0)
-            .build(https);
+        let client = build_client(build_empty_rustls_connector(DEFAULT_TIMEOUT));
 
         Ok(Self { client })
     }
 
+    #[cfg_attr(not(feature = "__tracing_sensitive"), skip_all, instrument(err))]
     #[cfg_attr(feature = "__tracing_sensitive", instrument(err))]
     fn with_certificates(
         client_private_key: &pem::Pem,
@@ -223,16 +226,14 @@ impl RequestClient for HyperClient {
             .set_certificate_verifier(Arc::new(verifier));
 
         // Build the hyper rustls connector
-        let https = hyper_rustls::HttpsConnectorBuilder::new()
+        let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(config)
             .https_or_http()
             .enable_http1()
-            .build();
+            .wrap_connector(build_http_connector(DEFAULT_TIMEOUT));
 
         // Build Client
-        let client = Client::builder(TokioExecutor::new())
-            .pool_max_idle_per_host(0)
-            .build(https);
+        let client = build_client(https_connector);
 
         Ok(Self { client })
     }
@@ -253,7 +254,8 @@ impl RequestClient for HyperClient {
 
         debug!(url = %url, "sending request");
 
-        let response = self.client.get(url.as_str().parse().unwrap()).await?;
+        let uri = url.as_str().parse().expect("convert url into hyper::uri");
+        let response = self.client.get(uri).await?;
         let response_bytes = response_to_bytes(response).await?;
         let response_text = String::from_utf8_lossy(&response_bytes);
 
@@ -278,7 +280,8 @@ impl RequestClient for HyperClient {
 
         debug!(url = %url, "sending request");
 
-        let response = self.client.get(url.as_str().parse().unwrap()).await?;
+        let uri = url.as_str().parse().expect("convert url into hyper::uri");
+        let response = self.client.get(uri).await?;
         let response_bytes = response_to_bytes(response).await?;
         let response_text = String::from_utf8_lossy(&response_bytes);
 
@@ -302,10 +305,12 @@ impl RequestClient for HyperClient {
 
         debug!(url = %url, "sending request");
 
-        todo!();
+        let uri = url.as_str().parse().expect("convert url into hyper::uri");
+        let response = self.client.get(uri).await?;
+        let response_bytes = response_to_bytes(response).await?;
 
-        // debug!("received response");
+        debug!("received response");
 
-        // Ok(response.into())
+        Ok(response_bytes)
     }
 }
