@@ -21,13 +21,13 @@ use rustls::{
     server::VerifierBuilderError,
 };
 use thiserror::Error;
-use tokio::task::JoinError;
 use tracing::{debug, instrument};
 
 use crate::http::{
     ClientInfo, Endpoint, ParseError, TextResponse,
     client::{
-        DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT, RequestError, async_client::RequestClient, build_url,
+        DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT, RequestError, async_client::RequestClient,
+        hyperlike::build_url,
     },
 };
 
@@ -43,12 +43,10 @@ pub enum HyperError {
     WebPkiBuildVerifier(#[from] VerifierBuilderError),
     #[error("awc client tried to use an invalid private key")]
     InvalidPrivateKey,
-    #[error("join: {0}")]
-    Join(#[from] JoinError),
-    #[error("{0}")]
-    UrlParse(#[from] url::ParseError),
     #[error("response: {0}")]
     Parse(#[from] ParseError),
+    #[error("http: {0}")]
+    Http(#[from] http::Error),
 }
 
 impl RequestError for HyperError {
@@ -250,12 +248,11 @@ impl RequestClient for HyperClient {
         E::Request: Sync,
         E::Response: TextResponse<Err = ParseError>,
     {
-        let url = build_url::<E>(false, client_info, hostport, request)?;
+        let url = build_url::<E, HyperError>(false, client_info, hostport, request)?;
 
         debug!(url = %url, "sending request");
 
-        let uri = url.as_str().parse().expect("convert url into hyper::uri");
-        let response = self.client.get(uri).await?;
+        let response = self.client.get(url).await?;
         let response_bytes = response_to_bytes(response).await?;
         let response_text = String::from_utf8_lossy(&response_bytes);
 
@@ -276,12 +273,11 @@ impl RequestClient for HyperClient {
         E::Request: Sync,
         E::Response: TextResponse<Err = ParseError>,
     {
-        let url = build_url::<E>(true, client_info, hostport, request)?;
+        let url = build_url::<E, HyperError>(true, client_info, hostport, request)?;
 
         debug!(url = %url, "sending request");
 
-        let uri = url.as_str().parse().expect("convert url into hyper::uri");
-        let response = self.client.get(uri).await?;
+        let response = self.client.get(url).await?;
         let response_bytes = response_to_bytes(response).await?;
         let response_text = String::from_utf8_lossy(&response_bytes);
 
@@ -301,12 +297,11 @@ impl RequestClient for HyperClient {
         E: Endpoint<Response = Vec<u8>>,
         E::Request: Sync,
     {
-        let url = build_url::<E>(true, client_info, hostport, request)?;
+        let url = build_url::<E, HyperError>(true, client_info, hostport, request)?;
 
         debug!(url = %url, "sending request");
 
-        let uri = url.as_str().parse().expect("convert url into hyper::uri");
-        let response = self.client.get(uri).await?;
+        let response = self.client.get(url).await?;
         let response_bytes = response_to_bytes(response).await?;
 
         debug!("received response");

@@ -1,4 +1,5 @@
 #![allow(clippy::unwrap_used)]
+#![allow(unused)]
 
 use std::{fs, path::Path, str::FromStr};
 
@@ -8,7 +9,6 @@ use tokio::task::spawn_blocking;
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
-#[allow(unused)]
 fn main() {
     unimplemented!()
 }
@@ -36,13 +36,13 @@ pub fn try_load_identity() -> Option<(ClientIdentifier, ClientSecret, ServerIden
         && Path::new(CERTIFICATE_PATH).exists()
         && Path::new(SERVER_CERTIFICATE_PATH).exists()
     {
-        let key = fs::read_to_string(KEY_PATH).unwrap();
         let certificate = fs::read_to_string(CERTIFICATE_PATH).unwrap();
+        let key = fs::read_to_string(KEY_PATH).unwrap();
         let server_certificate = fs::read_to_string(SERVER_CERTIFICATE_PATH).unwrap();
 
         Some((
-            ClientIdentifier::from_pem(Pem::from_str(&key).unwrap()),
-            ClientSecret::from_pem(Pem::from_str(&certificate).unwrap()),
+            ClientIdentifier::from_pem(Pem::from_str(&certificate).unwrap()),
+            ClientSecret::from_pem(Pem::from_str(&key).unwrap()),
             ServerIdentifier::from_pem(Pem::from_str(&server_certificate).unwrap()),
         ))
     } else {
@@ -55,14 +55,14 @@ pub fn save_identity(
     client_secret: &ClientSecret,
     server_identifier: &ServerIdentifier,
 ) {
-    let key = client_secret.to_pem().to_string();
     let certificate = client_identifier.to_pem().to_string();
+    let key = client_secret.to_pem().to_string();
     let server_certificate = server_identifier.to_pem().to_string();
 
     fs::create_dir_all(CLIENT_DIR).unwrap();
 
-    fs::write(KEY_PATH, key).unwrap();
     fs::write(CERTIFICATE_PATH, certificate).unwrap();
+    fs::write(KEY_PATH, key).unwrap();
     fs::write(SERVER_CERTIFICATE_PATH, server_certificate).unwrap();
 }
 

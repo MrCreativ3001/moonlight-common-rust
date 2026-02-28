@@ -46,9 +46,10 @@ async fn main() {
                 .unwrap();
         }
         None => {
+            // Pair using new identity
             info!("Initializing pairing");
 
-            // Pair using new identity
+            // Generate new identity
             let (client_identifier, client_secret) =
                 crypto_provider.generate_client_identity().unwrap();
 

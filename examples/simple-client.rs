@@ -1,14 +1,17 @@
+#![allow(clippy::unwrap_used)]
+
 use std::sync::Arc;
 
 use moonlight_common::{
     crypto::openssl::OpenSSLCryptoBackend,
-    high::tokio::MoonlightHost,
+    high::std::MoonlightHost,
     http::{
         DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
-        client::reqwest_blocking::ReqwestClient,
+        client::ureq::UreqClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
+use tracing::info;
 
 use crate::common::{save_identity, try_load_identity};
 
@@ -18,13 +21,13 @@ fn main() {
     common::init();
 
     // Create a new client that'll use the [reqwest::Client] in the background to make requests
-    // let address = "192.168.178.140".to_string();
-    let address = "localhost".to_string();
+    let address = "192.168.178.140".to_string();
+    // let address = "localhost".to_string();
     let http_port = DEFAULT_HTTP_PORT;
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
     let client =
-        MoonlightHost::<ReqwestClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_provider = Arc::new(OpenSSLCryptoBackend::default());
@@ -46,7 +49,7 @@ fn main() {
             let device_name = "roth".to_string();
             let pin = PairPin::new(1, 2, 3, 4).unwrap();
 
-            println!("Enter the pin {pin} for the host \"{address}\" to pair.");
+            info!("Enter the pin {pin} for the host \"{address}\" to pair.");
 
             client
                 .pair(

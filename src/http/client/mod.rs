@@ -1,11 +1,12 @@
-use crate::http::{ClientInfo, Endpoint, ParseError, Request};
-use crate::http::{QueryBuilder, QueryBuilderError, QueryParam};
+use crate::http::ParseError;
 
 use std::time::Duration;
-use url::Url;
 
 pub mod async_client;
 pub mod blocking_client;
+
+#[cfg(feature = "ureq")]
+pub mod ureq;
 
 #[cfg(feature = "hyper")]
 pub mod hyper;
@@ -20,34 +21,62 @@ pub trait RequestError: TryInto<ParseError, Error = Self> {
     fn is_encryption(&self) -> bool;
 }
 
-fn build_url<E>(
-    use_https: bool,
-    client_info: ClientInfo<'_>,
-    hostport: &str,
-    request: &E::Request,
-) -> Result<Url, url::ParseError>
-where
-    E: Endpoint,
-{
-    let protocol = if use_https { "https" } else { "http" };
-    let authority = format!("{protocol}://{hostport}{}", E::path());
-    let mut url = Url::parse(&authority)?;
+#[cfg(any(feature = "ureq", feature = "hyper"))]
+mod hyperlike {
+    use hyper::Uri;
 
-    client_info
-        .append_query_params(&mut url)
-        .expect("add query parameter to url");
+    use crate::http::{ClientInfo, Endpoint, QueryBuilder, QueryBuilderError, QueryParam, Request};
 
-    request
-        .append_query_params(&mut url)
-        .expect("add query parameter to url");
+    struct StringQueryBuilder<'a> {
+        is_first: bool,
+        string: &'a mut String,
+    }
 
-    Ok(url)
-}
+    impl QueryBuilder for StringQueryBuilder<'_> {
+        fn append(&mut self, param: QueryParam) -> Result<(), QueryBuilderError> {
+            if !self.is_first {
+                self.string.push('&');
+            }
+            self.is_first = false;
 
-impl QueryBuilder for Url {
-    fn append(&mut self, param: QueryParam) -> Result<(), QueryBuilderError> {
-        self.query_pairs_mut().append_pair(param.key, param.value);
+            self.string.push_str(param.key);
+            self.string.push('=');
+            self.string.push_str(param.value);
 
-        Ok(())
+            Ok(())
+        }
+    }
+
+    pub fn build_url<E, Err>(
+        use_https: bool,
+        client_info: ClientInfo<'_>,
+        hostport: &str,
+        request: &E::Request,
+    ) -> Result<Uri, Err>
+    where
+        E: Endpoint,
+        Err: From<http::Error>,
+    {
+        let mut path_and_query = format!("{}?", E::path());
+
+        let mut query_builder = StringQueryBuilder {
+            is_first: true,
+            string: &mut path_and_query,
+        };
+
+        // This cannot fail
+        #[allow(clippy::unwrap_used)]
+        client_info.append_query_params(&mut query_builder).unwrap();
+        #[allow(clippy::unwrap_used)]
+        request.append_query_params(&mut query_builder).unwrap();
+
+        let uri = Uri::builder()
+            .scheme(if use_https { "https" } else { "http" })
+            .authority(hostport)
+            .path_and_query(path_and_query)
+            .build()
+            .map_err(|err| Err::from(err))?;
+
+        Ok(uri)
     }
 }

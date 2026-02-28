@@ -5,7 +5,7 @@ use crate::http::{ClientInfo, Endpoint, ParseError, TextResponse, client::Reques
 ///
 /// A blocking request client that can make requests to an [Endpoint].
 ///
-pub trait RequestClient: Sized {
+pub trait RequestClient: Sized + Clone {
     type Error: RequestError;
 
     fn with_defaults() -> Result<Self, Self::Error>;

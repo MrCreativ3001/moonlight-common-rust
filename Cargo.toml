@@ -33,7 +33,6 @@ thiserror = "2.0.18"
 # TODO: should the v4 feature for random be used?
 uuid = { version = "0.8.2", features = ["v4"] }
 hex = "0.4.3"
-url = "2.5.8"
 pem = "3.0.6"
 roxmltree = "0.21.1"
 form_urlencoded = "1.2.2"
@@ -48,11 +47,17 @@ rusty_enet = "0.4.0"
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
 
-# Reqwest
+# -- Reqwest clients
+http = { version = "1.4.0", default-features = false, optional = true }
+# ureq
+ureq = { version = "3.2.0", features = [
+    "rustls",
+], default-features = false, optional = true }
+
+# Hyper Client
+# TODO: rename to tokio hyper
 bytes = { version = "1.11.1", optional = true }
 rustls = { version = "0.23.37", optional = true }
-# TODO: ureq seems like a good blocking client
-# Hyper Client
 hyper = { version = "1.8.1", features = [
     "client",
     "http1",
@@ -79,7 +84,7 @@ openssl = { workspace = true, optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 [features]
-default = ["std"]
+default = ["ureq", "std"]
 
 serde = ["dep:serde"]
 
@@ -96,14 +101,16 @@ openssl = ["dep:openssl"]
 rustcrypto = []
 
 # Request implementations
+ureq = ["dep:http", "dep:hyper", "dep:ureq"]
 hyper = [
-    "tokio",
-    "dep:rustls",
     "dep:bytes",
+    "dep:http",
+    "dep:rustls",
     "dep:hyper",
     "dep:hyper-util",
     "dep:http-body-util",
     "dep:hyper-rustls",
+    "tokio",
 ]
 
 # Logs sensitive information: e.g. private keys and sensitive values used in encryption / decryption

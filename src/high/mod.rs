@@ -2,7 +2,7 @@
 //! The high level api of this crate for easy usage.
 //!
 
-use std::error::Error;
+use ::std::{error::Error, sync::PoisonError};
 
 use thiserror::Error;
 
@@ -26,7 +26,12 @@ pub enum MoonlightClientError {
     Backend(Box<dyn Error + Send + Sync>),
     #[error("pairing: {0}")]
     Pairing(ClientPairingError<Box<dyn Error + Send + Sync>>),
+    #[error("failed to make a request because the client is poisoned")]
+    Poisoned(#[from] PoisonError<()>),
 }
+
+#[cfg(feature = "std")]
+pub mod std;
 
 #[cfg(feature = "tokio")]
 pub mod tokio;
