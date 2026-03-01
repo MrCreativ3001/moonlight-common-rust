@@ -101,7 +101,7 @@ pub enum ServerType {
 /// The version of the server.
 ///
 /// This is the [app_version field](crate::http::server_info::ServerInfoResponse::app_version) in the [ServerInfoResponse](crate::http::server_info::ServerInfoResponse).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct ServerVersion {
     pub major: i32,
     pub minor: i32,
@@ -142,6 +142,16 @@ impl ServerVersion {
         matches!(self.server_type, ServerType::Apollo)
     }
 }
+
+impl PartialEq for ServerVersion {
+    fn eq(&self, other: &Self) -> bool {
+        self.major == other.major
+            && self.minor == other.minor
+            && self.patch == other.patch
+            && self.mini_patch == other.mini_patch
+    }
+}
+impl Eq for ServerVersion {}
 
 impl Ord for ServerVersion {
     fn cmp(&self, other: &Self) -> Ordering {

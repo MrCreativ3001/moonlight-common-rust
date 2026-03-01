@@ -111,7 +111,14 @@ pub struct ServerInfoResponse {
     pub current_game: u32,
     pub state: ServerState,
     /// Apollo Extension
+    ///
+    /// Permissions this client has.
     pub apollo_permissions: Option<ApolloPermissions>,
+    /// Apollo Extension
+    /// The first option means that it is supported and the second inner option says if the value is present.
+    ///
+    /// TODO: figure out what this is
+    pub apollo_game_uuid: Option<Option<Uuid>>,
 }
 
 impl TextResponse for ServerInfoResponse {
@@ -137,7 +144,7 @@ impl TextResponse for ServerInfoResponse {
 
         // <uniqueid>
         body_writer.write_str("<uniqueid>")?;
-        write!(body_writer, "{}", self.unique_id)?;
+        write!(body_writer, "{:X}", self.unique_id)?;
         body_writer.write_str("</uniqueid>")?;
 
         // <HttpsPort>
@@ -160,7 +167,7 @@ impl TextResponse for ServerInfoResponse {
         // <mac>
         body_writer.write_str("<mac>")?;
         match &self.mac {
-            Some(mac) => write!(body_writer, "{mac}")?,
+            Some(mac) => write!(body_writer, "{mac:X}")?,
             None => body_writer.write_str("00:00:00:00:00:00")?,
         }
         body_writer.write_str("</mac>")?;
@@ -206,8 +213,21 @@ impl TextResponse for ServerInfoResponse {
             self.current_game
         )?;
 
-        // <currentgameuuid/> (empty)
-        body_writer.write_str("<currentgameuuid/>")?;
+        // <currentgameuuid>
+        if let Some(game_uuid) = self.apollo_game_uuid {
+            match game_uuid {
+                None => {
+                    body_writer.write_str("<currentgameuuid/>")?;
+                }
+                Some(game_uuid) => {
+                    write!(
+                        body_writer,
+                        "<currentgameuuid>{:X}</currentgameuuid>",
+                        game_uuid
+                    )?;
+                }
+            }
+        }
 
         // <state>
         body_writer.write_str("<state>")?;
@@ -225,7 +245,7 @@ impl FromStr for ServerInfoResponse {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let doc = Document::parse(s.as_ref())?;
+        let doc = Document::parse(s)?;
         let root = parse_xml_root_node(&doc)?;
 
         let state_string = parse_xml_child_text(root, "state")?.to_string();
@@ -279,6 +299,11 @@ impl FromStr for ServerInfoResponse {
             current_game: parse_xml_child_text(root, "currentgame")?.parse()?,
             state: ServerState::from_str(&state_string)?,
             apollo_permissions,
+            apollo_game_uuid: match parse_xml_child_text(root, "currentgameuuid") {
+                Ok(value) => Some(Some(value.parse()?)),
+                Err(ParseError::XmlTextNotFound(_)) => Some(None),
+                Err(_) => None,
+            },
         })
     }
 }

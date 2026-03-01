@@ -17,7 +17,10 @@ use moonlight_common::{
     },
 };
 
-use crate::common::{gstreamer_audio::GStreamerAudioDecoder, try_load_identity};
+use crate::common::{
+    gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
+    try_load_identity,
+};
 
 mod common;
 
@@ -89,10 +92,10 @@ fn main() {
     gstreamer::init().unwrap();
 
     // Initialize Audio Decoder
-    let audio_output = ElementFactory::make_with_name("autoaudiosink", None).unwrap();
-    let audio_decoder = GStreamerAudioDecoder::new(&audio_output).unwrap();
+    let audio_decoder = GStreamerAudioDecoder::new().unwrap();
 
     // Initialize Video Decoder
+    let video_decoder = GStreamerVideoDecoder::new().unwrap();
 
     // -- Start Stream using the Decoders
 
@@ -112,8 +115,14 @@ fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream =
-        MoonlightStream::new(config, settings, NullListener, audio_decoder, DebugListener).unwrap();
+    let stream = MoonlightStream::new(
+        config,
+        settings,
+        video_decoder,
+        audio_decoder,
+        DebugListener,
+    )
+    .unwrap();
 
     // TODO
     sleep(Duration::from_secs(40));

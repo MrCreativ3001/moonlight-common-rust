@@ -1,3 +1,4 @@
+use std::fmt;
 use std::str::FromStr;
 
 use roxmltree::Document;
@@ -43,12 +44,16 @@ impl Request for CancelRequest {
 
 #[derive(Debug, PartialEq)]
 pub struct CancelResponse {
-    pub cancel: bool,
+    pub cancelled: bool,
 }
 
 impl TextResponse for CancelResponse {
-    fn serialize_into(&self, body_writer: &mut impl std::fmt::Write) -> std::fmt::Result {
-        todo!()
+    fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
+        write!(
+            body_writer,
+            r#"<?xml version="1.0" encoding="utf-8"?><root status_code="200"><cancel>{}</cancel></root>"#,
+            if self.cancelled { 1 } else { 0 },
+        )
     }
 }
 
@@ -65,9 +70,8 @@ impl FromStr for CancelResponse {
 
         let cancel = parse_xml_child_text(root, "cancel")?.trim();
 
-        // TODO: what is this? https://github.com/moonlight-stream/moonlight-android/blob/f10085f552b367cf7203007693d91c322a0a2936/app/src/main/java/com/limelight/nvstream/http/NvHTTP.java#L803-L818
         Ok(Self {
-            cancel: cancel != "0",
+            cancelled: cancel != "0",
         })
     }
 }

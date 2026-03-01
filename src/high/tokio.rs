@@ -622,7 +622,7 @@ where
                 .map_err(req_err)?
         };
 
-        if !response.cancel {
+        if !response.cancelled {
             return Ok(false);
         }
 
@@ -634,6 +634,6 @@ where
             return Ok(false);
         }
 
-        Ok(response.cancel)
+        Ok(response.cancelled)
     }
 }

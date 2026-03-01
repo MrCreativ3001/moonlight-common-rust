@@ -22,7 +22,7 @@ impl Endpoint for ResumeEndpoint {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResumeResponse {
     pub resume: u32,
     /// The rtsp url for this resume request.
@@ -33,7 +33,24 @@ pub struct ResumeResponse {
 
 impl TextResponse for ResumeResponse {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
-        todo!()
+        // XML header + root
+        body_writer.write_str(r#"<?xml version="1.0" encoding="utf-8"?>"#)?;
+        body_writer.write_str(r#"<root status_code="200">"#)?;
+
+        // <resume>
+        write!(body_writer, "<resume>{}</resume>", self.resume)?;
+
+        // <sessionUrl0>
+        write!(
+            body_writer,
+            "<sessionUrl0>{}</sessionUrl0>",
+            self.rtsp_session_url
+        )?;
+
+        // close root
+        body_writer.write_str("</root>")?;
+
+        Ok(())
     }
 }
 

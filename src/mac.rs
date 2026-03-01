@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Debug, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter, UpperHex},
     str::FromStr,
 };
 
@@ -24,6 +24,7 @@ impl MacAddress {
     pub fn to_string_in_place<'a>(
         &self,
         str_bytes: &'a mut [u8; Self::MAC_STRING_LENGTH],
+        uppercase: bool,
     ) -> &'a str {
         let mut place = 0;
         for byte in self.to_bytes() {
@@ -32,10 +33,14 @@ impl MacAddress {
                 place += 1;
             }
 
-            hex::encode_to_slice([byte], &mut str_bytes[place..(place + 2)])
-                .expect("failed to encode hex");
+            let slice_output = &mut str_bytes[place..(place + 2)];
+            hex::encode_to_slice([byte], slice_output).expect("failed to encode hex");
 
             place += 2;
+        }
+
+        if uppercase {
+            str_bytes.make_ascii_uppercase();
         }
 
         str::from_utf8(str_bytes).expect("mac address to string failed")
@@ -52,7 +57,15 @@ impl Display for MacAddress {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut bytes = [0u8; MacAddress::MAC_STRING_LENGTH];
 
-        write!(f, "{}", self.to_string_in_place(&mut bytes))
+        write!(f, "{}", self.to_string_in_place(&mut bytes, false))
+    }
+}
+
+impl UpperHex for MacAddress {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut bytes = [0u8; MacAddress::MAC_STRING_LENGTH];
+
+        write!(f, "{}", self.to_string_in_place(&mut bytes, true))
     }
 }
 
@@ -102,7 +115,7 @@ mod serde {
         {
             let mut bytes = [0u8; MacAddress::MAC_STRING_LENGTH];
 
-            let str = self.to_string_in_place(&mut bytes);
+            let str = self.to_string_in_place(&mut bytes, true);
             serializer.serialize_str(str)
         }
     }

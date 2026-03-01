@@ -182,7 +182,28 @@ pub struct LaunchResponse {
 
 impl TextResponse for LaunchResponse {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
-        todo!()
+        // XML header + root
+        body_writer.write_str(r#"<?xml version="1.0" encoding="utf-8"?>"#)?;
+        body_writer.write_str(r#"<root status_code="200">"#)?;
+
+        // <gamesession>
+        write!(
+            body_writer,
+            "<gamesession>{}</gamesession>",
+            self.game_session
+        )?;
+
+        // <sessionUrl0>
+        write!(
+            body_writer,
+            "<sessionUrl0>{}</sessionUrl0>",
+            self.rtsp_session_url
+        )?;
+
+        // close root
+        body_writer.write_str("</root>")?;
+
+        Ok(())
     }
 }
 

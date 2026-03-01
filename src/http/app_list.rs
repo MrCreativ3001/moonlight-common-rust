@@ -55,7 +55,35 @@ pub struct AppListResponse {
 
 impl TextResponse for AppListResponse {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
-        todo!()
+        // XML header + root
+        body_writer.write_str(r#"<?xml version="1.0" encoding="utf-8"?>"#)?;
+        body_writer.write_str(r#"<root status_code="200">"#)?;
+
+        for app in &self.apps {
+            // open app
+            write!(body_writer, "<App>")?;
+
+            // <IsHdrSupported>
+            write!(
+                body_writer,
+                "<IsHdrSupported>{}</IsHdrSupported>",
+                if app.is_hdr_supported { 1 } else { 0 }
+            )?;
+
+            // <AppTitle>
+            write!(body_writer, "<AppTitle>{}</AppTitle>", app.title)?;
+
+            // <ID>
+            write!(body_writer, "<ID>{}</ID>", app.id)?;
+
+            // close app
+            write!(body_writer, "</App>")?;
+        }
+
+        // close root
+        body_writer.write_str("</root>")?;
+
+        Ok(())
     }
 }
 
@@ -63,7 +91,7 @@ impl FromStr for AppListResponse {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let doc = Document::parse(s.as_ref())?;
+        let doc = Document::parse(s)?;
         let root = parse_xml_root_node(&doc)?;
 
         let mut apps = Vec::new();
