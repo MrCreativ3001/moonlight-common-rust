@@ -85,7 +85,7 @@ openssl = { workspace = true, optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 [features]
-default = ["ureq", "std"]
+default = ["ureq", "std", "rustcrypto"]
 
 serde = ["dep:serde"]
 
@@ -137,8 +137,8 @@ openssl-sys = { version = "=0.9.109" }
 
 # TODO: all examples should use rustcrypto
 [[example]]
-name = "simple-client"
-path = "examples/simple-client.rs"
+name = "client-simple"
+path = "examples/client-simple.rs"
 required-features = ["std", "openssl"]
 
 [[example]]

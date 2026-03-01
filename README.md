@@ -19,10 +19,5 @@ This design allows the same protocol implementation to be reused across native a
 
 ## Usage
 
-The [`examples/`](./examples) directory contains examples demonstrating how to use the crate with the I/O implementations this library provides:
-- Creating and initializing a Moonlight client
-- Pairing with a host
-- Establishing a streaming session
-  - Receiving Video and Audio
-  - Sending Inputs to the host
+The [`examples/`](./examples) directory contains examples demonstrating how to use the crate with the I/O implementations this library provides.
 

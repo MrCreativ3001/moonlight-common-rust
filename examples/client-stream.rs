@@ -2,7 +2,6 @@
 
 use std::{sync::Arc, thread::sleep, time::Duration};
 
-use gstreamer::ElementFactory;
 use moonlight_common::{
     crypto::openssl::OpenSSLCryptoBackend,
     high::std::MoonlightHost,
@@ -11,7 +10,7 @@ use moonlight_common::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::AudioConfig,
         control::ActiveGamepads,
-        debug::{DebugListener, NullListener},
+        debug::DebugListener,
         std::MoonlightStream,
         video::{ColorRange, ColorSpace, SupportedVideoFormats},
     },
@@ -128,6 +127,6 @@ fn main() {
     sleep(Duration::from_secs(40));
 
     // Stop the stream: this will block
-    // Dropping the [MoonlightStream] will stop the stream
+    // Dropping the [MoonlightStream] will also stop the stream without blocking the current thread
     stream.stop();
 }

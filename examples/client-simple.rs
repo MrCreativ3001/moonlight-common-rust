@@ -13,7 +13,7 @@ use moonlight_common::{
 };
 use tracing::info;
 
-use crate::common::{CLIENT_DIR, save_identity, try_load_identity};
+use crate::common::{EXAMPLE_DATA_DIR, save_identity, try_load_identity};
 
 mod common;
 
@@ -75,7 +75,7 @@ fn main() {
     // -- Save all app images to the client directory by app name
 
     // Create folder for the app images
-    fs::create_dir_all(format!("{CLIENT_DIR}/apps/")).unwrap();
+    fs::create_dir_all(format!("{EXAMPLE_DATA_DIR}/apps/")).unwrap();
 
     // Get all apps the host has
     let apps = client.app_list().unwrap();
@@ -87,7 +87,7 @@ fn main() {
 
         // Write the image to a file
         fs::write(
-            format!("{CLIENT_DIR}/apps/{}.png", app.title),
+            format!("{EXAMPLE_DATA_DIR}/apps/{}.png", app.title),
             app_image_bytes,
         )
         .unwrap();
