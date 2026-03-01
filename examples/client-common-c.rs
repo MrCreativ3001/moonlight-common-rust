@@ -40,7 +40,9 @@ fn main() {
     let crypto_backend = Arc::new(OpenSSLCryptoBackend::default());
 
     // -- Load identity
-    let (client_identifier, client_secret, server_identifier) = try_load_identity().unwrap();
+    let Some((client_identifier, client_secret, server_identifier)) = try_load_identity() else {
+        panic!("Please firstly use the pair example to pair to a host.");
+    };
 
     client
         .set_identity(client_identifier, client_secret, server_identifier)
@@ -119,6 +121,15 @@ fn main() {
             audio_decoder,
         )
         .unwrap();
+
+    // Move the cursor from the left side to the right side of the screen
+    for i in 0..100 {
+        // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
+        // However this is just a simple example so we don't care
+        stream.send_mouse_position(i, 50, 100, 100).unwrap();
+
+        sleep(Duration::from_secs(5) / 100);
+    }
 
     // Wait some time to stop the stream
     sleep(Duration::from_secs(40));

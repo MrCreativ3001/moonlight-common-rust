@@ -1,10 +1,14 @@
 #![allow(clippy::unwrap_used)]
 #![allow(unused)]
 
+use std::{thread::spawn, time::Duration};
+
 use gstreamer::{
-    Array, Buffer, Caps, ClockTime, Element, ElementFactory, Format, Pipeline, Sample, State,
+    Array, Buffer, Caps, ClockTime, Element, ElementFactory, Format, MessageView, Pipeline, Sample,
+    State,
     glib::{
         BoolError, SendValue,
+        object::ObjectExt,
         value::{ToSendValue, ToValue},
     },
     prelude::{ElementExt, GstBinExtManual},
@@ -14,12 +18,12 @@ use moonlight_common::stream::{
     audio::{AudioConfig, AudioDecoder, OpusMultistreamConfig},
     proto::audio::depayloader::AudioSample,
 };
+use tracing::{debug, info};
 
 pub struct GStreamerAudioDecoder {
     pipeline: Pipeline,
     app_src: AppSrc,
-    sample_rate: u32,
-    samples_per_frame: u32,
+    frame_duration: Duration,
 }
 
 impl GStreamerAudioDecoder {
@@ -31,18 +35,24 @@ impl GStreamerAudioDecoder {
         let app_src = AppSrc::builder().name("raw opus input").build();
         app_src.set_is_live(true);
         app_src.set_format(Format::Time);
-        app_src.set_do_timestamp(true);
+        app_src.set_do_timestamp(false);
+        app_src.set_block(false);
+        app_src.set_max_bytes(0);
+        app_src.set_min_latency(0);
 
         // Opus pipeline that'll convert our opus samples into audio
+        let opus_parse = ElementFactory::make_with_name("opusparse", None)?;
         let opus_dec = ElementFactory::make_with_name("opusdec", None)?;
         let audio_convert = ElementFactory::make_with_name("audioconvert", None)?;
         let audio_resample = ElementFactory::make_with_name("audioresample", None)?;
 
         let sink = ElementFactory::make_with_name("autoaudiosink", None)?;
+        sink.set_property("sync", false);
 
         pipeline
             .add_many([
                 app_src.as_ref(),
+                &opus_parse,
                 &opus_dec,
                 &audio_convert,
                 &audio_resample,
@@ -52,6 +62,7 @@ impl GStreamerAudioDecoder {
 
         Element::link_many([
             app_src.as_ref(),
+            &opus_parse,
             &opus_dec,
             &audio_convert,
             &audio_resample,
@@ -62,8 +73,7 @@ impl GStreamerAudioDecoder {
         Ok(Self {
             pipeline,
             app_src,
-            sample_rate: 0,
-            samples_per_frame: 0,
+            frame_duration: Duration::ZERO,
         })
     }
 }
@@ -88,8 +98,7 @@ impl AudioDecoder for GStreamerAudioDecoder {
         self.app_src.set_caps(Some(&caps));
 
         // Remember sample duration and timestamp conversion
-        self.sample_rate = stream_config.sample_rate;
-        self.samples_per_frame = stream_config.samples_per_frame;
+        self.frame_duration = stream_config.frame_duration();
 
         0
     }
@@ -102,11 +111,8 @@ impl AudioDecoder for GStreamerAudioDecoder {
     fn decode_and_play_sample(&mut self, sample: AudioSample) {
         let mut buffer = Buffer::from_slice(sample.buffer);
 
-        let pts_ns = (sample.timestamp as u64 * 1_000_000_000) / self.sample_rate as u64;
-        let duration_ns = (self.samples_per_frame as u64 * 1_000_000_000) / self.sample_rate as u64;
-
-        let pts = ClockTime::from_nseconds(pts_ns);
-        let duration = ClockTime::from_nseconds(duration_ns);
+        let pts = ClockTime::from_mseconds(sample.timestamp as u64);
+        let duration = ClockTime::from_nseconds(self.frame_duration.as_nanos() as u64);
 
         {
             let buffer_ref = buffer.get_mut().unwrap();

@@ -183,12 +183,12 @@ where
         &self,
         f: impl FnOnce(&ServerInfoResponse) -> R,
     ) -> Result<R, MoonlightClientError> {
-        let response = self.cache.read().map_err(poison_err)?;
+        let cache = self.cache.read().map_err(poison_err)?;
 
-        if let Some(server_info) = &response.server_info {
+        if let Some(server_info) = &cache.server_info {
             Ok(f(server_info))
         } else {
-            drop(response);
+            drop(cache);
 
             self.update()?;
             let response = self.cache.read().map_err(poison_err)?;

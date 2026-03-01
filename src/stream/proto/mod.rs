@@ -10,7 +10,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{debug, trace};
+use tracing::{Level, Span, debug, instrument, span};
 
 use crate::{
     ServerVersion,
@@ -174,6 +174,7 @@ struct Sdp {
 /// ```
 ///
 pub struct MoonlightStreamProto {
+    span: Span,
     client_settings: MoonlightStreamSettings,
     rtsp: Rtsp,
     sdp: Option<Sdp>,
@@ -206,6 +207,7 @@ impl MoonlightStreamProto {
     ///
     /// To obtain a [MoonlightStreamConfig] you can use a [MoonlightClient](crate::high::MoonlightClient) and call the [MoonlightClient::start_stream](crate::high::MoonlightClient::start_stream) function.
     ///
+    #[instrument(target = "moonlight::proto::stream", err)]
     pub fn new(
         now: Instant,
         config: MoonlightStreamConfig,
@@ -222,6 +224,7 @@ impl MoonlightStreamProto {
         };
 
         let mut this = Self {
+            span: span!(target: "moonlight::proto::stream", Level::DEBUG, "stream"),
             client_settings: settings,
             last_now: now,
             rtsp: Rtsp::new(&config.rtsp_session_url, client_version)?,
@@ -236,16 +239,8 @@ impl MoonlightStreamProto {
         Ok(this)
     }
 
+    #[instrument(parent = &self.span, target = "moonlight::proto::stream", level = Level::TRACE, skip(self), ret, err)]
     pub fn poll_output(&mut self) -> Result<MoonlightStreamOutput, MoonlightStreamProtoError> {
-        trace!(target: "moonlight_proto_stream", "Current State: {:?}", self.state);
-
-        let output = self.do_poll()?;
-
-        trace!(target: "moonlight_proto_stream", "Output: {:?}", output);
-
-        Ok(output)
-    }
-    fn do_poll(&mut self) -> Result<MoonlightStreamOutput, MoonlightStreamProtoError> {
         let mut timeout;
         loop {
             match self.rtsp.poll_output()? {
@@ -270,7 +265,7 @@ impl MoonlightStreamProto {
                         State::RtspDescribeReceive => {
                             let describe = RtspDescribeResponse::try_from_response(&response)?;
 
-                            trace!(target: "moonlight_proto_stream", "Server Sdp: {:?}", describe.sdp);
+                            debug!(target: "moonlight::proto::stream", sdp = ?describe.sdp, "Received Server Sdp");
 
                             // The server won't send more information about itself so we can already create our client sdp
                             let (client_sdp, opus_config, video_format) =
@@ -283,7 +278,7 @@ impl MoonlightStreamProto {
                                 opus_config,
                                 video_format,
                             };
-                            debug!(target: "moonlight_proto_stream", "Client Sdp: {:?}", sdp);
+                            debug!(target: "moonlight::proto::stream", sdp = ?sdp, "Generated Client Sdp");
                             self.sdp = Some(sdp);
 
                             send_rtsp_setup_audio(&mut self.rtsp, None);
@@ -530,12 +525,11 @@ impl MoonlightStreamProto {
         Ok(MoonlightStreamOutput::Timeout(timeout))
     }
 
+    #[instrument(parent = &self.span, target = "moonlight::proto::stream", level = Level::TRACE, skip(self), ret, err)]
     pub fn handle_input(
         &mut self,
         input: MoonlightStreamInput,
     ) -> Result<(), MoonlightStreamProtoError> {
-        trace!(target: "moonlight_proto_stream", "Input: {input:?}");
-
         let last_now = self.last_now;
         // TODO: all sans io structs MUST be updated via timeout even if it isn't their event
 

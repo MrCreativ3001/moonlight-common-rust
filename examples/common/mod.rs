@@ -7,25 +7,36 @@ use moonlight_common::http::{ClientIdentifier, ClientSecret, ServerIdentifier};
 use pem::Pem;
 use tokio::task::spawn_blocking;
 use tracing::Level;
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    EnvFilter, filter::Directive, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+};
+use venator::Venator;
 
 pub mod gstreamer_audio;
 pub mod gstreamer_video;
 
-pub const CLIENT_DIR: &str = "./client";
-pub const KEY_PATH: &str = "./client/key.pem";
-pub const CERTIFICATE_PATH: &str = "./client/certificate.pem";
-pub const SERVER_CERTIFICATE_PATH: &str = "./client/server_certificate.pem";
+pub const EXAMPLE_DATA_DIR: &str = "./example-data";
+pub const KEY_PATH: &str = "./example-data/key.pem";
+pub const CERTIFICATE_PATH: &str = "./example-data/certificate.pem";
+pub const SERVER_CERTIFICATE_PATH: &str = "./example-data/server_certificate.pem";
 
 pub fn init() {
     // Init tracing
+    let no_audio_directive: Directive = "moonlight_proto_audio=off".parse().unwrap();
+    let no_video_directive: Directive = "moonlight_proto_video=off".parse().unwrap();
+
+    let venator = Venator::default();
+
     // TODO: make this use the default level by default
     tracing_subscriber::registry()
+        .with(venator)
         .with(fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive(Level::DEBUG.into())
-                .from_env_lossy(),
+                .with_default_directive(Level::TRACE.into())
+                .from_env_lossy()
+                .add_directive(no_audio_directive)
+                .add_directive(no_video_directive),
         )
         .init();
 }
@@ -58,7 +69,7 @@ pub fn save_identity(
     let key = client_secret.to_pem().to_string();
     let server_certificate = server_identifier.to_pem().to_string();
 
-    fs::create_dir_all(CLIENT_DIR).unwrap();
+    fs::create_dir_all(EXAMPLE_DATA_DIR).unwrap();
 
     fs::write(CERTIFICATE_PATH, certificate).unwrap();
     fs::write(KEY_PATH, key).unwrap();

@@ -28,12 +28,13 @@ pub fn parse_xml_root_node<'doc>(doc: &'doc Document) -> Result<Node<'doc, 'doc>
         .find(|node| node.tag_name().name() == "root")
         .ok_or(ParseError::XmlRootNotFound)?;
 
+    // Important: status code can be negative
     let status_code = root
         .attribute("status_code")
         .ok_or(ParseError::DetailNotFound("status_code"))?
-        .parse::<u32>()?;
+        .parse::<i32>()?;
 
-    if status_code / 100 == 4 {
+    if status_code / 100 != 2 {
         return Err(ParseError::InvalidXmlStatusCode {
             message: root.attribute("status_message").map(str::to_string),
         });

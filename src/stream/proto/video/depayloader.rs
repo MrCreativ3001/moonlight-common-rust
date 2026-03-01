@@ -25,6 +25,11 @@ pub struct VideoDepayloaderConfig {
 #[derive(Debug, PartialEq)]
 pub struct VideoFrame {
     pub frame_number: u32,
+    /// The timestamp that the server sent.
+    /// 90kHz clock time representation.
+    ///
+    /// References:
+    /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
     pub timestamp: u32,
     pub buffers: Vec<Vec<u8>>,
 }

@@ -7,8 +7,8 @@ use uuid::Uuid;
 use crate::{
     PairStatus, ServerState, ServerVersion,
     http::{
-        ClientInfo, DEFAULT_UNIQUE_ID, QueryBuilder, QueryBuilderError, QueryParam, Request,
-        TextResponse,
+        ClientInfo, DEFAULT_UNIQUE_ID, ParseError, QueryBuilder, QueryBuilderError, QueryParam,
+        Request, TextResponse,
         app_list::{App, AppListRequest, AppListResponse},
         box_art::AppBoxArtRequest,
         cancel::{CancelRequest, CancelResponse},
@@ -66,17 +66,19 @@ where
     assert_eq!(request, request_expected);
 }
 
+fn normalize_xml(doc: &str) -> String {
+    doc.to_string()
+        .replace("\n", "")
+        .replace("\r", "")
+        .replace("\t", "")
+}
 fn test_response<R>(response_expected: R, doc_expected: &str)
 where
     R: TextResponse + Debug + PartialEq,
     R::Err: Debug,
 {
     // stip some chars from the doc_expected
-    let doc_expected = doc_expected
-        .to_string()
-        .replace("\n", "")
-        .replace("\r", "")
-        .replace("\t", "");
+    let doc_expected = normalize_xml(doc_expected);
     debug!("Doc Expected: {doc_expected:?}");
 
     // test serialize
@@ -226,6 +228,27 @@ fn response_host_info_apollo() {
 }
 
 #[test]
+fn response_host_info_auth_fail() {
+    init_test();
+
+    let text = normalize_xml(
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="401" query="" status_message="The client is not authorized. Certificate verification failed."/>
+    "#,
+    );
+
+    assert_eq!(
+        ServerInfoResponse::from_str(&text).unwrap_err(),
+        ParseError::InvalidXmlStatusCode {
+            message: Some(
+                "The client is not authorized. Certificate verification failed.".to_string()
+            )
+        }
+    );
+}
+
+#[test]
 fn request_app_list() {
     init_test();
 
@@ -364,6 +387,28 @@ fn response_launch() {
 <sessionUrl0>rtspenc://192.167.178.140:48010</sessionUrl0>
 </root>
         "#,
+    );
+}
+
+#[test]
+fn response_launch_fail() {
+    init_test();
+
+    // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/82
+    let response = normalize_xml(
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="-1" status_message="Failed to start the specified application">
+<gamesession>0</gamesession>
+</root>
+"#,
+    );
+
+    assert_eq!(
+        LaunchResponse::from_str(&response).unwrap_err(),
+        ParseError::InvalidXmlStatusCode {
+            message: Some("Failed to start the specified application".to_string())
+        }
     );
 }
 

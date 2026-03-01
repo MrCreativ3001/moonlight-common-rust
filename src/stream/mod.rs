@@ -134,6 +134,7 @@ pub struct MoonlightStreamConfig {
     pub apollo_permissions: Option<ApolloPermissions>,
 }
 
+#[derive(Debug, Clone)]
 pub struct MoonlightStreamSettings {
     pub width: u32,
     pub height: u32,

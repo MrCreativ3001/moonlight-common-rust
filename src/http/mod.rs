@@ -13,7 +13,7 @@ use uuid::{Uuid, adapter::Hyphenated};
 
 use crate::{ParseServerStateError, ParseServerVersionError, mac::ParseMacError};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ParseError {
     #[error("the response is invalid xml")]
     ParseXmlError(#[from] Error),
@@ -64,7 +64,7 @@ mod helper;
 #[cfg(test)]
 mod test;
 
-// TODO: don't make this async depedendant but make this work in async and sync!
+// TODO: what is the correct way to handle errors in this system when receiving messages from a client (server impl)? e.g. failed to start stream, not authenticated for app endpoint?
 
 pub const DEFAULT_HTTP_PORT: u16 = 47989;
 pub const DEFAULT_HTTPS_PORT: u16 = 47984;

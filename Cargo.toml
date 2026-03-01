@@ -122,10 +122,14 @@ workspace = true
 
 [dev-dependencies]
 tokio = { version = "1.49.0", features = ["full"] }
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
+# GStreamer for video and audio playout
 gstreamer = { version = "0.25.1" }
 gstreamer-app = { version = "0.25.0" }
+
+# For testing: very nice logging
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+venator = { version = "1.1.0" }
 
 # openssl version above this version don't compile in cross-rs (x86_64-pc-windows-gnu)
 # See https://github.com/openssl/openssl/issues/29818

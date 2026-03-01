@@ -2,7 +2,7 @@ use std::{
     ffi::c_void,
     os::raw::{c_char, c_int},
     slice,
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
 };
 
 use moonlight_common_sys::limelight::{_AUDIO_RENDERER_CALLBACKS, POPUS_MULTISTREAM_CONFIGURATION};
@@ -16,6 +16,19 @@ use crate::stream::{
 
 static GLOBAL_AUDIO_DECODER: Mutex<Option<Box<dyn AudioDecoder + Send + 'static>>> =
     Mutex::new(None);
+
+// We are simulating timestamps for moonlight common c
+struct TimestampTracker {
+    timestamp_incr_per_sample: u32,
+    timestamp: u32,
+}
+
+static TIMESTAMP_TRACKER: LazyLock<Mutex<TimestampTracker>> = LazyLock::new(|| {
+    Mutex::new(TimestampTracker {
+        timestamp_incr_per_sample: 0,
+        timestamp: 0,
+    })
+});
 
 fn global_decoder<R>(f: impl FnOnce(&mut dyn AudioDecoder) -> R) -> R {
     let lock = GLOBAL_AUDIO_DECODER.lock();
@@ -59,11 +72,28 @@ unsafe extern "C" fn setup(
             mapping: raw_opus_config.mapping,
         };
 
+        {
+            let mut lock = TIMESTAMP_TRACKER
+                .lock()
+                .expect("failed to set audio timestamp start");
+
+            lock.timestamp_incr_per_sample = opus_config.frame_duration().as_millis() as u32;
+        }
+
         decoder.setup(audio_config, opus_config)
     })
 }
+
 unsafe extern "C" fn start() {
     global_decoder(|decoder| {
+        {
+            let mut lock = TIMESTAMP_TRACKER
+                .lock()
+                .expect("failed to set audio timestamp start");
+
+            lock.timestamp = 0;
+        }
+
         decoder.start();
     })
 }
@@ -72,11 +102,22 @@ unsafe extern "C" fn decode_and_play_sample(data: *mut c_char, len: c_int) {
     global_decoder(|decoder| unsafe {
         let data = slice::from_raw_parts(data as *mut u8, len as usize);
 
+        let timestamp = {
+            let mut lock = TIMESTAMP_TRACKER
+                .lock()
+                .expect("failed to set audio timestamp start");
+
+            // By default moonlight uses a packet duration of 5
+            lock.timestamp = lock.timestamp.wrapping_add(lock.timestamp_incr_per_sample);
+
+            lock.timestamp
+        };
+
         // TODO: how to track the timestamp?
         // TODO: remove clone
 
         decoder.decode_and_play_sample(AudioSample {
-            timestamp: 0,
+            timestamp,
             buffer: data.to_vec(),
         });
     })

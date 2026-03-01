@@ -41,7 +41,7 @@ pub mod high;
 #[cfg(test)]
 pub(crate) mod test;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Clone, PartialEq)]
 #[error("failed to parse the state of the server")]
 pub struct ParseServerStateError;
 
@@ -80,7 +80,7 @@ pub enum PairStatus {
     Paired,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 #[error("failed to parse server version")]
 pub enum ParseServerVersionError {
     #[error("{0}")]

@@ -69,7 +69,7 @@ impl UpperHex for MacAddress {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum ParseMacError {
     #[error("the mac address is too short")]
     TooShort,
