@@ -47,7 +47,13 @@ rusty_enet = "0.4.0"
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
 
-# -- Reqwest clients
+# Stream Tokio
+# TODO: only pick needed features, maybe also behind a feature lock
+tokio = { version = "1.49.0", default-features = false, features = [
+    "full",
+], optional = true }
+
+# -- Request clients
 http = { version = "1.4.0", default-features = false, optional = true }
 hyper = { version = "1.8.1", features = [
     "client",
@@ -72,14 +78,32 @@ hyper-rustls = { version = "0.27.7", features = [
     "http1",
 ], default-features = false, optional = true }
 
-# Tokio
-# TODO: only pick needed features, maybe also behind a feature lock
-tokio = { version = "1.49.0", default-features = false, features = [
-    "full",
-], optional = true }
-
+# -- Crypto Backends
 # OpenSSL
 openssl = { workspace = true, optional = true }
+
+# Rustcrypto
+sha1 = { version = "0.10.6", default-features = false, optional = true }
+sha2 = { version = "0.10.9", features = [
+    "oid",
+], default-features = false, optional = true }
+# rsa requires this rand version for private key generation
+rand = { version = "0.8.5", default-features = false, optional = true }
+aes = { version = "0.8.4", default-features = false, optional = true }
+rsa = { version = "0.9.10", features = [
+    "std",
+    "sha2",
+], default-features = false, optional = true }
+# must be this specific version because of some other crate
+der = { version = "0.7.10", default-features = false, optional = true }
+spki = { version = "0", default-features = false, optional = true }
+x509-cert = { version = "0.2.5", features = [
+    "std",
+    "pem",
+    "builder",
+], default-features = false, optional = true }
+pkcs8 = { version = "0.10.2", default-features = false, optional = true }
+signature = { version = "2.2.0", default-features = false, optional = true }
 
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
@@ -99,7 +123,18 @@ stream-c = ["dep:moonlight-common-sys"]
 # Crypto implementations
 openssl = ["dep:openssl"]
 # TODO: rustcrypto
-rustcrypto = []
+rustcrypto = [
+    "dep:sha1",
+    "dep:sha2",
+    "dep:rand",
+    "dep:aes",
+    "dep:rsa",
+    "dep:der",
+    "dep:spki",
+    "dep:x509-cert",
+    "dep:signature",
+    "dep:pkcs8",
+]
 
 # Request implementations
 ureq = ["dep:http", "dep:hyper", "dep:ureq"]
@@ -139,7 +174,7 @@ openssl-sys = { version = "=0.9.109" }
 [[example]]
 name = "client-simple"
 path = "examples/client-simple.rs"
-required-features = ["std", "openssl"]
+required-features = ["std", "rustcrypto"]
 
 [[example]]
 name = "client-stream"
@@ -149,9 +184,9 @@ required-features = ["std", "rustcrypto"]
 [[example]]
 name = "client-common-c"
 path = "examples/client-common-c.rs"
-required-features = ["ureq", "std", "stream-c"]
+required-features = ["ureq", "std", "openssl", "stream-c"]
 
 [[example]]
 name = "client-tokio"
 path = "examples/client-tokio.rs"
-required-features = ["tokio", "openssl"]
+required-features = ["tokio-hyper", "tokio", "openssl"]

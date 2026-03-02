@@ -626,6 +626,7 @@ mod test {
                 },
             },
         },
+        init_test,
         test::init_test,
     };
 
@@ -839,8 +840,18 @@ mod test {
     fn pair_openssl() {
         use crate::crypto::openssl::OpenSSLCryptoBackend;
 
-        init_test();
+        init_test!();
 
         test_pair_with(OpenSSLCryptoBackend::default());
+    }
+
+    #[cfg(feature = "rustcrypto")]
+    #[test]
+    fn pair_rustcrypto() {
+        use crate::crypto::rustcrypto::RustCryptoBackend;
+
+        init_test!();
+
+        test_pair_with(RustCryptoBackend::default());
     }
 }

@@ -17,6 +17,7 @@ use crate::{
         resume::ResumeResponse,
         server_info::{ApolloPermissions, ServerInfoRequest, ServerInfoResponse},
     },
+    init_test,
     mac::MacAddress,
     stream::{AesIv, AesKey, control::ActiveGamepads, video::ServerCodecModeSupport},
     test::init_test,
@@ -110,7 +111,7 @@ fn nodes_equal(a: Node, b: Node) -> bool {
 
 #[test]
 fn request_client_info() {
-    init_test();
+    init_test!();
 
     let uuid = Uuid::from_u128(4522875942567894520547);
 

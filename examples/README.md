@@ -3,6 +3,8 @@
 
 Examples demonstrating how to use this crate.
 
+Some examples need [gstreamer](https://gstreamer.freedesktop.org/documentation/rust/stable/latest/docs/gstreamer/) for video and audio playout, which you'll need to install to compile and run the examples.
+
 ## client-simple
 
 Pair to a host and get all app images.
@@ -25,7 +27,7 @@ cargo run --example client-stream
 Pair to a host and start a stream in an async context using the tokio library.
 
 ```
-cargo run --example client-tokio --features tokio
+cargo run --example client-tokio --features tokio-hyper,tokio
 ```
 
 ## client-common-c

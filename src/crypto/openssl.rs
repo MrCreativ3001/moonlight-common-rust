@@ -146,25 +146,6 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
 
     #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
     #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
-    fn verify_signature(
-        &self,
-        server_secret: &[u8],
-        server_signature: &[u8],
-        server_identifier: &ServerIdentifier,
-    ) -> Result<bool, Self::Error> {
-        let server_certificate = X509::from_der(server_identifier.to_pem().contents())?;
-
-        let public_key = server_certificate.public_key()?;
-
-        let mut md_ctx = MdCtx::new()?;
-
-        md_ctx.digest_verify_init(Some(Md::sha256()), &public_key)?;
-        md_ctx.digest_verify_update(server_secret)?;
-        md_ctx.digest_verify_final(server_signature)
-    }
-
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
     fn client_signature(
         &self,
         client_certificate: &ClientIdentifier,
@@ -183,6 +164,25 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         let server_certificate = X509::from_der(server_certificate.to_pem().contents())?;
 
         Ok(server_certificate.signature().as_slice().to_vec())
+    }
+
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    fn verify_signature(
+        &self,
+        server_secret: &[u8],
+        server_signature: &[u8],
+        server_identifier: &ServerIdentifier,
+    ) -> Result<bool, Self::Error> {
+        let server_certificate = X509::from_der(server_identifier.to_pem().contents())?;
+
+        let public_key = server_certificate.public_key()?;
+
+        let mut md_ctx = MdCtx::new()?;
+
+        md_ctx.digest_verify_init(Some(Md::sha256()), &public_key)?;
+        md_ctx.digest_verify_update(server_secret)?;
+        md_ctx.digest_verify_final(server_signature)
     }
 
     #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
