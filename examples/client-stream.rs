@@ -3,7 +3,7 @@
 use std::{sync::Arc, thread::sleep, time::Duration};
 
 use moonlight_common::{
-    crypto::openssl::OpenSSLCryptoBackend,
+    crypto::rustcrypto::RustCryptoBackend,
     high::std::MoonlightHost,
     http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::ureq::UreqClient},
     stream::{
@@ -39,7 +39,7 @@ fn main() {
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
-    let crypto_backend = Arc::new(OpenSSLCryptoBackend::default());
+    let crypto_backend = Arc::new(RustCryptoBackend::default());
 
     // -- Load identity
     let (client_identifier, client_secret, server_identifier) = try_load_identity().unwrap();

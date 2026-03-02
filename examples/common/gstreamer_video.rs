@@ -4,11 +4,8 @@ use gstreamer::{
     prelude::{ElementExt, GstBinExtManual},
 };
 use gstreamer_app::AppSrc;
-use moonlight_common::stream::{
-    c::bindings::FrameType,
-    video::{
-        DecodeResult, SupportedVideoFormats, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoSetup,
-    },
+use moonlight_common::stream::video::{
+    DecodeResult, SupportedVideoFormats, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoSetup,
 };
 
 pub struct GStreamerVideoDecoder {

@@ -37,6 +37,7 @@ fn main() {
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
+    // Because we're using moonlight common c we can just use the OpenSSL backend, no need to include other crypto libraries
     let crypto_backend = Arc::new(OpenSSLCryptoBackend::default());
 
     // -- Load identity

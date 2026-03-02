@@ -55,18 +55,6 @@ pub async fn broadcast_magic_packet(mac: MacAddress) -> Result<(), io::Error> {
     Ok(())
 }
 
-#[derive(Debug, Error)]
-pub enum StreamConfigError {
-    #[error("hdr not supported")]
-    NotSupportedHdr,
-    #[error("4k not supported")]
-    NotSupported4k,
-    #[error("4k not supported: Your device must support HEVC or AV1 to stream at 4k")]
-    NotSupported4kCodecMissing,
-    #[error("4k not supported: Update GeForce Experience")]
-    NotSupported4kUpdateGfe,
-}
-
 pub struct MoonlightHost<Client> {
     client_unique_id: String,
     client: Mutex<Client>,

@@ -14,7 +14,7 @@ Those images will be stored inside of the [`example-data/apps`](../example-data/
 cargo run --example client-simple
 ```
 
-## client-stream
+## client-stream (NOT WORKING)
 
 Connects to a host using the rust moonlight protocol implementation.
 
@@ -22,7 +22,7 @@ Connects to a host using the rust moonlight protocol implementation.
 cargo run --example client-stream
 ```
 
-## client-tokio
+## client-tokio (NOT WORKING)
 
 Pair to a host and start a stream in an async context using the tokio library.
 

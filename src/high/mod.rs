@@ -6,9 +6,19 @@ use ::std::{error::Error, sync::PoisonError};
 
 use thiserror::Error;
 
-use crate::{
-    MoonlightError, high::tokio::StreamConfigError, http::pair::client::ClientPairingError,
-};
+use crate::{MoonlightError, http::pair::client::ClientPairingError};
+
+#[derive(Debug, Error)]
+pub enum StreamConfigError {
+    #[error("hdr not supported")]
+    NotSupportedHdr,
+    #[error("4k not supported")]
+    NotSupported4k,
+    #[error("4k not supported: Your device must support HEVC or AV1 to stream at 4k")]
+    NotSupported4kCodecMissing,
+    #[error("4k not supported: Update GeForce Experience")]
+    NotSupported4kUpdateGfe,
+}
 
 #[derive(Debug, Error)]
 pub enum MoonlightClientError {

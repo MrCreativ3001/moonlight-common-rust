@@ -8,7 +8,7 @@ use num_derive::FromPrimitive;
 
 use crate::{
     ServerVersion,
-    high::tokio::StreamConfigError,
+    high::StreamConfigError,
     http::{pair::PairingCryptoBackend, server_info::ApolloPermissions},
     stream::{
         audio::AudioConfig,
@@ -215,15 +215,15 @@ impl MoonlightStreamSettings {
         let supports_4k = Self::is_4k_supported(version, server_codec_mode_support);
 
         if resolution_above_4k && !supports_4k {
-            return Err(StreamConfigError::NotSupported4k.into());
+            return Err(StreamConfigError::NotSupported4k);
         } else if resolution_above_4k
             && self
                 .supported_video_formats
                 .contains(!SupportedVideoFormats::MASK_H264)
         {
-            return Err(StreamConfigError::NotSupported4kCodecMissing.into());
+            return Err(StreamConfigError::NotSupported4kCodecMissing);
         } else if self.height > 2160 && supports_4k {
-            return Err(StreamConfigError::NotSupported4kUpdateGfe.into());
+            return Err(StreamConfigError::NotSupported4kUpdateGfe);
         }
 
         Ok(())
