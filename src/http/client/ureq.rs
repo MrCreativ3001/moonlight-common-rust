@@ -59,14 +59,14 @@ impl RequestClient for UreqClient {
 
     fn with_defaults() -> Result<Self, Self::Error> {
         let config = Agent::config_builder()
-            .timeout_global(Some(DEFAULT_LONG_TIMEOUT))
+            .timeout_global(Some(DEFAULT_TIMEOUT))
             .build();
 
         Ok(config)
     }
     fn with_defaults_long_timeout() -> Result<Self, Self::Error> {
         let config = Agent::config_builder()
-            .timeout_global(Some(DEFAULT_TIMEOUT))
+            .timeout_global(Some(DEFAULT_LONG_TIMEOUT))
             .build();
 
         Ok(config)
