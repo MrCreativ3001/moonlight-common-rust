@@ -33,7 +33,6 @@ cargo run --example client-tokio --features tokio
 Connects to a host using the moonlight common c protocol implementation.
 
 This is currently only possible using [rust nightly](https://rust-lang.github.io/rustup/concepts/channels.html) and has these requirements:
-Required for building:
 - A [CMake installation](https://cmake.org/download/) which will automatically compile the [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) library
 - [openssl-sys](https://docs.rs/openssl-sys/0.9.109/openssl_sys/): For information on building openssl sys go to the [openssl docs](https://docs.rs/openssl/latest/openssl/)
 - A [bindgen installation](https://rust-lang.github.io/rust-bindgen/requirements.html) for generating the bindings to the [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) library
