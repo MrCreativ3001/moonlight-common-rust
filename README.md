@@ -21,3 +21,4 @@ This design allows the same protocol implementation to be reused across native a
 
 The [`examples/`](./examples) directory contains examples demonstrating how to use the crate with the I/O implementations this library provides.
 
+If you directly want to use the Sans IO protocol implementation, take a look at the [proto module](src/stream/proto/mod.rs) and the [std](src/stream/std/mod.rs) or [tokio](TODO) stream implementations as an example on how to use it.
