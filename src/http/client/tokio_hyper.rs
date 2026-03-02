@@ -160,11 +160,11 @@ async fn response_to_bytes(mut response: Response<Incoming>) -> Result<Vec<u8>, 
 }
 
 #[derive(Debug, Clone)]
-pub struct HyperClient {
+pub struct TokioHyperClient {
     client: Client<HttpsConnector<HttpConnector>, Empty<Bytes>>,
 }
 
-impl RequestClient for HyperClient {
+impl RequestClient for TokioHyperClient {
     type Error = HyperError;
 
     fn with_defaults_long_timeout() -> Result<Self, Self::Error> {

@@ -8,8 +8,8 @@ pub mod blocking_client;
 #[cfg(feature = "ureq")]
 pub mod ureq;
 
-#[cfg(feature = "hyper")]
-pub mod hyper;
+#[cfg(feature = "tokio-hyper")]
+pub mod tokio_hyper;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_LONG_TIMEOUT: Duration = Duration::from_secs(90);
@@ -21,7 +21,7 @@ pub trait RequestError: TryInto<ParseError, Error = Self> {
     fn is_encryption(&self) -> bool;
 }
 
-#[cfg(any(feature = "ureq", feature = "hyper"))]
+#[cfg(any(feature = "ureq", feature = "tokio-hyper"))]
 mod hyperlike {
     use hyper::Uri;
 

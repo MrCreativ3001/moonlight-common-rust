@@ -26,6 +26,8 @@ mod common;
 fn main() {
     common::init();
 
+    // This implementation is not done yet, use the client-common-c
+
     let address = "192.168.178.140".to_string();
     // let address = "localhost".to_string();
 

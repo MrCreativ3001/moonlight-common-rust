@@ -7,7 +7,7 @@ use moonlight_common::{
     high::tokio::MoonlightHost,
     http::{
         DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
-        client::hyper::HyperClient,
+        client::tokio_hyper::TokioHyperClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
@@ -27,9 +27,10 @@ async fn main() {
     let http_port = DEFAULT_HTTP_PORT;
     let unique_id = DEFAULT_UNIQUE_ID.to_string();
 
-    // Create a new client that'll use the [TODO: CLIENT] in the background to make requests
+    // Create a new client that'll use the [TokioHyperClient] in the background to make requests
     let client =
-        MoonlightHost::<HyperClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<TokioHyperClient>::new(address.clone(), http_port, Some(unique_id))
+            .unwrap();
 
     // Create a Crypto Backend
     let crypto_provider = Arc::new(OpenSSLCryptoBackend::default());

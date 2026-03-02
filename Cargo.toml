@@ -103,7 +103,7 @@ rustcrypto = []
 
 # Request implementations
 ureq = ["dep:http", "dep:hyper", "dep:ureq"]
-hyper = [
+tokio-hyper = [
     "dep:bytes",
     "dep:http",
     "dep:rustls",
