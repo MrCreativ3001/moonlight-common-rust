@@ -19,6 +19,9 @@ pub const DEFAULT_AUDIO_PORT: u16 = 48000;
 
 #[derive(Debug, Error)]
 pub enum ParseMoonlightRtspResponseError {
+    // TODO: implement the status code on all rtsp responses
+    #[error("status code not success({code}): {message:?}")]
+    StatusCode { message: Option<String>, code: i32 },
     #[error("no payload")]
     NoPayload,
     #[error("sdp error: {0}")]
@@ -346,6 +349,16 @@ pub fn send_rtsp_play(rtsp: &mut Rtsp, session_id: String) {
     };
 
     rtsp.send(request);
+}
+
+pub struct RtspPlayResponse {}
+
+impl RtspPlayResponse {
+    pub fn try_from_response(
+        response: &RtspResponse,
+    ) -> Result<Self, ParseMoonlightRtspResponseError> {
+        Ok(Self {})
+    }
 }
 
 // TODO: where is this used?

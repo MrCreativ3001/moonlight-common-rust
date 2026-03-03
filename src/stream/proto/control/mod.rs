@@ -8,13 +8,12 @@ use std::{
 
 use rusty_enet::{Packet, PacketKind, PeerID, error::PeerSendError};
 use thiserror::Error;
-use tracing::{Level, Span, debug, instrument, span, trace, warn};
+use tracing::{Level, Span, debug, debug_span, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
     stream::{
         AesIv, AesKey,
-        control::DEFAULT_CONTROL_PORT,
         proto::{
             control::packet::{
                 ControlPacket, ControlPacketNotSupported, PERIODIC_PING_INTERVAL,
@@ -101,7 +100,6 @@ enum Transport {
 }
 
 pub struct ControlStream {
-    span: Span,
     server_version: ServerVersion,
     addr: SocketAddr,
     last_now: Instant,
@@ -112,13 +110,16 @@ pub struct ControlStream {
 }
 
 impl ControlStream {
-    #[instrument(target = "moonlight::proto::control", level = Level::DEBUG, skip(now))]
+    #[instrument(level = Level::DEBUG)]
     pub fn new(now: Instant, mut config: ControlStreamConfig) -> Self {
         if config.server_version < ServerVersion::new(5, 0, 0, 0) {
             // TODO: implement control over tcp
 
             config.sunshine_encryption = None;
-            warn!(target: "moonlight::proto::control", "Tried to enable encryption on server version {:?} which doesn't have encryption support. Not using encryption!", config.server_version);
+            warn!(
+                "Tried to enable encryption on server version {:?} which doesn't have encryption support. Not using encryption!",
+                config.server_version
+            );
         }
 
         // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/ControlStream.c#L1713-L1737
@@ -145,7 +146,6 @@ impl ControlStream {
             .unwrap();
 
         Self {
-            span: span!(target: "moonlight::proto::stream", Level::DEBUG, "stream"),
             server_version: config.server_version,
             addr: config.addr,
             last_now: now,
@@ -162,7 +162,7 @@ impl ControlStream {
     }
 
     pub fn send(&mut self, packet: ControlPacket) -> Result<(), ControlStreamError> {
-        debug!(target: "moonlight::proto::control", parent: &self.span, packet = ?packet, "Sending Packet");
+        debug!(packet = ?packet, "Sending Packet");
 
         let mut buffer = [0; _];
 
@@ -226,7 +226,6 @@ impl ControlStream {
         Ok(())
     }
 
-    #[instrument(target = "moonlight::proto::control", level = Level::TRACE, skip(self), ret, err)]
     pub fn poll_output(&mut self) -> Result<ControlStreamOutput, ControlStreamError> {
         let mut timeout = loop {
             match &mut self.transport {
@@ -271,13 +270,15 @@ impl ControlStream {
                             encrypted.is_some(),
                             &data,
                         ) else {
-                            warn!(target:"moonlight_proto_control", parent: &self.span, "Failed to deserialize control packet!");
+                            warn!("Failed to deserialize control packet!");
 
-                            trace!(target: "moonlight_proto_control", parent: &self.span, "Failed to deserialize control packet: Peer: {peer:?}, Channel: {channel_id}, Data: {data:?}");
+                            trace!(
+                                "Failed to deserialize control packet: Peer: {peer:?}, Channel: {channel_id}, Data: {data:?}"
+                            );
                             continue;
                         };
 
-                        debug!(target: "moonlight::proto::control", parent: &self.span, packet = ?packet, "Received Packet");
+                        debug!(packet = ?packet, "Received Packet");
 
                         return Ok(ControlStreamOutput::Event(ControlStreamEvent::OnPacket(
                             packet,
@@ -311,7 +312,6 @@ impl ControlStream {
         Ok(ControlStreamOutput::Timeout(timeout))
     }
 
-    #[instrument(target = "moonlight::proto::control", level = Level::TRACE, skip(self), ret, err)]
     pub fn handle_input(&mut self, input: ControlStreamInput) -> Result<(), ControlStreamError> {
         match &mut self.transport {
             Transport::Enet { enet, .. } => match input {
@@ -332,7 +332,7 @@ impl ControlStream {
                     enet.handle_input(EnetInput::Receive { now, addr, data })?;
                 }
                 ControlStreamInput::Message(message) => {
-                    self.send(message.packet).unwrap();
+                    self.send(message.packet)?;
                 }
             },
             Transport::Tcp {} => {
@@ -356,13 +356,19 @@ impl ControlStream {
                 Err(ControlStreamError::Enet(EnetError::PeerSendError(
                     PeerSendError::NotConnected,
                 ))) => {
-                    debug!(target: "moonlight::proto::control", parent: &self.span, "Not sending periodic ping because the control stream (via enet) is not connected yet.");
+                    debug!(
+                        "Not sending periodic ping because the control stream (via enet) is not connected yet."
+                    );
                     // We are not connected yet -> we cannot send a ping
                     return Ok(None);
                 }
                 Err(err) => return Err(err),
             }
-            trace!(target: "moonlight::proto::control", parent: &self.span, "Sending Periodic Ping");
+            trace!(
+                last_ping = ?last_ping,
+                now = ?self.last_now,
+                "Sending Periodic Ping"
+            );
 
             self.last_ping = Some(self.last_now);
         }

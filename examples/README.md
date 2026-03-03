@@ -40,5 +40,5 @@ This is currently only possible using [rust nightly](https://rust-lang.github.io
 - A [bindgen installation](https://rust-lang.github.io/rust-bindgen/requirements.html) for generating the bindings to the [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) library
 
 ```
-cargo run --example client-simple --features stream-c
+cargo run --example client-common-c --features stream-c
 ```

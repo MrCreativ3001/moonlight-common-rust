@@ -231,10 +231,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
     ) -> Result<bool, Self::Error> {
         let certificate = Certificate::from_der(server_identifier.to_pem().contents())?;
 
-        // Extract SubjectPublicKeyInfo
         let spki = certificate.tbs_certificate.subject_public_key_info;
 
-        // Convert SPKI → RSA public key
         let public_key = RsaPublicKey::from_public_key_der(&spki.to_der()?)?;
 
         let verifying_key = VerifyingKey::<Sha256>::new(public_key);

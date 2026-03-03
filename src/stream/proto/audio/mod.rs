@@ -7,7 +7,7 @@ use std::{
 
 use reed_solomon_erasure::{galois_8::ReedSolomon, matrix::Matrix};
 use thiserror::Error;
-use tracing::{debug, trace};
+use tracing::{Level, debug, instrument, trace};
 
 use crate::stream::{
     AesIv, AesKey,
@@ -94,9 +94,8 @@ pub struct AudioStream {
 }
 
 impl AudioStream {
+    #[instrument(level = Level::DEBUG)]
     pub fn new(now: Instant, config: AudioStreamConfig) -> Self {
-        trace!(target: "moonlight_proto_audio", "Created new AudioStream with config: {config:?}");
-
         Self {
             addr: config.addr,
             opus_config: config.opus_config,
@@ -115,13 +114,6 @@ impl AudioStream {
     }
 
     pub fn poll_output(&mut self) -> Result<AudioStreamOutput, AudioStreamError> {
-        let output = self.do_poll()?;
-
-        trace!(target: "moonlight_proto_audio", "Output: {output:?}");
-
-        Ok(output)
-    }
-    fn do_poll(&mut self) -> Result<AudioStreamOutput, AudioStreamError> {
         match &mut self.state {
             State::SendPing {
                 last_send,
@@ -167,7 +159,6 @@ impl AudioStream {
                 } else if self.last_sample + MAXIMUM_SAMPLE_WAIT < self.last_now {
                     // TODO: use the timestamp to better estimate when we should skip samples
                     debug!(
-                        target: "moonlight_proto_audio",
                         "Dropping audio sample because it took too long to receive: Last Sample: {:?}, Current Time: {:?}",
                         self.last_sample, self.last_now
                     );
@@ -188,8 +179,6 @@ impl AudioStream {
     }
 
     pub fn handle_input(&mut self, input: AudioStreamInput) -> Result<(), AudioStreamError> {
-        trace!(target: "moonlight_proto_audio", "Input: {input:?}");
-
         match input {
             AudioStreamInput::Timeout(now) => {
                 self.last_now = now;

@@ -25,6 +25,7 @@ use crate::{
 #[cfg(feature = "stream-c")]
 pub mod c;
 
+#[cfg(feature = "stream-proto")]
 pub mod proto;
 
 #[cfg(feature = "std")]

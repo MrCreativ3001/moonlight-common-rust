@@ -10,6 +10,7 @@ use std::{
 };
 
 use thiserror::Error;
+use tracing::{Level, Span, info_span, instrument};
 
 use crate::stream::{
     MoonlightStreamConfig, MoonlightStreamSettings,
@@ -57,6 +58,10 @@ impl MoonlightStream {
         audio_decoder: impl AudioDecoder + Send + 'static,
         connection_listener: impl ConnectionListener + Send + 'static,
     ) -> Result<Self, MoonlightStreamError> {
+        let span = info_span!("stream");
+        let span2 = span.clone();
+        let _enter = span2.enter();
+
         let proto = MoonlightStreamProto::new(Instant::now(), config, settings)?;
 
         let (sender, receiver) = channel();
@@ -64,6 +69,8 @@ impl MoonlightStream {
         let (_, send_udp) = bind_udp_socket(sender.clone())?;
 
         spawn(move || {
+            let _enter = span.enter();
+
             proto_thread(
                 proto,
                 sender,
@@ -218,6 +225,7 @@ fn tcp_receive_thread(stream: Arc<TcpStream>, mut sender: Sender<Input>) {
     }
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn proto_thread(
     mut proto: MoonlightStreamProto,
     sender: Sender<Input>,
@@ -272,7 +280,10 @@ fn proto_thread(
                         }
                     });
 
+                    let span = Span::current();
                     spawn(move || {
+                        let _enter = span.enter();
+
                         audio_thread(audio_stream, udp, send_udp, audio_decoder);
                     });
                     continue;
@@ -292,7 +303,10 @@ fn proto_thread(
                         }
                     });
 
+                    let span = Span::current();
                     spawn(move || {
+                        let _enter = span.enter();
+
                         video_thread(video_stream, udp, send_udp, video_decoder);
                     });
                     continue;
@@ -316,7 +330,10 @@ fn proto_thread(
                         }
                     });
 
+                    let span = Span::current();
                     spawn(move || {
+                        let _enter = span.enter();
+
                         control_thread(control_stream, udp, receiver, connection_listener);
                     });
                     continue;
@@ -387,6 +404,7 @@ fn proto_thread(
 
 // TODO: audio queue using synchronized buffer
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn audio_thread(
     mut audio_stream: AudioStream,
     socket: Arc<UdpSocket>,
@@ -460,6 +478,7 @@ fn audio_thread(
 // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L16-L17
 const VIDEO_SECOND_TO_TIMESTAMP: f64 = 90000.0;
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn video_thread(
     mut video_stream: VideoStream,
     socket: Arc<UdpSocket>,
@@ -534,6 +553,7 @@ fn video_thread(
     }
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 fn control_thread(
     mut control_stream: ControlStream,
     socket: Arc<UdpSocket>,

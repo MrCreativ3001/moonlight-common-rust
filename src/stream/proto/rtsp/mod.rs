@@ -8,7 +8,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, Span, instrument, span};
+use tracing::{Level, debug, instrument};
 
 use crate::stream::proto::rtsp::raw::{
     ParseRtspResponseError, RtspAddr, RtspRequest, RtspResponse,
@@ -55,7 +55,6 @@ pub enum RtspInput<'a> {
 
 #[derive(Debug)]
 pub struct Rtsp {
-    span: Span,
     target: RtspAddr,
     client_version: String,
     sequence_number: usize,
@@ -78,7 +77,7 @@ enum State {
 impl Rtsp {
     // TODO: enet? https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L246-L371
     // TODO: maybe make client version an enum?
-    #[instrument(target = "moonlight::proto::rtsp", level = Level::DEBUG, ret, err)]
+    #[instrument(level = Level::DEBUG, err)]
     pub fn new(rtsp_url: &str, client_version: usize) -> Result<Self, RtspError> {
         let client_version = client_version.to_string();
 
@@ -95,7 +94,6 @@ impl Rtsp {
         }
 
         Ok(Self {
-            span: span!(target: "moonlight::proto::rtsp", Level::DEBUG, "rtsp"),
             target,
             sequence_number: 1,
             client_version,
@@ -115,12 +113,11 @@ impl Rtsp {
         self.target
     }
 
-    #[instrument(parent = &self.span, target = "moonlight::proto::rtsp", level = Level::DEBUG)]
     pub fn send(&mut self, request: RtspRequest) {
+        debug!(request = ?request, "Sending Rtsp Request");
         self.transmit.push_back(request);
     }
 
-    #[instrument(parent = &self.span, target = "moonlight::proto::rtsp", level = Level::TRACE, ret, err)]
     pub fn handle_input(&mut self, input: RtspInput) -> Result<(), RtspError> {
         match input {
             RtspInput::Connect => {
@@ -150,7 +147,6 @@ impl Rtsp {
         Ok(())
     }
 
-    #[instrument(parent = &self.span, target = "moonlight::proto::rtsp", level = Level::TRACE, skip(self), ret, err)]
     pub fn poll_output(&mut self) -> Result<RtspOutput, RtspError> {
         match &self.state {
             State::Connecting => {
@@ -232,6 +228,7 @@ impl Rtsp {
             State::WaitPayload => Ok(RtspOutput::Timeout),
             State::Disconnected => {
                 if let Some(current_response) = self.current_response.take() {
+                    debug!(response = ?current_response, "Received Rtsp Response");
                     return Ok(RtspOutput::Response(current_response));
                 }
 

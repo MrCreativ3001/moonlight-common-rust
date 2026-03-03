@@ -11,7 +11,7 @@ use crate::stream::proto::audio::{
     },
 };
 
-use tracing::warn;
+use tracing::{Level, instrument, warn};
 
 #[derive(Debug, Error, PartialEq)]
 pub enum AudioDepayloaderError {
@@ -76,6 +76,7 @@ pub struct AudioDepayloader {
 }
 
 impl AudioDepayloader {
+    #[instrument(level = Level::DEBUG)]
     pub fn new(config: AudioDepayloaderConfig) -> Self {
         let decoder = if config.fec {
             Some(create_audio_reed_solomon())
@@ -307,7 +308,7 @@ impl AudioDepayloader {
             }
         } else if rtp_header.packet_type == RTP_PAYLOAD_TYPE_AUDIO_FEC {
             if self.fec_decoder.is_none() {
-                warn!(target: "moonlight_proto_audio", "Received audio fec packet even though fec was disabled");
+                warn!("Received audio fec packet even though fec was disabled");
                 // fec disabled
                 return Ok(());
             }

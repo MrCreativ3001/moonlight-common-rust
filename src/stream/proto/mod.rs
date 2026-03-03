@@ -10,7 +10,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, Span, debug, instrument, span};
+use tracing::{Level, debug, instrument};
 
 use crate::{
     ServerVersion,
@@ -27,10 +27,10 @@ use crate::{
                 Rtsp, RtspError, RtspInput, RtspOutput,
                 moonlight::{
                     DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspDescribeResponse,
-                    RtspOptionsResponse, RtspSetupAudioResponse, RtspSetupControlResponse,
-                    RtspSetupVideoResponse, send_rtsp_announce, send_rtsp_control_setup,
-                    send_rtsp_describe, send_rtsp_options, send_rtsp_play, send_rtsp_setup_audio,
-                    send_rtsp_video_setup,
+                    RtspOptionsResponse, RtspPlayResponse, RtspSetupAudioResponse,
+                    RtspSetupControlResponse, RtspSetupVideoResponse, send_rtsp_announce,
+                    send_rtsp_control_setup, send_rtsp_describe, send_rtsp_options, send_rtsp_play,
+                    send_rtsp_setup_audio, send_rtsp_video_setup,
                 },
             },
             sdp::{
@@ -174,7 +174,6 @@ struct Sdp {
 /// ```
 ///
 pub struct MoonlightStreamProto {
-    span: Span,
     client_settings: MoonlightStreamSettings,
     rtsp: Rtsp,
     sdp: Option<Sdp>,
@@ -195,7 +194,7 @@ enum State {
     SetupControl,
     RtspSetupControlReceive { response: RtspSetupControlResponse },
     RtspAnnounceReceive,
-    RtspPlayDisconnect,
+    RtspPlayReceive,
     ControlRequestIdr,
     ControlStartB,
     Connected,
@@ -207,7 +206,7 @@ impl MoonlightStreamProto {
     ///
     /// To obtain a [MoonlightStreamConfig] you can use a [MoonlightClient](crate::high::MoonlightClient) and call the [MoonlightClient::start_stream](crate::high::MoonlightClient::start_stream) function.
     ///
-    #[instrument(target = "moonlight::proto::stream", err)]
+    #[instrument(level = Level::DEBUG, err)]
     pub fn new(
         now: Instant,
         config: MoonlightStreamConfig,
@@ -224,7 +223,6 @@ impl MoonlightStreamProto {
         };
 
         let mut this = Self {
-            span: span!(target: "moonlight::proto::stream", Level::DEBUG, "stream"),
             client_settings: settings,
             last_now: now,
             rtsp: Rtsp::new(&config.rtsp_session_url, client_version)?,
@@ -239,7 +237,6 @@ impl MoonlightStreamProto {
         Ok(this)
     }
 
-    #[instrument(parent = &self.span, target = "moonlight::proto::stream", level = Level::TRACE, skip(self), ret, err)]
     pub fn poll_output(&mut self) -> Result<MoonlightStreamOutput, MoonlightStreamProtoError> {
         let mut timeout;
         loop {
@@ -265,7 +262,7 @@ impl MoonlightStreamProto {
                         State::RtspDescribeReceive => {
                             let describe = RtspDescribeResponse::try_from_response(&response)?;
 
-                            debug!(target: "moonlight::proto::stream", sdp = ?describe.sdp, "Received Server Sdp");
+                            debug!(sdp = ?describe.sdp, "Received Server Sdp");
 
                             // The server won't send more information about itself so we can already create our client sdp
                             let (client_sdp, opus_config, video_format) =
@@ -278,7 +275,7 @@ impl MoonlightStreamProto {
                                 opus_config,
                                 video_format,
                             };
-                            debug!(target: "moonlight::proto::stream", sdp = ?sdp, "Generated Client Sdp");
+                            debug!(sdp = ?sdp, "Generated Client Sdp");
                             self.sdp = Some(sdp);
 
                             send_rtsp_setup_audio(&mut self.rtsp, None);
@@ -430,9 +427,14 @@ impl MoonlightStreamProto {
                             send_rtsp_play(&mut self.rtsp, session_id.clone());
 
                             // We can never receive a response from the play
-                            self.state = State::RtspPlayDisconnect;
+                            self.state = State::RtspPlayReceive;
 
                             continue;
+                        }
+                        State::RtspPlayReceive => {
+                            let _response = RtspPlayResponse::try_from_response(&response)?;
+
+                            self.state = State::ControlRequestIdr;
                         }
                         State::Connected => {
                             // TODO: this should at least print some warning?
@@ -486,13 +488,6 @@ impl MoonlightStreamProto {
                     self.state = State::RtspAnnounceReceive;
                     continue;
                 }
-                State::RtspPlayDisconnect => {
-                    // TODO: check for disconnect
-
-                    // TODO: do setup
-                    self.state = State::ControlRequestIdr;
-                    continue;
-                }
                 State::ControlRequestIdr => {
                     self.state = State::ControlStartB;
 
@@ -525,7 +520,6 @@ impl MoonlightStreamProto {
         Ok(MoonlightStreamOutput::Timeout(timeout))
     }
 
-    #[instrument(parent = &self.span, target = "moonlight::proto::stream", level = Level::TRACE, skip(self), ret, err)]
     pub fn handle_input(
         &mut self,
         input: MoonlightStreamInput,

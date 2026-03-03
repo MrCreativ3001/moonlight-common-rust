@@ -69,7 +69,6 @@ async fn main() {
                     &client_secret,
                     device_name,
                     pin,
-                    // TODO: replace with rustcrypto
                     crypto_provider.clone(),
                 )
                 .await

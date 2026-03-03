@@ -137,6 +137,6 @@ fn main() {
     sleep(Duration::from_secs(1000));
 
     // Stop the stream: this will block
-    // Dropping the [MoonlightStream] will stop the stream
+    // Dropping the [MoonlightStream] will also stop the stream
     stream.stop();
 }

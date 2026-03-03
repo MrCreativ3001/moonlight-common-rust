@@ -33,18 +33,18 @@ fn main() {
     // Create a Crypto Backend
     let crypto_provider = Arc::new(RustCryptoBackend::default());
 
-    // -- Create and pair to a host
+    // -- Pair to a host
 
     // Try to get existing identity
     match try_load_identity() {
         Some((client_identifier, client_secret, server_identifier)) => {
-            // Set already existing identity identity
+            // Set already existing identity
             client
                 .set_identity(client_identifier, client_secret, server_identifier)
                 .unwrap();
         }
         None => {
-            // Pair using new identity
+            // Generate new identity
             let (client_identifier, client_secret) =
                 crypto_provider.generate_client_identity().unwrap();
 
@@ -60,7 +60,6 @@ fn main() {
                     &client_secret,
                     device_name,
                     pin,
-                    // TODO: replace with rustcrypto
                     crypto_provider.clone(),
                 )
                 .unwrap();
