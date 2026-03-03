@@ -31,20 +31,6 @@ pub struct AudioDepayloaderConfig {
     pub fec: bool,
 }
 
-#[derive(Debug, PartialEq)]
-pub struct AudioSample {
-    /// Timestamps are in milliseconds
-    ///
-    /// When using moonlight common c timestamps are simulated because the library doesn't provide.
-    /// This means that they could theoretically desync.
-    ///
-    /// References:
-    /// - Sunshine https://github.com/LizardByte/Sunshine/blob/d157bb1d1eb7b0731cbf4caa7287bc7d715c5612/src/stream.cpp#L1646 and https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp#L971
-    /// - Also see [crate::stream::proto::sdp::client::ClientSdp::audio_packet_duration]
-    pub timestamp: u32,
-    pub buffer: Vec<u8>,
-}
-
 #[derive(Debug, Clone)]
 struct DataPacket {
     timestamp: u32,

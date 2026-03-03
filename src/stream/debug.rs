@@ -2,9 +2,8 @@ use tracing::info;
 
 use crate::stream::{
     AudioConfig, SupportedVideoFormats,
-    audio::{AudioDecoder, OpusMultistreamConfig},
+    audio::{AudioDecoder, AudioSample, OpusMultistreamConfig},
     connection::ConnectionListener,
-    proto::audio::depayloader::AudioSample,
     video::{DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder, VideoSetup},
 };
 
