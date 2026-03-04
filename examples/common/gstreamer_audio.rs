@@ -14,9 +14,8 @@ use gstreamer::{
     prelude::{ElementExt, GstBinExtManual},
 };
 use gstreamer_app::AppSrc;
-use moonlight_common::stream::{
-    audio::{AudioConfig, AudioDecoder, OpusMultistreamConfig},
-    proto::audio::depayloader::AudioSample,
+use moonlight_common::stream::audio::{
+    AudioConfig, AudioDecoder, AudioSample, OpusMultistreamConfig,
 };
 use tracing::{debug, info};
 
@@ -111,7 +110,7 @@ impl AudioDecoder for GStreamerAudioDecoder {
     fn decode_and_play_sample(&mut self, sample: AudioSample) {
         let mut buffer = Buffer::from_slice(sample.buffer);
 
-        let pts = ClockTime::from_mseconds(sample.timestamp as u64);
+        let pts = ClockTime::from_nseconds(sample.timestamp.as_nanos() as u64);
         let duration = ClockTime::from_nseconds(self.frame_duration.as_nanos() as u64);
 
         {

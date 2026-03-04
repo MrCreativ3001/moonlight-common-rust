@@ -68,7 +68,7 @@ ureq = { version = "3.2.0", features = [
 # Hyper Client
 # TODO: rename to tokio hyper
 bytes = { version = "1.11.1", optional = true }
-rustls = { version = "0.23.37", optional = true }
+rustls = { version = "0.23.37", default-features = false, optional = true }
 hyper-util = { version = "0.1.20", features = [
     "client",
     "tracing",

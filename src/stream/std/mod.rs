@@ -6,7 +6,7 @@ use std::{
         mpsc::{Receiver, RecvTimeoutError, Sender, channel},
     },
     thread::spawn,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use thiserror::Error;
@@ -519,7 +519,8 @@ fn video_thread(
                 video_decoder.submit_decode_unit(VideoDecodeUnit {
                     frame_number: frame.frame_number as i32,
                     frame_processing_latency: None,
-                    timestamp: 0,
+                    // TODO: timestamp
+                    timestamp: Duration::ZERO,
                     hdr_active: false,
                     color_space: ColorSpace::Rec709,
                     buffers: &buffers,

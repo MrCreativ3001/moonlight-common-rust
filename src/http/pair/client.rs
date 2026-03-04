@@ -842,7 +842,7 @@ mod test {
 
         init_test!();
 
-        test_pair_with(OpenSSLCryptoBackend::default());
+        test_pair_with(OpenSSLCryptoBackend);
     }
 
     #[cfg(feature = "rustcrypto")]
@@ -852,6 +852,6 @@ mod test {
 
         init_test!();
 
-        test_pair_with(RustCryptoBackend::default());
+        test_pair_with(RustCryptoBackend);
     }
 }

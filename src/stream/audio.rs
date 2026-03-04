@@ -33,6 +33,15 @@ pub struct OpusMultistreamConfig {
 }
 
 impl OpusMultistreamConfig {
+    pub const STEREO: OpusMultistreamConfig = OpusMultistreamConfig {
+        sample_rate: 48000,
+        channel_count: 2,
+        streams: 1,
+        coupled_streams: 1,
+        samples_per_frame: 960,
+        mapping: [0, 1, 0, 0, 0, 0, 0, 0],
+    };
+
     pub fn frame_duration(&self) -> Duration {
         Duration::from_secs_f64(self.samples_per_frame as f64 / self.sample_rate as f64)
     }
@@ -85,6 +94,7 @@ impl AudioConfig {
     }
 }
 
+// TODO: make this use a lifetime instead of owning the vec
 #[derive(Debug, PartialEq)]
 pub struct AudioSample {
     /// Timestamps are in milliseconds
@@ -95,7 +105,7 @@ pub struct AudioSample {
     /// References:
     /// - Sunshine https://github.com/LizardByte/Sunshine/blob/d157bb1d1eb7b0731cbf4caa7287bc7d715c5612/src/stream.cpp#L1646 and https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp#L971
     /// - Also see [crate::stream::proto::sdp::client::ClientSdp::audio_packet_duration]
-    pub timestamp: u32,
+    pub timestamp: Duration,
     pub buffer: Vec<u8>,
 }
 

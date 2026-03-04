@@ -43,6 +43,7 @@ impl Request for AppListRequest {
 // TODO: move App somewhere else
 #[derive(Debug, Clone, PartialEq)]
 pub struct App {
+    // TODO: make this a wrapper type: pub AppId(pub u32);
     pub id: u32,
     pub title: String,
     pub is_hdr_supported: bool,

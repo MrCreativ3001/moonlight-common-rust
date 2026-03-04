@@ -21,7 +21,7 @@ use rustls::{
     server::VerifierBuilderError,
 };
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{Level, debug, instrument};
 
 use crate::http::{
     ClientInfo, Endpoint, ParseError, TextResponse,
@@ -179,8 +179,8 @@ impl RequestClient for TokioHyperClient {
         Ok(Self { client })
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), skip_all, instrument(err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::DEBUG, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::DEBUG, err))]
     fn with_certificates(
         client_private_key: &pem::Pem,
         client_certificate: &pem::Pem,
@@ -236,7 +236,7 @@ impl RequestClient for TokioHyperClient {
         Ok(Self { client })
     }
 
-    #[instrument(skip(self, request), fields(path = E::path()), err)]
+    #[instrument(level = Level::DEBUG, skip(self, request), fields(path = E::path()), err)]
     async fn send_http<E>(
         &self,
         client_info: ClientInfo<'_>,
@@ -261,7 +261,7 @@ impl RequestClient for TokioHyperClient {
         Ok(E::Response::from_str(&response_text)?)
     }
 
-    #[instrument(skip(self, request), fields(path = E::path()), err)]
+    #[instrument(level = Level::DEBUG, skip(self, request), fields(path = E::path()), err)]
     async fn send_https<E>(
         &self,
         client_info: ClientInfo<'_>,
@@ -286,7 +286,7 @@ impl RequestClient for TokioHyperClient {
         Ok(E::Response::from_str(&response_text)?)
     }
 
-    #[instrument(skip(self, request), fields(path = E::path()), err)]
+    #[instrument(level = Level::DEBUG, skip(self, request), fields(path = E::path()), err)]
     async fn send_https_with_bytes<E>(
         &self,
         client_info: ClientInfo<'_>,

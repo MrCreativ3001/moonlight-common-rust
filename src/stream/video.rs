@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    fmt::{self, Display, Formatter},
+    time::Duration,
+};
 
 use crate::stream::bindings::{
     COLOR_RANGE_FULL, COLOR_RANGE_LIMITED, COLORSPACE_REC_601, COLORSPACE_REC_709,
@@ -72,6 +75,24 @@ bitflags! {
         const MASK_AV1 = VIDEO_FORMAT_MASK_AV1;
         const MASK_10BIT = VIDEO_FORMAT_MASK_10BIT;
         const MASK_YUV444 = VIDEO_FORMAT_MASK_YUV444;
+    }
+}
+
+impl Display for SupportedVideoFormats {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+
+        let mut first = true;
+        for (name, _) in self.iter_names() {
+            if !first {
+                write!(f, ",")?;
+            }
+            write!(f, "{}", name)?;
+
+            first = false;
+        }
+        write!(f, "]")?;
+        Ok(())
     }
 }
 
@@ -158,7 +179,7 @@ pub struct VideoDecodeUnit<'a> {
     ///
     /// References:
     /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
-    pub timestamp: u32,
+    pub timestamp: Duration,
     /// Determines if this frame is SDR or HDR
     ///
     /// Note: This is not currently parsed from the actual bitstream, so if your

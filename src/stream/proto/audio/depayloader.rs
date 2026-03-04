@@ -1,13 +1,20 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    time::Duration,
+};
 
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use thiserror::Error;
 
-use crate::stream::proto::audio::{
-    create_audio_reed_solomon,
-    packet::{
-        AudioFecHeader, INVALID_OPUS_HEADER, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
-        RTP_AUDIO_TOTAL_SHARDS, RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC, RtpAudioHeader,
+use crate::stream::{
+    audio::AudioSample,
+    proto::audio::{
+        create_audio_reed_solomon,
+        packet::{
+            AudioFecHeader, INVALID_OPUS_HEADER, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
+            RTP_AUDIO_TOTAL_SHARDS, RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC,
+            RtpAudioHeader,
+        },
     },
 };
 
@@ -40,7 +47,7 @@ struct DataPacket {
 impl DataPacket {
     fn to_sample(&self) -> AudioSample {
         AudioSample {
-            timestamp: self.timestamp,
+            timestamp: Duration::from_millis(self.timestamp as u64),
             buffer: self.payload.clone(),
         }
     }

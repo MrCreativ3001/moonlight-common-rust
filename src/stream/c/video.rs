@@ -129,7 +129,7 @@ unsafe fn convert_decode_unit<'a>(
                 (raw.frameHostProcessingLatency / 10) as u64,
             ))
         },
-        timestamp: raw.rtpTimestamp,
+        timestamp: Duration::from_nanos((raw.presentationTimeUs as u64 * 1_000_000_000) / 90_000),
         color_space: ColorSpace::from_u8(raw.colorspace).expect("valid Colorspace"),
         hdr_active: raw.hdrActive,
         buffers,

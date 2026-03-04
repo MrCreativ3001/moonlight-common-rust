@@ -67,8 +67,7 @@ impl VideoDecoder for GStreamerVideoDecoder {
 
                 buffer_mut.copy_from_slice(0, buffer).unwrap();
 
-                let pts_ns = (unit.timestamp as u64 * 1_000_000_000) / 90_000;
-                buffer_mut.set_pts(ClockTime::from_nseconds(pts_ns));
+                buffer_mut.set_pts(ClockTime::from_nseconds(unit.timestamp.as_nanos() as u64));
             }
             self.app_src.push_buffer(gst_buffer).unwrap();
         }

@@ -11,12 +11,10 @@ use tracing::{Level, debug, instrument, trace};
 
 use crate::stream::{
     AesIv, AesKey,
-    audio::OpusMultistreamConfig,
+    audio::{AudioSample, OpusMultistreamConfig},
     proto::{
         audio::{
-            depayloader::{
-                AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError, AudioSample,
-            },
+            depayloader::{AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError},
             packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS, RTP_AUDIO_TOTAL_SHARDS},
         },
         crypto::CryptoContext,

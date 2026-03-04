@@ -169,7 +169,7 @@ where
         Ok(())
     }
 
-    async fn server_info<R>(
+    async fn server_info_priv<R>(
         &self,
         f: impl FnOnce(&ServerInfoResponse) -> R,
     ) -> Result<R, MoonlightClientError> {
@@ -190,8 +190,12 @@ where
         }
     }
 
+    pub async fn server_info(&self) -> Result<ServerInfoResponse, MoonlightClientError> {
+        self.server_info_priv(|response| response.clone()).await
+    }
+
     pub async fn https_port(&self) -> Result<u16, MoonlightClientError> {
-        self.server_info(|info| info.https_port).await
+        self.server_info_priv(|info| info.https_port).await
     }
 
     fn build_https_address(address: &str, https_port: u16) -> String {
@@ -202,47 +206,48 @@ where
         Ok(Self::build_https_address(&self.address, https_port))
     }
     pub async fn external_port(&self) -> Result<u16, MoonlightClientError> {
-        self.server_info(|info| info.external_port).await
+        self.server_info_priv(|info| info.external_port).await
     }
 
     pub async fn host_name(&self) -> Result<String, MoonlightClientError> {
-        self.server_info(|info| info.host_name.clone()).await
+        self.server_info_priv(|info| info.host_name.clone()).await
     }
     pub async fn version(&self) -> Result<ServerVersion, MoonlightClientError> {
-        self.server_info(|info| info.app_version).await
+        self.server_info_priv(|info| info.app_version).await
     }
 
     pub async fn gfe_version(&self) -> Result<String, MoonlightClientError> {
-        self.server_info(|info| info.gfe_version.clone()).await
+        self.server_info_priv(|info| info.gfe_version.clone()).await
     }
     pub async fn unique_id(&self) -> Result<Uuid, MoonlightClientError> {
-        self.server_info(|info| info.unique_id).await
+        self.server_info_priv(|info| info.unique_id).await
     }
 
     /// Returns None if unpaired
     pub async fn mac(&self) -> Result<Option<MacAddress>, MoonlightClientError> {
-        self.server_info(|info| info.mac).await
+        self.server_info_priv(|info| info.mac).await
     }
     pub async fn local_ip(&self) -> Result<Ipv4Addr, MoonlightClientError> {
-        self.server_info(|info| info.local_ip).await
+        self.server_info_priv(|info| info.local_ip).await
     }
 
     pub async fn current_game(&self) -> Result<u32, MoonlightClientError> {
-        self.server_info(|info| info.current_game).await
+        self.server_info_priv(|info| info.current_game).await
     }
 
     pub async fn state(&self) -> Result<ServerState, MoonlightClientError> {
-        self.server_info(|info| info.state).await
+        self.server_info_priv(|info| info.state).await
     }
 
     pub async fn max_luma_pixels_hevc(&self) -> Result<u32, MoonlightClientError> {
-        self.server_info(|info| info.max_luma_pixels_hevc).await
+        self.server_info_priv(|info| info.max_luma_pixels_hevc)
+            .await
     }
 
     pub async fn server_codec_mode_support(
         &self,
     ) -> Result<ServerCodecModeSupport, MoonlightClientError> {
-        self.server_info(|info| info.server_codec_mode_support)
+        self.server_info_priv(|info| info.server_codec_mode_support)
             .await
     }
 
@@ -465,7 +470,7 @@ where
     ) -> Result<Option<ApolloPermissions>, MoonlightClientError> {
         self.check_paired().await?;
 
-        self.server_info(|info| info.apollo_permissions.clone())
+        self.server_info_priv(|info| info.apollo_permissions.clone())
             .await
     }
 
@@ -591,7 +596,7 @@ where
         })
     }
 
-    pub async fn cancel(&mut self) -> Result<bool, MoonlightClientError> {
+    pub async fn cancel(&self) -> Result<bool, MoonlightClientError> {
         self.check_paired().await?;
 
         let https_hostport = self.https_address().await?;

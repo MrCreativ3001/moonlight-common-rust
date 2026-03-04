@@ -28,11 +28,12 @@ pub enum MoonlightClientError {
     NotPaired,
     #[error("{0}")]
     StreamConfig(#[from] StreamConfigError),
+    // TODO: construct likely offline somewhere
     #[error("the host is likely offline")]
-    LikelyOffline,
+    Offline,
     #[error("unauthenticated")]
     Unauthenticated,
-    #[error("request: {0}")]
+    #[error("request: {0:?}")]
     Backend(Box<dyn Error + Send + Sync>),
     #[error("pairing: {0}")]
     Pairing(ClientPairingError<Box<dyn Error + Send + Sync>>),

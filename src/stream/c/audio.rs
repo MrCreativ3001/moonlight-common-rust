@@ -3,15 +3,15 @@ use std::{
     os::raw::{c_char, c_int},
     slice,
     sync::{LazyLock, Mutex},
+    time::Duration,
 };
 
 use moonlight_common_sys::limelight::{_AUDIO_RENDERER_CALLBACKS, POPUS_MULTISTREAM_CONFIGURATION};
 
 use crate::stream::{
     AudioConfig,
-    audio::{AudioDecoder, OpusMultistreamConfig},
+    audio::{AudioDecoder, AudioSample, OpusMultistreamConfig},
     c::bindings::Capabilities,
-    proto::audio::depayloader::AudioSample,
 };
 
 static GLOBAL_AUDIO_DECODER: Mutex<Option<Box<dyn AudioDecoder + Send + 'static>>> =
@@ -113,7 +113,8 @@ unsafe extern "C" fn decode_and_play_sample(data: *mut c_char, len: c_int) {
             lock.timestamp
         };
 
-        // TODO: how to track the timestamp?
+        let timestamp = Duration::from_millis(timestamp as u64);
+
         // TODO: remove clone
 
         decoder.decode_and_play_sample(AudioSample {

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use moonlight_common::{
-    crypto::{openssl::OpenSSLCryptoBackend, rustcrypto::RustCryptoBackend},
+    crypto::{rustcrypto::RustCryptoBackend},
     high::tokio::MoonlightHost,
     http::{
         DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
@@ -33,7 +33,7 @@ async fn main() {
             .unwrap();
 
     // Create a Crypto Backend
-    let crypto_provider = Arc::new(RustCryptoBackend::default());
+    let crypto_provider = Arc::new(RustCryptoBackend);
 
     // Try to get existing identity
     match try_load_identity_async().await {

@@ -23,7 +23,7 @@ use sha2::Sha256;
 use signature::{SignatureEncoding, Signer, Verifier};
 use spki::DecodePublicKey;
 use thiserror::Error;
-use tracing::{Level, Span, debug_span, instrument, trace};
+use tracing::{Level, instrument, trace};
 use x509_cert::{
     Certificate,
     builder::{Builder, CertificateBuilder, Profile},
@@ -58,17 +58,7 @@ pub enum RustCryptoError {
 }
 
 #[derive(Debug)]
-pub struct RustCryptoBackend {
-    span: Span,
-}
-
-impl Default for RustCryptoBackend {
-    fn default() -> Self {
-        Self {
-            span: debug_span!("moonlight::crypto::rustcrypto"),
-        }
-    }
-}
+pub struct RustCryptoBackend;
 
 fn secure_rng() -> Result<OsRng, RustCryptoError> {
     Ok(OsRng)
@@ -77,8 +67,8 @@ fn secure_rng() -> Result<OsRng, RustCryptoError> {
 impl PairingCryptoBackend for RustCryptoBackend {
     type Error = RustCryptoError;
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self, output), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self, output), ret, err))]
     fn hash(
         &self,
         algorithm: HashAlgorithm,
@@ -101,8 +91,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
         Ok(())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self, data), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self, data), ret, err))]
     fn random_bytes(&self, data: &mut [u8]) -> Result<(), Self::Error> {
         secure_rng()?.try_fill_bytes(data)?;
 
@@ -111,8 +101,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
         Ok(())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn generate_client_identity(&self) -> Result<(ClientIdentifier, ClientSecret), Self::Error> {
         // Generate Private Key
         let private_key = RsaPrivateKey::new(&mut secure_rng()?, 2048)?;
@@ -153,8 +143,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
         ))
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn encrypt_aes(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, Self::Error> {
         // TODO: maybe return this as an error
         assert_eq!(key.len(), 16);
@@ -172,8 +162,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
         Ok(out)
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn decrypt_aes(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error> {
         // TODO: maybe return this as an error
         assert_eq!(key.len(), 16);
@@ -191,8 +181,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
         Ok(out)
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn client_signature(
         &self,
         client_certificate: &ClientIdentifier,
@@ -206,8 +196,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
             .to_vec())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn server_signature(
         &self,
         server_certificate: &ServerIdentifier,
@@ -221,8 +211,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
             .to_vec())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn verify_signature(
         &self,
         server_secret: &[u8],
@@ -242,8 +232,8 @@ impl PairingCryptoBackend for RustCryptoBackend {
             .is_ok())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn sign_data(&self, private_key: &ClientSecret, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
         let private_key = RsaPrivateKey::from_pkcs8_der(private_key.to_pem().contents())?;
 

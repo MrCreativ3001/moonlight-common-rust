@@ -19,7 +19,7 @@ use openssl::{
     x509::{X509, X509Builder, X509NameBuilder},
 };
 use pem::Pem;
-use tracing::{Level, Span, debug_span, instrument, trace};
+use tracing::{Level, instrument, trace};
 
 use crate::http::{
     ClientIdentifier, ClientSecret, ServerIdentifier,
@@ -27,23 +27,13 @@ use crate::http::{
 };
 
 #[derive(Debug)]
-pub struct OpenSSLCryptoBackend {
-    span: Span,
-}
-
-impl Default for OpenSSLCryptoBackend {
-    fn default() -> Self {
-        Self {
-            span: debug_span!("moonlight::crypto::openssl"),
-        }
-    }
-}
+pub struct OpenSSLCryptoBackend;
 
 impl PairingCryptoBackend for OpenSSLCryptoBackend {
     type Error = ErrorStack;
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self, output), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self, output), ret, err))]
     fn hash(
         &self,
         algorithm: HashAlgorithm,
@@ -66,8 +56,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         Ok(())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self, data), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self, data), ret, err))]
     fn random_bytes(&self, data: &mut [u8]) -> Result<(), Self::Error> {
         rand_bytes(data)?;
 
@@ -76,8 +66,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         Ok(())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn generate_client_identity(&self) -> Result<(ClientIdentifier, ClientSecret), Self::Error> {
         let rsa = Rsa::generate(2048)?;
         let key = PKey::from_rsa(rsa)?;
@@ -117,8 +107,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         ))
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn encrypt_aes(&self, key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, Self::Error> {
         let mut cipher_ctx = CipherCtx::new()?;
 
@@ -130,8 +120,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         Ok(output)
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn decrypt_aes(&self, key: &[u8], ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error> {
         let mut cipher_ctx = CipherCtx::new()?;
 
@@ -144,8 +134,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         Ok(decrypted)
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn client_signature(
         &self,
         client_certificate: &ClientIdentifier,
@@ -155,8 +145,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         Ok(client_certificate.signature().as_slice().to_vec())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn server_signature(
         &self,
         server_certificate: &ServerIdentifier,
@@ -166,8 +156,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         Ok(server_certificate.signature().as_slice().to_vec())
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn verify_signature(
         &self,
         server_secret: &[u8],
@@ -185,8 +175,8 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         md_ctx.digest_verify_final(server_signature)
     }
 
-    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, parent = &self.span, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, parent = &self.span, skip(self), ret, err))]
+    #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::TRACE, skip_all, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::TRACE, skip(self), ret, err))]
     fn sign_data(&self, private_key: &ClientSecret, data: &[u8]) -> Result<Vec<u8>, Self::Error> {
         let private_key = PKey::<Private>::private_key_from_der(private_key.to_pem().contents())?;
 
