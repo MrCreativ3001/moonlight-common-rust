@@ -33,7 +33,7 @@ impl Request for UnpairRequest {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
     where
         Q: QueryIter<'a>,
     {
@@ -52,7 +52,7 @@ impl TextResponse for UnpairResponse {
 impl FromStr for UnpairResponse {
     type Err = ParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(_s: &str) -> Result<Self, Self::Err> {
         Ok(Self {})
     }
 }

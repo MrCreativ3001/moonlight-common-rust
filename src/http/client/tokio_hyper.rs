@@ -225,7 +225,7 @@ impl RequestClient for TokioHyperClient {
             .set_certificate_verifier(Arc::new(verifier));
 
         // Build the hyper rustls connector
-        let mut https_connector = hyper_rustls::HttpsConnectorBuilder::new()
+        let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(config)
             .https_or_http()
             .enable_http1()

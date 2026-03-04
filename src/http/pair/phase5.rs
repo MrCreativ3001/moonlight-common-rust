@@ -26,7 +26,7 @@ impl Request for PairPhase5Request {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
     where
         Q: QueryIter<'a>,
     {

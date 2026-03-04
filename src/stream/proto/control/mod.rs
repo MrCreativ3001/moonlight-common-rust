@@ -8,7 +8,7 @@ use std::{
 
 use rusty_enet::{Packet, PacketKind, PeerID, error::PeerSendError};
 use thiserror::Error;
-use tracing::{Level, Span, debug, debug_span, instrument, trace, warn};
+use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -154,7 +154,7 @@ impl ControlStream {
                 peer: Some(peer),
                 connected: false,
                 // TODO: encryption
-                encrypted: config.sunshine_encryption.map(|x| todo!()),
+                encrypted: config.sunshine_encryption.map(|_x| todo!()),
             },
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
             buffered_packets: Vec::new(),
@@ -211,7 +211,7 @@ impl ControlStream {
 
                 let peer = enet.peer(*peer).unwrap();
 
-                if let Some(encryption) = &encrypted {
+                if let Some(_encryption) = &encrypted {
                     todo!()
                 } else {
                     peer.send(channel_id, &Packet::new(buffer.to_vec(), packet_kind))
@@ -240,7 +240,7 @@ impl ControlStream {
                     }
                     EnetOutput::Event(EnetEvent::Connect {
                         peer: event_peer,
-                        data,
+                        data: _,
                     }) => {
                         if *peer == Some(event_peer) {
                             *connected = true;

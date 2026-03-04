@@ -39,7 +39,7 @@ fn main() {
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
-    let crypto_backend = Arc::new(RustCryptoBackend::default());
+    let crypto_backend = Arc::new(RustCryptoBackend);
 
     // -- Load identity
     let (client_identifier, client_secret, server_identifier) = try_load_identity().unwrap();

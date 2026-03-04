@@ -37,7 +37,7 @@ impl Request for PairPhase2Request {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
     where
         Q: QueryIter<'a>,
     {
@@ -55,7 +55,7 @@ pub struct PairPhase2Response {
 }
 
 impl TextResponse for PairPhase2Response {
-    fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
+    fn serialize_into(&self, _body_writer: &mut impl fmt::Write) -> fmt::Result {
         todo!()
     }
 }

@@ -7,7 +7,7 @@ use std::{
 
 use reed_solomon_erasure::{galois_8::ReedSolomon, matrix::Matrix};
 use thiserror::Error;
-use tracing::{Level, debug, instrument, trace};
+use tracing::{Level, debug, instrument};
 
 use crate::stream::{
     AesIv, AesKey,

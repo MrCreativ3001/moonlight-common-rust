@@ -173,7 +173,7 @@ impl MoonlightStreamSettings {
             return Err(StreamConfigError::NotSupportedHdr);
         }
 
-        self.check_resolution_supported(version, server_codec_mode_support)?;
+        self.check_resolution_supported(version, gfe_version, server_codec_mode_support)?;
 
         if version.is_nvidia_software() {
             // Using an FPS value over 60 causes SOPS to default to 720p60,
@@ -210,10 +210,12 @@ impl MoonlightStreamSettings {
     fn check_resolution_supported(
         &self,
         version: ServerVersion,
+        gfe_version: &str,
         server_codec_mode_support: ServerCodecModeSupport,
     ) -> Result<(), StreamConfigError> {
         let resolution_above_4k = self.width > 4096 || self.height > 4096;
         let supports_4k = Self::is_4k_supported(version, server_codec_mode_support);
+        let supports_4k_gfe = Self::is_4k_supported_gfe(gfe_version);
 
         if resolution_above_4k && !supports_4k {
             return Err(StreamConfigError::NotSupported4k);
@@ -223,7 +225,7 @@ impl MoonlightStreamSettings {
                 .contains(!SupportedVideoFormats::MASK_H264)
         {
             return Err(StreamConfigError::NotSupported4kCodecMissing);
-        } else if self.height > 2160 && supports_4k {
+        } else if self.height > 2160 && supports_4k_gfe {
             return Err(StreamConfigError::NotSupported4kUpdateGfe);
         }
 

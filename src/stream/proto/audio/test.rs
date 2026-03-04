@@ -1,4 +1,4 @@
-use std::array;
+use std::{array, time::Duration};
 
 use crate::stream::{
     audio::AudioSample,
@@ -614,7 +614,7 @@ pub fn test_audio_depayloader_no_fec() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec()
         }))
     );
@@ -635,7 +635,7 @@ pub fn test_audio_depayloader_no_fec() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
@@ -656,7 +656,7 @@ pub fn test_audio_depayloader_no_fec() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         }))
     );
@@ -677,7 +677,7 @@ pub fn test_audio_depayloader_no_fec() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -736,14 +736,14 @@ fn test_audio_depayloader_no_fec_reorder() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
@@ -764,14 +764,14 @@ fn test_audio_depayloader_no_fec_reorder() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -832,14 +832,14 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
@@ -849,7 +849,7 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -871,7 +871,7 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 20,
+            timestamp: Duration::from_millis(20),
             buffer: fifth_data.to_vec(),
         }))
     );
@@ -901,7 +901,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
@@ -911,7 +911,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
@@ -921,7 +921,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         }))
     );
@@ -931,7 +931,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -960,7 +960,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 20,
+            timestamp: Duration::from_millis(20),
             buffer: first_data.to_vec(),
         }))
     );
@@ -970,7 +970,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 25,
+            timestamp: Duration::from_millis(25),
             buffer: second_data.to_vec(),
         }))
     );
@@ -980,7 +980,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 30,
+            timestamp: Duration::from_millis(30),
             buffer: third_data.to_vec(),
         }))
     );
@@ -990,7 +990,7 @@ fn test_audio_depayloader() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 35,
+            timestamp: Duration::from_millis(35),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -1039,7 +1039,7 @@ fn test_audio_depayloader_reorder() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data1.to_vec(),
         }))
     );
@@ -1052,14 +1052,14 @@ fn test_audio_depayloader_reorder() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data1.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data1.to_vec(),
         }))
     );
@@ -1072,14 +1072,14 @@ fn test_audio_depayloader_reorder() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data1.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 20,
+            timestamp: Duration::from_millis(20),
             buffer: first_data2.to_vec(),
         }))
     );
@@ -1092,21 +1092,21 @@ fn test_audio_depayloader_reorder() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 25,
+            timestamp: Duration::from_millis(25),
             buffer: second_data2.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 30,
+            timestamp: Duration::from_millis(30),
             buffer: third_data2.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 35,
+            timestamp: Duration::from_millis(35),
             buffer: fourth_data2.to_vec(),
         }))
     );
@@ -1154,7 +1154,7 @@ fn test_audio_depayloader_packet_loss_no_recover() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
@@ -1164,14 +1164,14 @@ fn test_audio_depayloader_packet_loss_no_recover() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 20,
+            timestamp: Duration::from_millis(20),
             buffer: first_data.to_vec(),
         }))
     );
@@ -1208,28 +1208,28 @@ fn test_audio_depayloader_packet_loss_recover() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -1257,7 +1257,7 @@ fn test_audio_depayloader_packet_loss_recover_use_polled_packet() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
@@ -1275,21 +1275,21 @@ fn test_audio_depayloader_packet_loss_recover_use_polled_packet() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -1317,7 +1317,7 @@ fn test_audio_depayloader_late_data_packet_fec_recovery() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
@@ -1333,21 +1333,21 @@ fn test_audio_depayloader_late_data_packet_fec_recovery() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 5,
+            timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 10,
+            timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 15,
+            timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         }))
     );
@@ -1377,7 +1377,7 @@ fn test_audio_depayloader_big_packet_loss() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 0,
+            timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         }))
     );
@@ -1398,7 +1398,7 @@ fn test_audio_depayloader_big_packet_loss() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 20,
+            timestamp: Duration::from_millis(20),
             buffer: first_data.to_vec(),
         }))
     );
@@ -1408,7 +1408,7 @@ fn test_audio_depayloader_big_packet_loss() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 25,
+            timestamp: Duration::from_millis(25),
             buffer: second_data.to_vec(),
         }))
     );
@@ -1431,7 +1431,7 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 460,
+            timestamp: Duration::from_millis(460),
             buffer: expected1.to_vec(),
         }))
     );
@@ -1441,7 +1441,7 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 465,
+            timestamp: Duration::from_millis(465),
             buffer: expected2.to_vec(),
         }))
     );
@@ -1451,7 +1451,7 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 470,
+            timestamp: Duration::from_millis(470),
             buffer: expected3.to_vec(),
         }))
     );
@@ -1461,7 +1461,7 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 475,
+            timestamp: Duration::from_millis(475),
             buffer: expected4.to_vec(),
         }))
     );
@@ -1475,7 +1475,7 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 460,
+            timestamp: Duration::from_millis(460),
             buffer: expected1.to_vec(),
         }))
     );
@@ -1491,21 +1491,21 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 465,
+            timestamp: Duration::from_millis(465),
             buffer: expected2.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 470,
+            timestamp: Duration::from_millis(470),
             buffer: expected3.to_vec(),
         }))
     );
     assert_eq!(
         depayloader.poll_sample(),
         Ok(Some(AudioSample {
-            timestamp: 475,
+            timestamp: Duration::from_millis(475),
             buffer: expected4.to_vec(),
         }))
     );

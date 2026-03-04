@@ -11,7 +11,7 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    Error, ServerState, ServerVersion,
+    ServerState, ServerVersion,
     high::MoonlightClientError,
     http::{
         ClientIdentifier, ClientInfo, ClientSecret, DEFAULT_UNIQUE_ID, ServerIdentifier,

@@ -85,7 +85,7 @@ struct LogMessage;
 
 impl LogMessageCallback for LogMessage {
     fn log_message(text: String) {
-        global_listener(|(_, listener)| unsafe {
+        global_listener(|(_, listener)| {
             listener.log_message(&text);
         });
     }

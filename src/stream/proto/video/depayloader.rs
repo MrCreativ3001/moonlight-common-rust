@@ -127,7 +127,7 @@ impl VideoDepayloader {
         #[cfg(debug_assertions)]
         {
             // Check the fec block for correctness
-            for (i, packet) in packets.iter().enumerate() {
+            for packet in packets.iter() {
                 debug_assert_eq!(packet.fec_total_data_shards, total_data_shards);
                 debug_assert_eq!(packet.timestamp, timestamp);
             }

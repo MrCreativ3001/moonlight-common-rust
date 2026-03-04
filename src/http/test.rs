@@ -5,7 +5,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
-    PairStatus, ServerState, ServerVersion,
+    ServerState, ServerVersion,
     http::{
         ClientInfo, DEFAULT_UNIQUE_ID, ParseError, QueryBuilder, QueryBuilderError, QueryParam,
         Request, TextResponse,
@@ -157,7 +157,7 @@ fn response_host_info_sunshine() {
             apollo_permissions: None,
             local_ip: Ipv4Addr::new(192, 168, 178, 140),
             server_codec_mode_support: ServerCodecModeSupport::from_bits(262145).unwrap(),
-            pair_status: PairStatus::NotPaired,
+            paired: false,
             current_game: 0,
             apollo_game_uuid: None,
             state: ServerState::Free,
@@ -200,7 +200,7 @@ fn response_host_info_apollo() {
             apollo_permissions: Some(ApolloPermissions::LIST),
             local_ip: Ipv4Addr::new(127, 0, 0, 1),
             server_codec_mode_support: ServerCodecModeSupport::from_bits(769).unwrap(),
-            pair_status: PairStatus::NotPaired,
+            paired: false,
             current_game: 0,
             apollo_game_uuid: Some(None),
             state: ServerState::Free,

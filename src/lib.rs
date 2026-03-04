@@ -72,14 +72,6 @@ impl FromStr for ServerState {
     }
 }
 
-// TODO: remove this
-#[deprecated]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum PairStatus {
-    NotPaired,
-    Paired,
-}
-
 #[derive(Debug, Error, PartialEq)]
 #[error("failed to parse server version")]
 pub enum ParseServerVersionError {

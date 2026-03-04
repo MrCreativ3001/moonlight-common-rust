@@ -6,7 +6,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    PairStatus, ServerState, ServerType, ServerVersion,
+    ServerState, ServerType, ServerVersion,
     http::{
         Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, Request, TextResponse,
         helper::{
@@ -107,7 +107,7 @@ pub struct ServerInfoResponse {
     pub mac: Option<MacAddress>,
     pub local_ip: Ipv4Addr,
     pub server_codec_mode_support: ServerCodecModeSupport,
-    pub pair_status: PairStatus,
+    pub paired: bool,
     pub current_game: u32,
     pub state: ServerState,
     /// Apollo Extension
@@ -200,10 +200,7 @@ impl TextResponse for ServerInfoResponse {
         )?;
 
         // <PairStatus>
-        let pair_value = match self.pair_status {
-            PairStatus::NotPaired => 0,
-            PairStatus::Paired => 1,
-        };
+        let pair_value = if self.paired { 0 } else { 1 };
         write!(body_writer, "<PairStatus>{pair_value}</PairStatus>")?;
 
         // <currentgame>
@@ -291,10 +288,10 @@ impl FromStr for ServerInfoResponse {
             server_codec_mode_support: ServerCodecModeSupport::from_bits_retain(
                 parse_xml_child_text(root, "ServerCodecModeSupport")?.parse()?,
             ),
-            pair_status: if parse_xml_child_text(root, "PairStatus")?.parse::<u32>()? == 0 {
-                PairStatus::NotPaired
+            paired: if parse_xml_child_text(root, "PairStatus")?.parse::<u32>()? == 0 {
+                false
             } else {
-                PairStatus::Paired
+                true
             },
             current_game: parse_xml_child_text(root, "currentgame")?.parse()?,
             state: ServerState::from_str(&state_string)?,
