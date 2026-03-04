@@ -122,6 +122,7 @@ where
 fn build_http_connector(timeout: Duration) -> HttpConnector {
     let mut http = HttpConnector::new();
     http.set_connect_timeout(Some(timeout));
+    http.enforce_http(false);
     http
 }
 
@@ -180,7 +181,7 @@ impl RequestClient for TokioHyperClient {
     }
 
     #[cfg_attr(not(feature = "__tracing_sensitive"), instrument(level = Level::DEBUG, skip_all, err))]
-    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::DEBUG, err))]
+    #[cfg_attr(feature = "__tracing_sensitive", instrument(level = Level::DEBUG, skip_all, err))]
     fn with_certificates(
         client_private_key: &pem::Pem,
         client_certificate: &pem::Pem,
@@ -224,7 +225,7 @@ impl RequestClient for TokioHyperClient {
             .set_certificate_verifier(Arc::new(verifier));
 
         // Build the hyper rustls connector
-        let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
+        let mut https_connector = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(config)
             .https_or_http()
             .enable_http1()

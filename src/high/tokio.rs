@@ -275,8 +275,6 @@ where
                 client_secret,
                 server_identifier,
             });
-
-            drop(client_lock);
         }
 
         self.update().await?;
