@@ -27,7 +27,7 @@ use crate::stream::{
         video::{VideoStream, VideoStreamInput, VideoStreamOutput},
     },
     std::ringbuffer::RingBuffer,
-    video::{ColorSpace, VideoDecodeUnit, VideoDecoder},
+    video::{ColorSpace, FrameType, VideoDecodeUnit, VideoDecoder, VideoFrameBuffer},
 };
 
 // TODO: move decoders into different thread because the network thread NEEDS to be quick to avoid packet losses by the underlying buffer dropping packets
@@ -511,19 +511,24 @@ fn video_thread(
 
                 let mut buffers = Vec::new();
                 for buffer in &frame.buffers {
-                    buffers.push(buffer.as_slice());
+                    buffers.push(VideoFrameBuffer {
+                        buffer_type: buffer.buffer_type,
+                        data: buffer.data.as_slice(),
+                    });
                 }
 
                 // TODO
 
                 video_decoder.submit_decode_unit(VideoDecodeUnit {
                     frame_number: frame.frame_number as i32,
+                    // TODO: frame type
+                    frame_type: FrameType::PFrame,
                     frame_processing_latency: None,
                     // TODO: timestamp
                     timestamp: Duration::ZERO,
                     hdr_active: false,
                     color_space: ColorSpace::Rec709,
-                    buffers: &buffers,
+                    buffers: buffers.as_slice(),
                 });
 
                 // TODO: stop video decoder

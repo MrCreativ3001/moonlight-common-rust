@@ -1,19 +1,14 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{IpAddr, Ipv4Addr},
     time::Instant,
 };
 
 use crate::{
     ServerVersion,
     stream::{
-        AesIv, AesKey, EncryptionFlags, MoonlightStreamConfig, MoonlightStreamSettings,
-        StreamingConfig,
-        audio::AudioConfig,
-        proto::{
-            MoonlightStreamAction, MoonlightStreamInput, MoonlightStreamOutput,
-            MoonlightStreamProto,
-        },
-        video::{ColorRange, ColorSpace, ServerCodecModeSupport, SupportedVideoFormats},
+        AesIv, AesKey, MoonlightStreamConfig,
+        proto::{MoonlightStreamAction, MoonlightStreamOutput},
+        video::ServerCodecModeSupport,
     },
 };
 

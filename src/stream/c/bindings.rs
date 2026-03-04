@@ -2,18 +2,16 @@ use std::{ffi::CStr, fmt::Debug, time::Duration};
 
 use bitflags::bitflags;
 use moonlight_common_sys::limelight::{
-    BUFFER_TYPE_PICDATA, BUFFER_TYPE_PPS, BUFFER_TYPE_SPS, BUFFER_TYPE_VPS,
     CAPABILITY_DIRECT_SUBMIT, CAPABILITY_PULL_RENDERER,
     CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1, CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC,
     CAPABILITY_REFERENCE_FRAME_INVALIDATION_HEVC, CAPABILITY_SLOW_OPUS_DECODER,
     CAPABILITY_SUPPORTS_ARBITRARY_AUDIO_DURATION, CONN_STATUS_OKAY, CONN_STATUS_POOR,
-    FRAME_TYPE_IDR, FRAME_TYPE_PFRAME, LiGetStageName, ML_ERROR_FRAME_CONVERSION,
-    ML_ERROR_GRACEFUL_TERMINATION, ML_ERROR_NO_VIDEO_FRAME, ML_ERROR_NO_VIDEO_TRAFFIC,
-    ML_ERROR_PROTECTED_CONTENT, ML_ERROR_UNEXPECTED_EARLY_TERMINATION, STAGE_AUDIO_STREAM_INIT,
-    STAGE_AUDIO_STREAM_START, STAGE_CONTROL_STREAM_INIT, STAGE_CONTROL_STREAM_START,
-    STAGE_INPUT_STREAM_INIT, STAGE_INPUT_STREAM_START, STAGE_MAX, STAGE_NAME_RESOLUTION,
-    STAGE_NONE, STAGE_PLATFORM_INIT, STAGE_RTSP_HANDSHAKE, STAGE_VIDEO_STREAM_INIT,
-    STAGE_VIDEO_STREAM_START,
+    LiGetStageName, ML_ERROR_FRAME_CONVERSION, ML_ERROR_GRACEFUL_TERMINATION,
+    ML_ERROR_NO_VIDEO_FRAME, ML_ERROR_NO_VIDEO_TRAFFIC, ML_ERROR_PROTECTED_CONTENT,
+    ML_ERROR_UNEXPECTED_EARLY_TERMINATION, STAGE_AUDIO_STREAM_INIT, STAGE_AUDIO_STREAM_START,
+    STAGE_CONTROL_STREAM_INIT, STAGE_CONTROL_STREAM_START, STAGE_INPUT_STREAM_INIT,
+    STAGE_INPUT_STREAM_START, STAGE_MAX, STAGE_NAME_RESOLUTION, STAGE_NONE, STAGE_PLATFORM_INIT,
+    STAGE_RTSP_HANDSHAKE, STAGE_VIDEO_STREAM_INIT, STAGE_VIDEO_STREAM_START,
 };
 use num_derive::FromPrimitive;
 
@@ -135,35 +133,6 @@ pub enum TerminationError {
     UnexpectedEarlyTermination = ML_ERROR_UNEXPECTED_EARLY_TERMINATION,
     ProtectedContent = ML_ERROR_PROTECTED_CONTENT,
     FrameConversion = ML_ERROR_FRAME_CONVERSION,
-}
-
-// --------------- Video ---------------
-/// These identify codec configuration data in the buffer lists
-/// of frames identified as IDR frames for H.264 and HEVC formats.
-/// For other codecs, all data is marked as BUFFER_TYPE_PICDATA.
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, FromPrimitive, PartialEq, Eq)]
-pub enum BufferType {
-    PicData = BUFFER_TYPE_PICDATA,
-    Sps = BUFFER_TYPE_SPS,
-    Pps = BUFFER_TYPE_PPS,
-    Vps = BUFFER_TYPE_VPS,
-}
-
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, FromPrimitive)]
-pub enum FrameType {
-    /// This is a standard frame which references the IDR frame and
-    /// previous P-frames.
-    PFrame = FRAME_TYPE_PFRAME,
-    /// This is a key frame.
-    ///
-    /// For H.264 and HEVC, this means the frame contains SPS, PPS, and VPS (HEVC only) NALUs
-    /// as the first buffers in the list. The I-frame data follows immediately
-    /// after the codec configuration NALUs.
-    ///
-    /// For other codecs, any configuration data is not split into separate buffers.
-    Idr = FRAME_TYPE_IDR,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

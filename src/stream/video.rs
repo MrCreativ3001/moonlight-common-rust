@@ -4,8 +4,9 @@ use std::{
 };
 
 use crate::stream::bindings::{
-    COLOR_RANGE_FULL, COLOR_RANGE_LIMITED, COLORSPACE_REC_601, COLORSPACE_REC_709,
-    COLORSPACE_REC_2020, DR_NEED_IDR, DR_OK, SCM_AV1_HIGH8_444, SCM_AV1_HIGH10_444, SCM_AV1_MAIN8,
+    BUFFER_TYPE_PICDATA, BUFFER_TYPE_PPS, BUFFER_TYPE_SPS, BUFFER_TYPE_VPS, COLOR_RANGE_FULL,
+    COLOR_RANGE_LIMITED, COLORSPACE_REC_601, COLORSPACE_REC_709, COLORSPACE_REC_2020, DR_NEED_IDR,
+    DR_OK, FRAME_TYPE_IDR, FRAME_TYPE_PFRAME, SCM_AV1_HIGH8_444, SCM_AV1_HIGH10_444, SCM_AV1_MAIN8,
     SCM_AV1_MAIN10, SCM_H264, SCM_H264_HIGH8_444, SCM_HEVC, SCM_HEVC_MAIN10, SCM_HEVC_REXT8_444,
     SCM_HEVC_REXT10_444, VIDEO_FORMAT_AV1_HIGH8_444, VIDEO_FORMAT_AV1_HIGH10_444,
     VIDEO_FORMAT_AV1_MAIN8, VIDEO_FORMAT_AV1_MAIN10, VIDEO_FORMAT_H264,
@@ -152,10 +153,47 @@ pub enum DecodeResult {
     NeedIdr = DR_NEED_IDR,
 }
 
+/// These identify codec configuration data in the buffer lists
+/// of frames identified as IDR frames for H.264 and HEVC formats.
+/// For other codecs, all data is marked as BUFFER_TYPE_PICDATA.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, FromPrimitive, PartialEq, Eq)]
+pub enum BufferType {
+    PicData = BUFFER_TYPE_PICDATA,
+    Sps = BUFFER_TYPE_SPS,
+    Pps = BUFFER_TYPE_PPS,
+    Vps = BUFFER_TYPE_VPS,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, FromPrimitive, PartialEq)]
+pub enum FrameType {
+    /// This is a standard frame which references the IDR frame and
+    /// previous P-frames.
+    PFrame = FRAME_TYPE_PFRAME,
+    /// This is a key frame.
+    ///
+    /// For H.264 and HEVC, this means the frame contains SPS, PPS, and VPS (HEVC only) NALUs
+    /// as the first buffers in the list. The I-frame data follows immediately
+    /// after the codec configuration NALUs.
+    ///
+    /// For other codecs, any configuration data is not split into separate buffers.
+    Idr = FRAME_TYPE_IDR,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct VideoFrameBuffer<Buf> {
+    pub buffer_type: BufferType,
+    pub data: Buf,
+}
+
 /// A decode unit describes a buffer chain of video data from multiple packets
 pub struct VideoDecodeUnit<'a> {
     /// Frame Number
     pub frame_number: i32,
+
+    pub frame_type: FrameType,
+
     /// Optional host processing latency of the frame, in 1/10 ms units.
     /// Zero when the host doesn't provide the latency data
     /// or frame processing latency is not applicable to the current frame
@@ -190,7 +228,7 @@ pub struct VideoDecodeUnit<'a> {
     /// Note: This is not currently parsed from the actual bitstream, so if your
     /// client has access to a bitstream parser, prefer that over this field.
     pub color_space: ColorSpace,
-    pub buffers: &'a [&'a [u8]],
+    pub buffers: &'a [VideoFrameBuffer<&'a [u8]>],
 }
 
 #[derive(Debug, Default)]

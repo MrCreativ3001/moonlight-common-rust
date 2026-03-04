@@ -4,8 +4,9 @@ use reed_solomon_erasure::galois_8::ReedSolomon;
 use thiserror::Error;
 use tracing::trace;
 
-use crate::stream::proto::video::packet::{
-    RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader, VideoHeaderFlags,
+use crate::stream::{
+    proto::video::packet::{RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader, VideoHeaderFlags},
+    video::VideoFrameBuffer,
 };
 
 // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
@@ -31,7 +32,8 @@ pub struct VideoFrame {
     /// References:
     /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
     pub timestamp: u32,
-    pub buffers: Vec<Vec<u8>>,
+    // TODO: fix the lifetime
+    pub buffers: Vec<VideoFrameBuffer<Vec<u8>>>,
 }
 
 struct Packet {
@@ -145,16 +147,18 @@ impl VideoDepayloader {
         if parity_shards == 0 {
             // We don't need fec reconstruction and we can directly submit our data
 
-            let mut buffers = Vec::new();
-            for packet in &packets {
-                buffers.push(packet.data.clone());
-            }
+            // TODO
+            // let mut buffers = Vec::new();
+            // for packet in &packets {
+            //     buffers.push(packet.data.clone());
+            // }
 
-            return Ok(Some(VideoFrame {
-                frame_number: sequence_number,
-                timestamp,
-                buffers,
-            }));
+            // return Ok(Some(VideoFrame {
+            //     frame_number: sequence_number,
+            //     timestamp,
+            //     buffers,
+            // }));
+            todo!()
         }
 
         // Do fec reconstruction
@@ -177,11 +181,13 @@ impl VideoDepayloader {
         // TODO: remove unwrap
         reed_solomon.reconstruct_data(&mut shards).unwrap();
 
-        Ok(Some(VideoFrame {
-            frame_number: sequence_number,
-            timestamp,
-            buffers: shards.into_iter().flatten().collect::<Vec<_>>(),
-        }))
+        // TODO: fix
+        // Ok(Some(VideoFrame {
+        //     frame_number: sequence_number,
+        //     timestamp,
+        //     buffers: shards.into_iter().flatten().collect::<Vec<_>>(),
+        // }))
+        todo!()
     }
 
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoQueueError> {

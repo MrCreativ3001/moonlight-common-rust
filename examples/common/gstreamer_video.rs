@@ -61,11 +61,11 @@ impl VideoDecoder for GStreamerVideoDecoder {
 
     fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<'_>) -> DecodeResult {
         for buffer in unit.buffers {
-            let mut gst_buffer = Buffer::with_size(buffer.len()).unwrap();
+            let mut gst_buffer = Buffer::with_size(buffer.data.len()).unwrap();
             {
                 let buffer_mut = gst_buffer.get_mut().unwrap();
 
-                buffer_mut.copy_from_slice(0, buffer).unwrap();
+                buffer_mut.copy_from_slice(0, buffer.data).unwrap();
 
                 buffer_mut.set_pts(ClockTime::from_nseconds(unit.timestamp.as_nanos() as u64));
             }

@@ -38,7 +38,7 @@ fn main() {
 
     // Create a Crypto Backend
     // Because we're using moonlight common c we can just use the OpenSSL backend, no need to include other crypto libraries
-    let crypto_backend = Arc::new(OpenSSLCryptoBackend::default());
+    let crypto_backend = Arc::new(OpenSSLCryptoBackend);
 
     // -- Load identity
     let Some((client_identifier, client_secret, server_identifier)) = try_load_identity() else {

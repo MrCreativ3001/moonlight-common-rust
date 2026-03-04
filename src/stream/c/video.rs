@@ -24,7 +24,8 @@ use crate::stream::{
     ColorSpace, SupportedVideoFormats,
     c::bindings::Capabilities,
     video::{
-        DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoSetup,
+        BufferType, DecodeResult, FrameType, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
+        VideoFormat, VideoFrameBuffer, VideoSetup,
     },
 };
 
@@ -78,7 +79,7 @@ unsafe extern "C" fn start() {
     })
 }
 
-static BUFFER: Mutex<Vec<&'static [u8]>> = Mutex::new(Vec::new());
+static BUFFER: Mutex<Vec<VideoFrameBuffer<&'static [u8]>>> = Mutex::new(Vec::new());
 
 unsafe extern "C" fn submit_decode_unit(decode_unit: PDECODE_UNIT) -> c_int {
     // # Safety
@@ -101,7 +102,7 @@ unsafe extern "C" fn submit_decode_unit(decode_unit: PDECODE_UNIT) -> c_int {
 /// Converts the cpp decode unit into the rust one
 unsafe fn convert_decode_unit<'a>(
     decode_unit: PDECODE_UNIT,
-    buffers: &'a mut Vec<&'static [u8]>,
+    buffers: &'a mut Vec<VideoFrameBuffer<&'static [u8]>>,
 ) -> VideoDecodeUnit<'a> {
     buffers.clear();
 
@@ -114,7 +115,11 @@ unsafe fn convert_decode_unit<'a>(
 
             let new_element =
                 slice::from_raw_parts(element_raw.data as *const u8, element_raw.length as usize);
-            buffers.push(new_element);
+            buffers.push(VideoFrameBuffer {
+                buffer_type: BufferType::from_i32(element_raw.bufferType)
+                    .expect("valid buffer type"),
+                data: new_element,
+            });
 
             next_element_ptr = element_raw.next;
         }
@@ -122,6 +127,7 @@ unsafe fn convert_decode_unit<'a>(
 
     VideoDecodeUnit {
         frame_number: raw.frameNumber,
+        frame_type: FrameType::from_i32(raw.frameType).expect("valid frame type"),
         frame_processing_latency: if raw.frameHostProcessingLatency == 0 {
             None
         } else {
@@ -239,7 +245,7 @@ pub struct PullVideoManager {
     setup: Option<VideoSetup>,
     setup_code_sender: Option<Sender<i32>>,
     active: Arc<AtomicBool>,
-    buffers: Vec<&'static [u8]>,
+    buffers: Vec<VideoFrameBuffer<&'static [u8]>>,
 }
 
 impl PullVideoManager {
