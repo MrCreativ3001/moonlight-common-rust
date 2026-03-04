@@ -4,6 +4,8 @@
 
 It provides a transport-agnostic protocol core with packet parsing and state management fully decoupled from networking and async runtimes. The crate also includes bindings to Moonlight Common C for interoperability with the existing implementation.
 
+The Sans IO implementation is not finished yet.
+
 ## Why Sans-IO?
 
 Separating protocol logic from I/O makes the library flexible and reusable across different environments.

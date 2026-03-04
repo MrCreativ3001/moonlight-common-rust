@@ -81,6 +81,9 @@ impl MoonlightInstance {
         }
     }
 
+    /// Starts a stream.
+    ///
+    /// This is a blocking operation and will block until the stream successfully started.
     pub fn start_connection(
         &self,
         stream_config: MoonlightStreamConfig,
