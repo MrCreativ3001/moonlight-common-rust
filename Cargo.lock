@@ -860,6 +860,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "openssl",
+ "openssl-src",
  "openssl-sys",
  "pem",
  "pkcs8",
@@ -1054,9 +1055,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-src"
-version = "300.5.5+3.5.5"
+version = "300.5.3+3.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f1787d533e03597a7934fd0a765f0d28e94ecc5fb7789f8053b1e699a56f709"
+checksum = "dc6bad8cd0233b63971e232cc9c5e83039375b8586d2312f31fda85db8f888c2"
 dependencies = [
  "cc",
 ]
