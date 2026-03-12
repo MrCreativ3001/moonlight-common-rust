@@ -379,13 +379,30 @@ fn response_launch() {
     test_response(
         LaunchResponse {
             game_session: 10,
-            rtsp_session_url: "rtspenc://192.167.178.140:48010".to_string(),
+            rtsp_session_url: Some("rtspenc://192.167.178.140:48010".to_string()),
         },
         r#"
 <?xml version="1.0" encoding="utf-8"?>
 <root status_code="200">
 <gamesession>10</gamesession>
 <sessionUrl0>rtspenc://192.167.178.140:48010</sessionUrl0>
+</root>
+        "#,
+    );
+}
+#[test]
+fn response_launch_no_url() {
+    init_test();
+
+    test_response(
+        LaunchResponse {
+            game_session: 10,
+            rtsp_session_url: None,
+        },
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+<gamesession>10</gamesession>
 </root>
         "#,
     );
@@ -420,13 +437,31 @@ fn response_resume() {
     test_response(
         ResumeResponse {
             resume: 10,
-            rtsp_session_url: "rtspenc://192.167.178.140:48010".to_string(),
+            rtsp_session_url: Some("rtspenc://192.167.178.140:48010".to_string()),
         },
         r#"
 <?xml version="1.0" encoding="utf-8"?>
 <root status_code="200">
 <resume>10</resume>
 <sessionUrl0>rtspenc://192.167.178.140:48010</sessionUrl0>
+</root>
+        "#,
+    );
+}
+
+#[test]
+fn response_resume_no_url() {
+    init_test();
+
+    test_response(
+        ResumeResponse {
+            resume: 10,
+            rtsp_session_url: None,
+        },
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+<resume>10</resume>
 </root>
         "#,
     );

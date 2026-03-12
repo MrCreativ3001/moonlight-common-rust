@@ -78,8 +78,8 @@ fn test_stream_start() {
     let config = MoonlightStreamConfig {
         address: addr.to_string(),
         version: ServerVersion::new(7, 1, 431, -1),
-        rtsp_session_url: format!("rtsp://{addr}:{rtsp_port}"),
-        gfe_version: "3.23.0.74".to_string(),
+        rtsp_session_url: Some(format!("rtsp://{addr}:{rtsp_port}")),
+        gfe_version: Some("3.23.0.74".to_string()),
         server_codec_mode_support: ServerCodecModeSupport::H264,
         // Encryption is not used by this test
         remote_input_aes_key: AesKey([0; 16]),

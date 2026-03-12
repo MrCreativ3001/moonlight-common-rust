@@ -568,9 +568,9 @@ where
 
         Ok(MoonlightStreamConfig {
             address,
-            gfe_version,
+            gfe_version: Some(gfe_version),
             server_codec_mode_support,
-            rtsp_session_url: rtsp_session_url.to_string(),
+            rtsp_session_url,
             remote_input_aes_iv: aes_iv,
             remote_input_aes_key: aes_key,
             version: app_version,

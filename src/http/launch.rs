@@ -177,7 +177,7 @@ impl Request for ClientStreamRequest {
 pub struct LaunchResponse {
     // TODO: what exactly is game_session used for?
     pub game_session: u32,
-    pub rtsp_session_url: String,
+    pub rtsp_session_url: Option<String>,
 }
 
 impl TextResponse for LaunchResponse {
@@ -194,11 +194,13 @@ impl TextResponse for LaunchResponse {
         )?;
 
         // <sessionUrl0>
-        write!(
-            body_writer,
-            "<sessionUrl0>{}</sessionUrl0>",
-            self.rtsp_session_url
-        )?;
+        if let Some(rtsp_session_url) = &self.rtsp_session_url {
+            write!(
+                body_writer,
+                "<sessionUrl0>{}</sessionUrl0>",
+                rtsp_session_url
+            )?;
+        }
 
         // close root
         body_writer.write_str("</root>")?;
@@ -214,9 +216,17 @@ impl FromStr for LaunchResponse {
         let doc = Document::parse(s)?;
         let root = parse_xml_root_node(&doc)?;
 
+        let rtsp_session_url = match parse_xml_child_text(root, "sessionUrl0") {
+            Ok(value) => Some(value.to_string()),
+            Err(ParseError::DetailNotFound(_)) => None,
+            Err(err) => {
+                return Err(err.into());
+            }
+        };
+
         Ok(LaunchResponse {
             game_session: parse_xml_child_text(root, "gamesession")?.parse()?,
-            rtsp_session_url: parse_xml_child_text(root, "sessionUrl0")?.to_string(),
+            rtsp_session_url,
         })
     }
 }

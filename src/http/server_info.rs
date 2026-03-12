@@ -95,6 +95,8 @@ bitflags! {
     }
 }
 
+/// References:
+/// - Moonlight Embedded: https://github.com/moonlight-stream/moonlight-embedded/blob/775444287305849ebdf4736c75298ad0713e2d5d/libgamestream/client.c#L167-L269
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerInfoResponse {
     pub host_name: String,
@@ -200,7 +202,7 @@ impl TextResponse for ServerInfoResponse {
         )?;
 
         // <PairStatus>
-        let pair_value = if self.paired { 0 } else { 1 };
+        let pair_value = if self.paired { 1 } else { 0 };
         write!(body_writer, "<PairStatus>{pair_value}</PairStatus>")?;
 
         // <currentgame>
@@ -288,11 +290,7 @@ impl FromStr for ServerInfoResponse {
             server_codec_mode_support: ServerCodecModeSupport::from_bits_retain(
                 parse_xml_child_text(root, "ServerCodecModeSupport")?.parse()?,
             ),
-            paired: if parse_xml_child_text(root, "PairStatus")?.parse::<u32>()? == 0 {
-                false
-            } else {
-                true
-            },
+            paired: parse_xml_child_text(root, "PairStatus")?.parse::<u32>()? != 0,
             current_game: parse_xml_child_text(root, "currentgame")?.parse()?,
             state: ServerState::from_str(&state_string)?,
             apollo_permissions,

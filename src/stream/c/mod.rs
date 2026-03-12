@@ -1,7 +1,7 @@
 use std::{
     ffi::{CStr, CString},
     os::raw::{c_char, c_int, c_schar, c_short, c_uchar, c_uint},
-    ptr::null_mut,
+    ptr::{null, null_mut},
     str::FromStr,
     sync::{Arc, LazyLock, Mutex},
     time::Duration,
@@ -147,14 +147,21 @@ impl MoonlightStream {
             let address = CString::from_str(&stream_config.address)?;
             let app_version = stream_config.version.to_string();
             let app_version = CString::from_str(&app_version)?;
-            let gfe_version = CString::from_str(&stream_config.gfe_version)?;
-            let rtsp_session_url = CString::from_str(&stream_config.rtsp_session_url)?;
+            let gfe_version = stream_config.gfe_version.map(CString::new).transpose()?;
+            let rtsp_session_url = stream_config
+                .rtsp_session_url
+                .map(CString::new)
+                .transpose()?;
 
+            // See: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L524-L539
             let mut server_info_raw = _SERVER_INFORMATION {
                 address: address.as_ptr(),
                 serverInfoAppVersion: app_version.as_ptr(),
-                serverInfoGfeVersion: gfe_version.as_ptr(),
-                rtspSessionUrl: rtsp_session_url.as_ptr(),
+                serverInfoGfeVersion: gfe_version.as_ref().map(|x| x.as_ptr()).unwrap_or(null()),
+                rtspSessionUrl: rtsp_session_url
+                    .as_ref()
+                    .map(|x| x.as_ptr())
+                    .unwrap_or(null()),
                 serverCodecModeSupport: stream_config.server_codec_mode_support.bits() as i32,
             };
 

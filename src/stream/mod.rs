@@ -103,6 +103,9 @@ impl Deref for AesIv {
 /// This contains technical details that are required for a stream to start.
 ///
 /// Before starting a stream [MoonlightStreamConfig::adjust_for_server] should be called to support older servers.
+///
+/// References:
+/// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L524-L539
 #[derive(Debug)]
 pub struct MoonlightStreamConfig {
     /// The address of the server
@@ -114,13 +117,13 @@ pub struct MoonlightStreamConfig {
     /// The `GfeVersion` of the server from the `/serverinfo` response
     ///
     /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
-    pub gfe_version: String,
+    pub gfe_version: Option<String>,
     /// The `ServerCodeModeSupport` of the server from the `/serverinfo` response
     ///
     /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
     pub server_codec_mode_support: ServerCodecModeSupport,
     /// The rtsp session from the `/launch` or `/resume` response
-    pub rtsp_session_url: String,
+    pub rtsp_session_url: Option<String>,
     /// AES encryption data for the remote input stream. This must be
     /// the same as what was passed as rikey and rikeyid
     /// in `/launch` and `/resume` requests.

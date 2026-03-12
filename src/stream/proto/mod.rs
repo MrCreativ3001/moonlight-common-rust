@@ -225,7 +225,8 @@ impl MoonlightStreamProto {
         let mut this = Self {
             client_settings: settings,
             last_now: now,
-            rtsp: Rtsp::new(&config.rtsp_session_url, client_version)?,
+            // TODO: how to get this?
+            rtsp: Rtsp::new(&config.rtsp_session_url.unwrap(), client_version)?,
             server_version: config.version,
             sdp: None,
             session_id: None,

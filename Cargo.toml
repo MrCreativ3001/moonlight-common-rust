@@ -169,7 +169,7 @@ venator = { version = "1.1.0" }
 
 # openssl version above this version don't compile in cross-rs (x86_64-pc-windows-gnu)
 # See https://github.com/openssl/openssl/issues/29818
-openssl-src = "=300.5.3+3.5.4"
+openssl-src = "=300.5.3"
 openssl-sys = "=0.9.109"
 
 # TODO: all examples should use rustcrypto
