@@ -1,6 +1,8 @@
 use std::{fmt, str::FromStr};
 
-use crate::http::{Endpoint, ParseError, QueryBuilderError, QueryIter, Request, TextResponse};
+use crate::http::{
+    Endpoint, FromQueryError, ParseError, QueryBuilderError, QueryMap, Request, TextResponse,
+};
 
 /// This endpoint is only used to terminate a pairing attempt
 /// See https://github.com/moonlight-stream/moonlight-embedded/issues/825
@@ -33,9 +35,9 @@ impl Request for UnpairRequest {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
         Ok(Self {})
     }

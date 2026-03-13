@@ -72,6 +72,8 @@ fn assert_eq_output(value: MoonlightStreamOutput, expected: MoonlightStreamOutpu
 
 #[test]
 fn stream_start_no_rtsp_url() {
+    let addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
     let config = MoonlightStreamConfig {
         address: addr.to_string(),
         version: ServerVersion::new(7, 1, 431, -1),

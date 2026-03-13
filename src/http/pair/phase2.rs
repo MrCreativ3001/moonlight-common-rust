@@ -3,7 +3,8 @@ use std::{fmt, str::FromStr};
 use roxmltree::Document;
 
 use crate::http::{
-    ParseError, QueryBuilder, QueryBuilderError, QueryIter, QueryParam, Request, TextResponse,
+    FromQueryError, ParseError, QueryBuilder, QueryBuilderError, QueryMap, QueryParam, Request,
+    TextResponse,
     helper::{parse_xml_child_text, parse_xml_root_node},
     pair::parse_xml_child_paired,
 };
@@ -37,11 +38,22 @@ impl Request for PairPhase2Request {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
-        todo!()
+        let device_name = query_map.get("devicename")?;
+
+        // TODO: check update_state?
+        // let update_state: i32 = query_map.get("updateState")?.parse()?;
+
+        let encrypted_challenge_hex = query_map.get("clientchallenge")?;
+        let encrypted_challenge = hex::decode(encrypted_challenge_hex.as_bytes())?;
+
+        Ok(Self {
+            device_name: device_name.into_owned(),
+            encrypted_challenge,
+        })
     }
 }
 

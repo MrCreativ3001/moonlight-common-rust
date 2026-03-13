@@ -1,8 +1,9 @@
 use std::{
+    borrow::Cow,
     fmt::{self, Debug},
     net::AddrParseError,
     num::ParseIntError,
-    str::FromStr,
+    str::{FromStr, Utf8Error},
     string::FromUtf8Error,
 };
 
@@ -85,8 +86,28 @@ pub trait QueryBuilder {
     fn append(&mut self, param: QueryParam) -> Result<(), QueryBuilderError>;
 }
 
-pub trait QueryIter<'a>: Iterator<Item = &'a QueryParam<'a>> {}
-impl<'a, T> QueryIter<'a> for T where T: Iterator<Item = &'a QueryParam<'a>> {}
+#[derive(Debug, Error)]
+pub enum FromQueryError {
+    #[error("query param \"{0}\" not found")]
+    QueryParamNotFound(String),
+    #[error("int: {0}")]
+    Int(#[from] ParseIntError),
+    #[error("uuid: {0}")]
+    Uuid(#[from] uuid::Error),
+    #[error("hex: {0}")]
+    Hex(#[from] hex::FromHexError),
+    #[error("pem: {0}")]
+    Pem(#[from] pem::PemError),
+    #[error("utf8: {0}")]
+    Utf8(#[from] Utf8Error),
+    #[error("other: {0}")]
+    Other(String),
+}
+
+pub trait QueryMap {
+    fn has(&self, param: &str) -> bool;
+    fn get<'a>(&'a self, param: &str) -> Result<Cow<'a, str>, FromQueryError>;
+}
 
 /// This represents an endpoint on the http or https server that a client can query for information or initiate a stream with.
 ///
@@ -154,9 +175,9 @@ pub trait Request: Sized {
     // TODO: maybe don't use an iterator, but some kind of map like interface?
     // TODO: error?
     /// Parse the query parameters of into this request type.
-    fn from_query_params<'a, Q>(query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>;
+        Q: QueryMap;
 }
 
 pub trait TextResponse: FromStr {
@@ -168,30 +189,30 @@ pub const DEFAULT_UNIQUE_ID: &str = "0123456789ABCDEF";
 
 /// The identifier of a client.
 /// Every client request should use this, even when unauthenticated.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ClientInfo<'a> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClientInfo {
     /// It's recommended to use the same (default) UID for all Moonlight clients so we can quit games started by other Moonlight clients.
-    pub unique_id: &'a str,
+    pub unique_id: String,
     pub uuid: Uuid,
 }
 
-impl Default for ClientInfo<'static> {
+impl Default for ClientInfo {
     fn default() -> Self {
         Self {
-            unique_id: DEFAULT_UNIQUE_ID,
+            unique_id: DEFAULT_UNIQUE_ID.to_string(),
             uuid: Uuid::new_v4(),
         }
     }
 }
 
-impl<'b> Request for ClientInfo<'b> {
+impl Request for ClientInfo {
     fn append_query_params(
         &self,
         query_builder: &mut impl QueryBuilder,
     ) -> Result<(), QueryBuilderError> {
         query_builder.append(QueryParam {
             key: "uniqueid",
-            value: self.unique_id,
+            value: &self.unique_id,
         })?;
 
         let mut uuid_bytes = [0; Hyphenated::LENGTH];
@@ -206,11 +227,19 @@ impl<'b> Request for ClientInfo<'b> {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
-        todo!()
+        let unique_id = query_map.get("uniqueid")?;
+
+        let uuid_str = query_map.get("uuid")?;
+        let uuid = Uuid::from_str(&uuid_str)?;
+
+        Ok(Self {
+            unique_id: unique_id.into_owned(),
+            uuid,
+        })
     }
 }
 

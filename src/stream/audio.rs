@@ -75,6 +75,13 @@ impl AudioConfig {
         }
     }
 
+    pub const fn from_surround_audio_info(info: u32) -> Self {
+        Self {
+            channel_count: info & 0xFFFF,
+            channel_mask: info >> 16,
+        }
+    }
+
     pub const fn from_raw(raw: u32) -> Result<Self, FromRawAudioConfigError> {
         // Check the magic byte before decoding to make sure we got something that's actually
         // a MAKE_AUDIO_CONFIGURATION()-based value and not something else like an older version
@@ -87,6 +94,13 @@ impl AudioConfig {
             channel_count: (raw >> 8) & 0xFF,
             channel_mask: (raw >> 16) & 0xFFFF,
         })
+    }
+
+    /// Helper function to retreive the surroundAudioInfo parameter value that must be passed in the /launch and /resume HTTPS requests when starting the session.
+    ///
+    /// References: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L215-L218
+    pub fn to_surround_audio_info(&self) -> u32 {
+        (self.channel_mask << 16) | self.channel_count
     }
 
     pub fn raw(&self) -> u32 {

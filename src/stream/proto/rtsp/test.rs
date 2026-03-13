@@ -250,7 +250,7 @@ fn rtsp_response() {
 
 #[test]
 fn rtsp_send_receive() {
-    let mut rtsp = Rtsp::new("rtsp://192.168.178.140:48010", 14).unwrap();
+    let mut rtsp = Rtsp::new("rtsp://192.168.178.140:48010".parse().unwrap(), 14).unwrap();
 
     let request = RtspRequest {
         message: RtspRequestMessage {

@@ -19,7 +19,7 @@ pub trait RequestClient: Sized + Clone {
 
     fn send_http<E>(
         &self,
-        client_info: ClientInfo<'_>,
+        client_info: ClientInfo,
         hostport: &str,
         request: &E::Request,
     ) -> Result<E::Response, Self::Error>
@@ -29,7 +29,7 @@ pub trait RequestClient: Sized + Clone {
 
     fn send_https<E>(
         &self,
-        client_info: ClientInfo<'_>,
+        client_info: ClientInfo,
         hostport: &str,
         request: &E::Request,
     ) -> Result<E::Response, Self::Error>
@@ -39,7 +39,7 @@ pub trait RequestClient: Sized + Clone {
 
     fn send_https_with_bytes<E>(
         &self,
-        client_info: ClientInfo<'_>,
+        client_info: ClientInfo,
         hostport: &str,
         request: &E::Request,
     ) -> Result<E::Response, Self::Error>

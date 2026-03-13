@@ -49,7 +49,7 @@ mod hyperlike {
 
     pub fn build_url<E, Err>(
         use_https: bool,
-        client_info: ClientInfo<'_>,
+        client_info: ClientInfo,
         hostport: &str,
         request: &E::Request,
     ) -> Result<Uri, Err>

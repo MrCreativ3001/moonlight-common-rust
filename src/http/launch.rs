@@ -7,13 +7,13 @@ use roxmltree::Document;
 
 use crate::{
     http::{
-        Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, QueryParam, Request,
-        TextResponse,
+        Endpoint, FromQueryError, ParseError, QueryBuilder, QueryBuilderError, QueryMap,
+        QueryParam, Request, TextResponse,
         helper::{
             fmt_write_to_buffer, i32_to_str, parse_xml_child_text, parse_xml_root_node, u32_to_str,
         },
     },
-    stream::{AesIv, AesKey},
+    stream::{AesIv, AesKey, audio::AudioConfig},
 };
 
 /// Launches a new session.
@@ -43,11 +43,24 @@ pub struct ClientStreamRequest {
     pub mode_fps: u32,
     pub sops: bool,
     pub hdr: bool,
+    pub surround_audio_info: AudioConfig,
     pub local_audio_play_mode: bool,
     pub gamepads_attached_mask: i32,
     pub gamepads_persist_after_disconnect: bool,
     pub ri_key: AesKey,
     pub ri_key_id: AesIv,
+    /// The core version:
+    /// - empty / 0 = Video encryption and control stream encryption v2
+    /// - 1 = RTSP encryption
+    ///
+    /// You can set this empty and use [Self::additional_query_parameters] if you're using moonlight-common-c.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L550-L554
+    pub core_version: Option<u32>,
+    /// Useful for serializing using moonlight-common-c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L38-L42
+    ///
+    /// When deserializing this will always be empty
     pub additional_query_parameters: String,
 }
 
@@ -136,8 +149,15 @@ impl Request for ClientStreamRequest {
             value: if self.local_audio_play_mode { "1" } else { "0" },
         })?;
 
-        // TODO: what is this?
-        // query_params.append(query_param("surroundAudioInfo", "todo"));
+        let mut surround_audio_info = [0u8; 11];
+        let surround_audio_info_value = u32_to_str(
+            self.surround_audio_info.to_surround_audio_info(),
+            &mut surround_audio_info,
+        );
+        query_builder.append(QueryParam {
+            key: "surroundAudioInfo",
+            value: surround_audio_info_value,
+        })?;
 
         let mut gamepad_attached_mask_buffer = [0u8; 11];
         let gamepad_attached_mask_value = i32_to_str(
@@ -162,14 +182,96 @@ impl Request for ClientStreamRequest {
             },
         })?;
 
+        if let Some(core_version) = self.core_version {
+            let mut core_version_str_bytes = [0u8; 11];
+            let core_version_str = u32_to_str(core_version, &mut core_version_str_bytes);
+            query_builder.append(QueryParam {
+                key: "corever",
+                value: core_version_str,
+            })?;
+        }
+
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
-        todo!()
+        let app_id: u32 = query_map.get("appid")?.parse()?;
+
+        let mode = query_map.get("mode")?;
+        let mut mode_split = mode.split("x");
+        let mode_width: u32 = mode_split
+            .next()
+            .ok_or(FromQueryError::Other(
+                "Missing width in \"mode\"".to_string(),
+            ))?
+            .parse()?;
+        let mode_height: u32 = mode_split
+            .next()
+            .ok_or(FromQueryError::Other(
+                "Missing height in \"mode\"".to_string(),
+            ))?
+            .parse()?;
+        let mode_fps: u32 = mode_split
+            .next()
+            .ok_or(FromQueryError::Other("Missing fps in \"mode\"".to_string()))?
+            .parse()?;
+
+        let sops = query_map.get("sops").unwrap_or("0".into()) != "0";
+
+        let hdr = query_map.get("hdrMode").unwrap_or("0".into()) != "0";
+
+        let surround_audio_info_raw = query_map
+            .get("surroundAudioInfo")
+            .ok()
+            .map(|x| x.parse())
+            .transpose()?
+            .unwrap_or(AudioConfig::STEREO.to_surround_audio_info());
+        let surround_audio_info = AudioConfig::from_surround_audio_info(surround_audio_info_raw);
+
+        let local_audio_play_mode =
+            query_map.get("localAudioPlayMode").unwrap_or("1".into()) != "0";
+
+        // TODO: what to trust?
+        let gamepads_attached_mask: u32 = query_map
+            .get("remoteControllersBitmap")
+            .unwrap_or("0".into())
+            .parse()?;
+        let gamepads_attached_mask = query_map.get("gcmap").unwrap_or("0".into()).parse()?;
+
+        let gamepads_persist_after_disconnect =
+            query_map.get("gcpersist").unwrap_or("0".into()) != "0";
+
+        let mut ri_key = [0u8; _];
+        let ri_key_hex = query_map.get("rikey")?;
+        hex::decode_to_slice(ri_key_hex.as_bytes(), &mut ri_key)?;
+
+        let ri_key_id: u32 = query_map.get("rikeyid")?.parse()?;
+
+        let core_version: Option<u32> = query_map
+            .get("corever")
+            .ok()
+            .map(|x| x.parse())
+            .transpose()?;
+
+        Ok(Self {
+            app_id,
+            mode_width,
+            mode_height,
+            mode_fps,
+            sops,
+            hdr,
+            surround_audio_info,
+            local_audio_play_mode,
+            gamepads_attached_mask,
+            gamepads_persist_after_disconnect,
+            ri_key: AesKey(ri_key),
+            ri_key_id: AesIv(ri_key_id),
+            core_version,
+            additional_query_parameters: String::new(),
+        })
     }
 }
 
@@ -220,7 +322,7 @@ impl FromStr for LaunchResponse {
             Ok(value) => Some(value.to_string()),
             Err(ParseError::DetailNotFound(_)) => None,
             Err(err) => {
-                return Err(err.into());
+                return Err(err);
             }
         };
 

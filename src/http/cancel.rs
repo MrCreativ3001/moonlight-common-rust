@@ -4,8 +4,8 @@ use std::str::FromStr;
 use roxmltree::Document;
 
 use crate::http::{
-    Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, Request, TextResponse,
-    helper::parse_xml_child_text,
+    Endpoint, FromQueryError, ParseError, QueryBuilder, QueryBuilderError, QueryMap, Request,
+    TextResponse, helper::parse_xml_child_text,
 };
 
 pub struct CancelEndpoint;
@@ -34,9 +34,9 @@ impl Request for CancelRequest {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
         Ok(Self {})
     }

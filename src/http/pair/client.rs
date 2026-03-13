@@ -630,11 +630,11 @@ mod test {
         test::init_test,
     };
 
-    struct PanicCryptoProvider;
+    struct TestCryptoProvider;
     #[derive(Debug, Error, PartialEq)]
     enum PanicError {}
 
-    impl PairingCryptoBackend for PanicCryptoProvider {
+    impl PairingCryptoBackend for TestCryptoProvider {
         type Error = PanicError;
 
         fn generate_client_identity(
@@ -652,7 +652,7 @@ mod test {
             unimplemented!()
         }
         fn random_bytes(&self, _data: &mut [u8]) -> Result<(), Self::Error> {
-            unimplemented!()
+            Ok(())
         }
         fn decrypt_aes(&self, _key: &[u8], _ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error> {
             unimplemented!()
@@ -699,7 +699,7 @@ mod test {
             ServerVersion::new(7, 1, 143, -1),
             "roth".to_string(),
             PairPin::new(0, 0, 0, 0).unwrap(),
-            PanicCryptoProvider,
+            TestCryptoProvider,
         )
         .unwrap();
 

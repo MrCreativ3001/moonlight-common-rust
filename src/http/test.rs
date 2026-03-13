@@ -1,14 +1,16 @@
-use std::{fmt::Debug, net::Ipv4Addr, str::FromStr};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug, net::Ipv4Addr, str::FromStr};
 
 use roxmltree::{Document, Node};
 use tracing::debug;
 use uuid::Uuid;
 
+use tracing::info;
+
 use crate::{
     ServerState, ServerVersion,
     http::{
-        ClientInfo, DEFAULT_UNIQUE_ID, ParseError, QueryBuilder, QueryBuilderError, QueryParam,
-        Request, TextResponse,
+        ClientInfo, DEFAULT_UNIQUE_ID, FromQueryError, ParseError, QueryBuilder, QueryBuilderError,
+        QueryMap, QueryParam, Request, TextResponse,
         app_list::{App, AppListRequest, AppListResponse},
         box_art::AppBoxArtRequest,
         cancel::{CancelRequest, CancelResponse},
@@ -19,20 +21,34 @@ use crate::{
     },
     init_test,
     mac::MacAddress,
-    stream::{AesIv, AesKey, control::ActiveGamepads, video::ServerCodecModeSupport},
+    stream::{
+        AesIv, AesKey, audio::AudioConfig, control::ActiveGamepads, video::ServerCodecModeSupport,
+    },
     test::init_test,
 };
 
 #[derive(Debug, Default)]
-struct TestQueryBuilder {
-    params: Vec<(String, String)>,
+struct TestQuery {
+    params: HashMap<String, String>,
 }
 
-impl QueryBuilder for TestQueryBuilder {
+impl QueryBuilder for TestQuery {
     fn append(&mut self, param: QueryParam) -> Result<(), QueryBuilderError> {
         self.params
-            .push((param.key.to_string(), param.value.to_string()));
+            .insert(param.key.to_string(), param.value.to_string());
         Ok(())
+    }
+}
+
+impl QueryMap for TestQuery {
+    fn has(&self, param: &str) -> bool {
+        self.params.contains_key(param)
+    }
+    fn get<'a>(&'a self, param: &str) -> Result<Cow<'a, str>, FromQueryError> {
+        self.params
+            .get(param)
+            .map(Cow::from)
+            .ok_or(FromQueryError::QueryParamNotFound(param.to_string()))
     }
 }
 
@@ -41,11 +57,13 @@ where
     R: Request + Debug + PartialEq,
 {
     // test serialize
-    let mut query_params = TestQueryBuilder::default();
+    let mut query_params = TestQuery::default();
 
     request_expected
         .append_query_params(&mut query_params)
         .unwrap();
+
+    info!("Got: {query_params:?}");
 
     assert_eq!(query_params.params.len(), query_params_expected.len());
     for expected in query_params_expected {
@@ -63,7 +81,7 @@ where
     }
 
     // test deserialize
-    let request = R::from_query_params(&mut query_params_expected.iter()).unwrap();
+    let request = R::from_query_params(&query_params).unwrap();
     assert_eq!(request, request_expected);
 }
 
@@ -117,7 +135,7 @@ fn request_client_info() {
 
     test_request(
         ClientInfo {
-            unique_id: DEFAULT_UNIQUE_ID,
+            unique_id: DEFAULT_UNIQUE_ID.to_string(),
             uuid,
         },
         &[
@@ -297,7 +315,11 @@ fn request_box_art() {
     init_test();
 
     test_request(
-        AppBoxArtRequest { app_id: 1093255277 },
+        AppBoxArtRequest {
+            app_id: 1093255277,
+            asset_type: 2,
+            asset_idx: 0,
+        },
         &[
             QueryParam {
                 key: "appid",
@@ -319,7 +341,6 @@ fn request_box_art() {
 fn request_launch_and_resume() {
     init_test();
 
-    // TODO: use values
     test_request(
         ClientStreamRequest {
             app_id: 10,
@@ -327,13 +348,15 @@ fn request_launch_and_resume() {
             mode_height: 1080,
             mode_fps: 60,
             hdr: false,
+            surround_audio_info: AudioConfig::STEREO,
             local_audio_play_mode: false,
             gamepads_attached_mask: ActiveGamepads::GAMEPAD_1.bits() as i32,
             gamepads_persist_after_disconnect: false,
-            sops: true,
+            sops: false,
             ri_key_id: AesIv(0),
             ri_key: AesKey([0; _]),
-            additional_query_parameters: "&corever=1".to_string(),
+            core_version: None,
+            additional_query_parameters: "".to_string(),
         },
         &[
             QueryParam {
@@ -341,32 +364,136 @@ fn request_launch_and_resume() {
                 value: "10",
             },
             QueryParam {
+                key: "mode",
+                value: "1920x1080x60",
+            },
+            QueryParam {
+                key: "additionalStates",
+                value: "1",
+            },
+            QueryParam {
+                key: "sops",
+                value: "0",
+            },
+            QueryParam {
                 key: "rikey",
-                value: "",
+                value: "00000000000000000000000000000000",
             },
             QueryParam {
                 key: "rikeyid",
                 value: "0",
             },
             QueryParam {
+                key: "surroundAudioInfo",
+                value: "196610",
+            },
+            QueryParam {
                 key: "localAudioPlayMode",
                 value: "0",
             },
             QueryParam {
-                key: "surroundAudioInfo",
-                value: "0",
-            },
-            QueryParam {
-                key: "remoteControllerBitmap",
+                key: "remoteControllersBitmap",
                 value: "1",
             },
             QueryParam {
                 key: "gcmap",
-                value: "0",
+                value: "1",
             },
             QueryParam {
                 key: "gcpersist",
                 value: "0",
+            },
+        ],
+    );
+}
+
+#[test]
+fn request_launch_and_resume_hdr() {
+    test_request(
+        ClientStreamRequest {
+            app_id: 10,
+            mode_width: 1920,
+            mode_height: 1080,
+            mode_fps: 60,
+            hdr: true,
+            surround_audio_info: AudioConfig::SURROUND_71,
+            local_audio_play_mode: true,
+            gamepads_attached_mask: ActiveGamepads::GAMEPAD_1.bits() as i32,
+            gamepads_persist_after_disconnect: false,
+            sops: true,
+            ri_key_id: AesIv(0),
+            ri_key: AesKey([0; _]),
+            core_version: Some(1),
+            additional_query_parameters: "".to_string(),
+        },
+        &[
+            QueryParam {
+                key: "appid",
+                value: "10",
+            },
+            QueryParam {
+                key: "mode",
+                value: "1920x1080x60",
+            },
+            QueryParam {
+                key: "additionalStates",
+                value: "1",
+            },
+            QueryParam {
+                key: "sops",
+                value: "1",
+            },
+            QueryParam {
+                key: "hdrMode",
+                value: "1",
+            },
+            QueryParam {
+                key: "clientHdrCapVersion",
+                value: "0",
+            },
+            QueryParam {
+                key: "clientHdrCapSupportedFlagsInUint32",
+                value: "0",
+            },
+            QueryParam {
+                key: "clientHdrCapMetaDataId",
+                value: "NV_STATIC_METADATA_TYPE_1",
+            },
+            QueryParam {
+                key: "clientHdrCapDisplayData",
+                value: "0x0x0x0x0x0x0x0x0x0x0",
+            },
+            QueryParam {
+                key: "rikey",
+                value: "00000000000000000000000000000000",
+            },
+            QueryParam {
+                key: "rikeyid",
+                value: "0",
+            },
+            QueryParam {
+                key: "surroundAudioInfo",
+                value: "104792072",
+            },
+            QueryParam {
+                key: "localAudioPlayMode",
+                value: "1",
+            },
+            QueryParam {
+                key: "remoteControllersBitmap",
+                value: "1",
+            },
+            QueryParam {
+                key: "gcmap",
+                value: "1",
+            },
+            QueryParam {
+                key: "gcpersist",
+                value: "0",
+            },
+            QueryParam {
+                key: "corever",
+                value: "1",
             },
         ],
     );

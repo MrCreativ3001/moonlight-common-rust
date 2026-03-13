@@ -126,13 +126,17 @@ where
         let client = self.client.lock().await;
 
         let client_info = ClientInfo {
-            unique_id: &self.client_unique_id,
+            unique_id: self.client_unique_id.to_string(),
             uuid: Uuid::new_v4(),
         };
 
         let http_address = self.http_address();
         let server_info = client
-            .send_http::<ServerInfoEndpoint>(client_info, &http_address, &ServerInfoRequest {})
+            .send_http::<ServerInfoEndpoint>(
+                client_info.clone(),
+                &http_address,
+                &ServerInfoRequest {},
+            )
             .await
             .map_err(req_err)?;
 
@@ -144,7 +148,7 @@ where
 
             let server_info_secure = client
                 .send_https::<ServerInfoEndpoint>(
-                    client_info,
+                    client_info.clone(),
                     &https_address,
                     &ServerInfoRequest {},
                 )
@@ -154,7 +158,11 @@ where
             cache_lock.server_info = Some(server_info_secure);
 
             let app_list = client
-                .send_https::<AppListEndpoint>(client_info, &https_address, &AppListRequest {})
+                .send_https::<AppListEndpoint>(
+                    client_info.clone(),
+                    &https_address,
+                    &AppListRequest {},
+                )
                 .await
                 .map_err(req_err)?;
 
@@ -322,7 +330,7 @@ where
         let https_address = self.https_address().await?;
 
         let client_info = ClientInfo {
-            unique_id: &self.client_unique_id,
+            unique_id: self.client_unique_id.to_string(),
             uuid: Uuid::new_v4(),
         };
 
@@ -344,7 +352,7 @@ where
                 &https_address,
                 client_identifier,
                 client_secret,
-                client_info,
+                client_info.clone(),
                 &mut pairing,
                 &mut client,
             )
@@ -378,7 +386,7 @@ where
         https_address: &str,
         client_identifier: &ClientIdentifier,
         client_secret: &ClientSecret,
-        client_info: ClientInfo<'_>,
+        client_info: ClientInfo,
         pairing: &mut ClientPairing<Crypto>,
         client: &mut Client,
     ) -> Result<(), MoonlightClientError>
@@ -392,7 +400,7 @@ where
             match pairing.poll_output().map_err(crypto_err)? {
                 ClientPairingOutput::SendHttpPairRequest(request) => {
                     let response = client
-                        .send_http::<PairEndpoint>(client_info, http_address, &request)
+                        .send_http::<PairEndpoint>(client_info.clone(), http_address, &request)
                         .await
                         .map_err(req_err)?;
 
@@ -415,7 +423,7 @@ where
                     );
 
                     let response = client
-                        .send_https::<PairEndpoint>(client_info, https_address, &request)
+                        .send_https::<PairEndpoint>(client_info.clone(), https_address, &request)
                         .await
                         .map_err(req_err)?;
 
@@ -439,12 +447,13 @@ where
         }
     }
 
+    /// Please see [UnpairEndpoint](crate::http::unpair::UnpairEndpoint) for more info about this function.
     pub async fn unpair(&self) -> Result<(), MoonlightClientError> {
         self.check_paired().await?;
 
         let https_address = self.https_address().await?;
         let client_info = ClientInfo {
-            unique_id: &self.client_unique_id,
+            unique_id: self.client_unique_id.clone(),
             uuid: Uuid::new_v4(),
         };
 
@@ -500,7 +509,7 @@ where
         let https_address = self.https_address().await?;
 
         let client_info = ClientInfo {
-            unique_id: &self.client_unique_id,
+            unique_id: self.client_unique_id.clone(),
             uuid: Uuid::new_v4(),
         };
 
@@ -509,7 +518,11 @@ where
             .send_https_with_bytes::<AppBoxArtEndpoint>(
                 client_info,
                 &https_address,
-                &AppBoxArtRequest { app_id },
+                &AppBoxArtRequest {
+                    app_id,
+                    asset_type: 2,
+                    asset_idx: 0,
+                },
             )
             .await
             .map_err(req_err)?;
@@ -544,16 +557,18 @@ where
             mode_fps: settings.fps,
             hdr: settings.hdr,
             sops: settings.sops,
+            surround_audio_info: settings.audio_config,
             local_audio_play_mode: settings.local_audio_play_mode,
             gamepads_attached_mask: settings.gamepads_attached.bits() as i32,
             gamepads_persist_after_disconnect: settings.gamepads_persist_after_disconnect,
             ri_key: aes_key,
             ri_key_id: aes_iv,
+            core_version: None,
             additional_query_parameters: launch_url_query_parameters.to_string(),
         };
 
         let client_info = ClientInfo {
-            unique_id: &self.client_unique_id,
+            unique_id: self.client_unique_id.to_string(),
             uuid: Uuid::new_v4(),
         };
 
@@ -600,7 +615,7 @@ where
         let https_hostport = self.https_address().await?;
 
         let client_info = ClientInfo {
-            unique_id: &self.client_unique_id,
+            unique_id: self.client_unique_id.clone(),
             uuid: Uuid::new_v4(),
         };
 

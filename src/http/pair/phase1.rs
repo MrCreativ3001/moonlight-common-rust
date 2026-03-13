@@ -4,7 +4,8 @@ use pem::Pem;
 use roxmltree::Document;
 
 use crate::http::{
-    ParseError, QueryBuilder, QueryBuilderError, QueryIter, QueryParam, Request, TextResponse,
+    FromQueryError, ParseError, QueryBuilder, QueryBuilderError, QueryMap, QueryParam, Request,
+    TextResponse,
     helper::{parse_xml_child_text, parse_xml_root_node},
     pair::{SALT_LENGTH, parse_xml_child_paired},
 };
@@ -50,11 +51,30 @@ impl Request for PairPhase1Request {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    /// It is expected that "phrase"="getservercert"
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
-        todo!()
+        let device_name = query_map.get("devicename")?;
+
+        // TODO: check update_state?
+        // let update_state: i32 = query_map.get("updateState")?.parse()?;
+
+        let salt_str = query_map.get("salt")?;
+        let mut salt = [0; _];
+        hex::decode_to_slice(salt_str.as_bytes(), &mut salt)?;
+
+        let client_cert_pem_hex = query_map.get("salt")?;
+        let client_certificate_pem = hex::decode(client_cert_pem_hex.as_bytes())?;
+        let client_certificate_str = str::from_utf8(&client_certificate_pem)?;
+        let client_certificate = Pem::from_str(client_certificate_str)?;
+
+        Ok(Self {
+            device_name: device_name.into_owned(),
+            salt,
+            client_certificate,
+        })
     }
 }
 

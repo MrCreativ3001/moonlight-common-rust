@@ -8,7 +8,8 @@ use uuid::Uuid;
 use crate::{
     ServerState, ServerType, ServerVersion,
     http::{
-        Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryIter, Request, TextResponse,
+        Endpoint, FromQueryError, ParseError, QueryBuilder, QueryBuilderError, QueryMap, Request,
+        TextResponse,
         helper::{
             fmt_write_to_buffer, parse_xml_child_text, parse_xml_root_node, serialize_text_xml,
         },
@@ -47,9 +48,9 @@ impl Request for ServerInfoRequest {
     ) -> Result<(), QueryBuilderError> {
         Ok(())
     }
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
         Ok(Self {})
     }

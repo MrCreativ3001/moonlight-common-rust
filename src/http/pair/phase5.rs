@@ -1,4 +1,4 @@
-use crate::http::{QueryBuilder, QueryBuilderError, QueryIter, QueryParam, Request};
+use crate::http::{FromQueryError, QueryBuilder, QueryBuilderError, QueryMap, QueryParam, Request};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PairPhase5Request {
@@ -26,10 +26,17 @@ impl Request for PairPhase5Request {
         Ok(())
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
-        todo!()
+        let device_name = query_map.get("devicename")?;
+
+        // TODO: check update_state?
+        // let update_state: i32 = query_map.get("updateState")?.parse()?;
+
+        Ok(Self {
+            device_name: device_name.into_owned(),
+        })
     }
 }

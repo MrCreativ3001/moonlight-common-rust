@@ -15,8 +15,8 @@ use roxmltree::Node;
 use crate::{
     ServerVersion,
     http::{
-        ClientIdentifier, ClientSecret, Endpoint, ParseError, QueryBuilder, QueryBuilderError,
-        QueryIter, Request, ServerIdentifier, TextResponse,
+        ClientIdentifier, ClientSecret, Endpoint, FromQueryError, ParseError, QueryBuilder,
+        QueryBuilderError, QueryMap, Request, ServerIdentifier, TextResponse,
         helper::parse_xml_child_text,
         pair::{
             phase1::{PairPhase1Request, PairPhase1Response},
@@ -169,11 +169,28 @@ impl Request for PairRequest {
         }
     }
 
-    fn from_query_params<'a, Q>(_query_iter: &mut Q) -> Result<Self, ()>
+    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
     where
-        Q: QueryIter<'a>,
+        Q: QueryMap,
     {
-        todo!()
+        let phrase = query_map.get("phrase").ok();
+        let phrase = phrase.as_deref();
+
+        if phrase == Some("getservercert") {
+            PairPhase1Request::from_query_params(query_map).map(Self::Phase1)
+        } else if query_map.has("clientchallenge") {
+            PairPhase2Request::from_query_params(query_map).map(Self::Phase2)
+        } else if query_map.has("serverchallengeresp") {
+            PairPhase3Request::from_query_params(query_map).map(Self::Phase3)
+        } else if query_map.has("clientpairingsecret") {
+            PairPhase4Request::from_query_params(query_map).map(Self::Phase4)
+        } else if phrase == Some("pairchallenge") {
+            PairPhase5Request::from_query_params(query_map).map(Self::Phase5)
+        } else {
+            Err(FromQueryError::Other(format!(
+                "Couldn't detect correct pairing stage!"
+            )))
+        }
     }
 }
 
