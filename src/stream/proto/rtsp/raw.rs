@@ -1,6 +1,6 @@
 use std::{
     fmt::{self, Display, Formatter},
-    net::SocketAddr,
+    net::{AddrParseError, SocketAddr},
     num::ParseIntError,
     str::FromStr,
 };
@@ -31,10 +31,44 @@ impl Display for RtspCommand {
     }
 }
 
+#[derive(Clone, Debug, Error, PartialEq)]
+pub enum RtspAddrParseError {
+    #[error("unknown rtsp protocol: {0}")]
+    UnknownProtocol(String),
+    #[error("addr: {0}")]
+    Addr(#[from] AddrParseError),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RtspAddr {
     pub encrypted: bool,
     pub addr: SocketAddr,
+}
+
+impl FromStr for RtspAddr {
+    type Err = RtspAddrParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(target_in) = s.strip_prefix("rtsp://") {
+            let addr = target_in.parse()?;
+
+            Ok(RtspAddr {
+                encrypted: false,
+                addr,
+            })
+        } else if let Some(target_in) = s.strip_prefix("rtspenc://") {
+            let addr = target_in.parse()?;
+
+            Ok(RtspAddr {
+                encrypted: true,
+                addr,
+            })
+        } else {
+            Err(RtspAddrParseError::UnknownProtocol(
+                s.split(':').next().unwrap_or(s).to_string(),
+            ))
+        }
+    }
 }
 
 impl Display for RtspAddr {

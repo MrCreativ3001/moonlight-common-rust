@@ -11,7 +11,7 @@ use thiserror::Error;
 use tracing::{Level, debug, instrument};
 
 use crate::stream::proto::rtsp::raw::{
-    ParseRtspResponseError, RtspAddr, RtspRequest, RtspResponse,
+    ParseRtspResponseError, RtspAddr, RtspAddrParseError, RtspRequest, RtspResponse,
 };
 
 pub mod encryption;
@@ -24,12 +24,10 @@ pub mod test;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum RtspError {
-    #[error("unknown rtsp protcol: {0}")]
-    UnknownProtocol(String),
+    #[error("rtsp addr: {0}")]
+    ParseTarget(#[from] RtspAddrParseError),
     #[error("error status code: {0}")]
     StatusCode(u32),
-    #[error("failed to parse rtsp target address: {0}")]
-    ParseTarget(#[from] AddrParseError),
     #[error("failed to parse rtsp response: {0}")]
     Response(#[from] ParseRtspResponseError),
     #[error("failed to convert bytes into utf8")]
@@ -78,20 +76,8 @@ impl Rtsp {
     // TODO: enet? https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L246-L371
     // TODO: maybe make client version an enum?
     #[instrument(level = Level::DEBUG, err)]
-    pub fn new(rtsp_url: &str, client_version: usize) -> Result<Self, RtspError> {
+    pub fn new(target: RtspAddr, client_version: usize) -> Result<Self, RtspError> {
         let client_version = client_version.to_string();
-
-        let target;
-
-        if let Some(target_in) = rtsp_url.strip_prefix("rtsp://") {
-            target = Self::parse_target(false, target_in)?;
-        } else if let Some(target_in) = rtsp_url.strip_prefix("rtspenc://") {
-            target = Self::parse_target(true, target_in)?;
-        } else {
-            return Err(RtspError::UnknownProtocol(
-                rtsp_url.split(':').next().unwrap_or(rtsp_url).to_string(),
-            ));
-        }
 
         Ok(Self {
             target,
@@ -102,11 +88,6 @@ impl Rtsp {
             current_response: None,
             receive: Default::default(),
         })
-    }
-    fn parse_target(encrypted: bool, target: &str) -> Result<RtspAddr, RtspError> {
-        let addr = target.parse::<SocketAddr>()?;
-
-        Ok(RtspAddr { encrypted, addr })
     }
 
     pub fn target_addr(&self) -> RtspAddr {

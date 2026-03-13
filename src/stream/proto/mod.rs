@@ -5,7 +5,7 @@
 
 use std::{
     fmt::Debug,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     time::{Duration, Instant},
 };
 
@@ -32,6 +32,7 @@ use crate::{
                     send_rtsp_control_setup, send_rtsp_describe, send_rtsp_options, send_rtsp_play,
                     send_rtsp_setup_audio, send_rtsp_video_setup,
                 },
+                raw::{RtspAddr, RtspAddrParseError},
             },
             sdp::{
                 client::{ClientSdp, MoonlightFeatureFlags, SunshineEncryptionFlags},
@@ -74,6 +75,9 @@ mod packet;
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod test;
+
+// TODO: move all defaults ports to some better location
+pub const DEFAULT_RTSP_PORT: u16 = 48010;
 
 #[derive(Debug, Error)]
 pub enum MoonlightStreamProtoError {
@@ -222,11 +226,30 @@ impl MoonlightStreamProto {
             7 | _ => 14,
         };
 
+        let rtsp_addr: RtspAddr = match config.rtsp_session_url {
+            None => {
+                let ip: IpAddr = config
+                    .address
+                    .parse()
+                    .map_err(RtspAddrParseError::from)
+                    .map_err(RtspError::from)?;
+                let addr = SocketAddr::new(ip, DEFAULT_RTSP_PORT);
+
+                debug!(rtsp_addr = %addr, "No rtsp address given, generating using given information");
+
+                RtspAddr {
+                    encrypted: false,
+                    addr,
+                }
+            }
+            Some(rtsp_url) => rtsp_url.parse().map_err(RtspError::from)?,
+        };
+
         let mut this = Self {
             client_settings: settings,
             last_now: now,
             // TODO: how to get this?
-            rtsp: Rtsp::new(&config.rtsp_session_url.unwrap(), client_version)?,
+            rtsp: Rtsp::new(rtsp_addr, client_version)?,
             server_version: config.version,
             sdp: None,
             session_id: None,

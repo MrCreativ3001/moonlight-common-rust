@@ -7,7 +7,7 @@ use crate::{
     ServerVersion,
     stream::{
         AesIv, AesKey, MoonlightStreamConfig,
-        proto::{MoonlightStreamAction, MoonlightStreamOutput},
+        proto::{MoonlightStreamAction, MoonlightStreamOutput, rtsp::Rtsp},
         video::ServerCodecModeSupport,
     },
 };
@@ -68,6 +68,23 @@ fn assert_eq_output(value: MoonlightStreamOutput, expected: MoonlightStreamOutpu
         matches,
         "Output doesn't matches:\nleft: {value:?}\nright: {expected:?}"
     );
+}
+
+#[test]
+fn stream_start_no_rtsp_url() {
+    let config = MoonlightStreamConfig {
+        address: addr.to_string(),
+        version: ServerVersion::new(7, 1, 431, -1),
+        rtsp_session_url: None,
+        gfe_version: Some("3.23.0.74".to_string()),
+        server_codec_mode_support: ServerCodecModeSupport::H264,
+        // Encryption is not used by this test
+        remote_input_aes_key: AesKey([0; 16]),
+        remote_input_aes_iv: AesIv(0),
+        apollo_permissions: None,
+    };
+
+    // TODO
 }
 
 #[test]
