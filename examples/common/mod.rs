@@ -22,13 +22,13 @@ pub const SERVER_CERTIFICATE_PATH: &str = "./example-data/server_certificate.pem
 
 pub fn init() {
     // Init tracing
-    let no_audio_directive: Directive = "moonlight-common::stream::proto::audio=off"
+    let audio_directive: Directive = "moonlight_common::stream::proto::audio::depayloader=off"
         .parse()
         .unwrap();
-    let no_video_directive: Directive = "moonlight-common::stream::proto::video=off"
+    let video_directive: Directive = "moonlight_common::stream::proto::video::depayloader=off"
         .parse()
         .unwrap();
-    let no_control_directive: Directive = "moonlight-common::stream::proto::control=off"
+    let control_directive: Directive = "moonlight_common::stream::proto::control=trace"
         .parse()
         .unwrap();
 
@@ -41,9 +41,10 @@ pub fn init() {
         .with(
             EnvFilter::builder()
                 .with_default_directive(Level::TRACE.into())
-                .from_env_lossy(), // .add_directive(no_audio_directive)
-                                   // .add_directive(no_video_directive)
-                                   // .add_directive(no_control_directive),
+                .from_env_lossy()
+                .add_directive(audio_directive)
+                .add_directive(video_directive)
+                .add_directive(control_directive),
         )
         .init();
 }

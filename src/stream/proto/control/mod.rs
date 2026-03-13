@@ -8,7 +8,7 @@ use std::{
 
 use rusty_enet::{Packet, PacketKind, PeerID, error::PeerSendError};
 use thiserror::Error;
-use tracing::{Level, debug, instrument, trace, warn};
+use tracing::{Level, debug, instrument, trace, trace_span, warn};
 
 use crate::{
     ServerVersion,
@@ -43,15 +43,24 @@ const CHANNEL_GAMEPAD_BASE: usize = 0x10; // 0x10 to 0x1F by controller index
 const CHANNEL_SENSOR_BASE: usize = 0x20; // 0x20 to 0x2F by controller index
 const CHANNEL_COUNT: usize = 0x30;
 
+/// A message from the [MoonlightStreamProto](super::MoonlightStreamProto) to the [ControlStream]
 #[derive(Debug)]
-pub struct ControlMessage {
-    pub(super) packet: ControlPacket,
+pub struct ControlMessage(pub(super) ControlMessageInner);
+#[derive(Debug)]
+pub(super) enum ControlMessageInner {
+    /// The first packets MUST be RequestIdr, followed by StartB on Sunshine
+    /// Only allow other packets (e.g. ping, actions) after the starting process from the main stream is done
+    AllowOtherPackets,
+    /// Sends a packet regardless of the [Self::AllowOtherPackets] option
+    SendPacket { packet: ControlPacket },
 }
 
 #[derive(Debug, Error)]
 pub enum ControlStreamError {
     #[error("enet: {0}")]
     Enet(#[from] EnetError),
+    #[error("the control stream hasn't successfully connected yet")]
+    NotConnected,
     #[error("packet not supported")]
     PacketNotSupported(ControlPacketNotSupported),
 }
@@ -68,7 +77,7 @@ pub struct ControlStreamConfig {
 #[derive(Debug)]
 pub enum ControlStreamInput<'a> {
     Timeout(Instant),
-    /// A message received from the main MoonlightStream or the VideoStream
+    /// A message received from the main [MoonlightStreamProto](super::MoonlightStreamProto) or the [VideoStream](super::video::VideoStream)
     Message(ControlMessage),
     Receive {
         now: Instant,
@@ -86,7 +95,11 @@ pub enum ControlStreamOutput {
 
 #[derive(Debug)]
 pub enum ControlStreamEvent {
-    OnPacket(ControlPacket),
+    /// The control has successfully connected to the server:
+    /// - Packets can now be sent
+    Connect,
+    /// The [ControlStream] received a packet.
+    Packet(ControlPacket),
 }
 
 enum Transport {
@@ -104,6 +117,7 @@ pub struct ControlStream {
     addr: SocketAddr,
     last_now: Instant,
     transport: Transport,
+    allow_packets: bool,
     last_ping: Option<Instant>,
     // Buffered before the enet peer connected
     buffered_packets: Vec<(u8, Vec<u8>)>,
@@ -156,15 +170,54 @@ impl ControlStream {
                 // TODO: encryption
                 encrypted: config.sunshine_encryption.map(|_x| todo!()),
             },
+            allow_packets: false,
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
             buffered_packets: Vec::new(),
         }
     }
 
     pub fn send(&mut self, packet: ControlPacket) -> Result<(), ControlStreamError> {
+        self.send_inner(packet, false)
+    }
+    fn send_inner(
+        &mut self,
+        packet: ControlPacket,
+        force_packet: bool,
+    ) -> Result<(), ControlStreamError> {
         debug!(packet = ?packet, "Sending Packet");
 
+        if !force_packet && !self.allow_packets {
+            return Err(ControlStreamError::NotConnected);
+        }
+
         let mut buffer = [0; _];
+
+        let packet_kind = if self.server_version.is_sunshine_like() {
+            match packet {
+                // TODO: are those reliable?
+                ControlPacket::RequestIdr => PacketKind::Reliable,
+                ControlPacket::StartB => PacketKind::Reliable,
+                // See: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1429
+                // Send the message (and don't expect a response)
+                //
+                // NB: We send this periodic message as reliable to ensure the RTT is recomputed
+                // regularly. This only happens when an ACK is received to a reliable packet.
+                // Since the other traffic on this channel is unsequenced, it doesn't really
+                // cause any negative HOL blocking side-effects.
+                ControlPacket::PeriodicPing => PacketKind::Reliable,
+                _ => PacketKind::Unreliable { sequenced: false },
+            }
+        } else {
+            PacketKind::Reliable
+        };
+
+        let channel = if self.server_version.is_sunshine_like() {
+            CHANNEL_GENERIC as u8
+        } else {
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
+            // Always use channel 0 for GFE
+            0
+        };
 
         let encrypted = matches!(
             self.transport,
@@ -177,11 +230,18 @@ impl ControlStream {
         let len = packet.serialize(self.server_version, encrypted, &mut buffer);
 
         // TODO: what channel?
-        self.send_raw(CHANNEL_GENERIC as u8, &buffer[0..len])?;
+        self.send_raw(packet_kind, channel, &buffer[0..len], force_packet)?;
 
         Ok(())
     }
-    fn send_raw(&mut self, channel_id: u8, buffer: &[u8]) -> Result<(), ControlStreamError> {
+    #[instrument(level = Level::TRACE)]
+    fn send_raw(
+        &mut self,
+        packet_kind: PacketKind,
+        mut channel_id: u8,
+        buffer: &[u8],
+        force_packet: bool,
+    ) -> Result<(), ControlStreamError> {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L822-L835
 
         match &mut self.transport {
@@ -192,6 +252,12 @@ impl ControlStream {
                 encrypted,
             } => {
                 if !*connected {
+                    if !force_packet {
+                        return Err(ControlStreamError::NotConnected);
+                    }
+
+                    trace!(channel_id = channel_id, packet_data = ?buffer, "Buffering Packet");
+
                     self.buffered_packets.push((channel_id, buffer.to_vec()));
                     return Ok(());
                 }
@@ -203,13 +269,13 @@ impl ControlStream {
 
                 // TODO: encryption?
 
-                let packet_kind = if self.server_version.is_sunshine_like() {
-                    PacketKind::Unreliable { sequenced: false }
-                } else {
-                    PacketKind::Reliable
-                };
-
                 let peer = enet.peer(*peer).unwrap();
+
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
+                // if the requested channel exceeds the peer's supported channel count.
+                if channel_id as usize >= peer.channel_count() {
+                    channel_id = 0;
+                }
 
                 if let Some(_encryption) = &encrypted {
                     todo!()
@@ -246,12 +312,21 @@ impl ControlStream {
                             *connected = true;
 
                             // Send buffered packets
+                            let span = trace_span!("send_buffered_packets");
+                            let enter = span.enter();
+
                             let mut packets = Vec::new();
                             swap(&mut self.buffered_packets, &mut packets);
-                            for (channel_id, buffer) in packets {
-                                self.send_raw(channel_id, &buffer)?;
+
+                            for (channel_id, buffer) in packets.drain(..) {
+                                trace!(channel_id = channel_id, packet_data = ?buffer, "Sending buffered packet");
+                                self.send_raw(PacketKind::Reliable, channel_id, &buffer, true)?;
                             }
+
                             debug_assert_eq!(self.buffered_packets.len(), 0);
+                            debug_assert_eq!(packets.len(), 0);
+
+                            drop(enter);
                         }
                         continue;
                     }
@@ -260,6 +335,8 @@ impl ControlStream {
                         channel_id,
                         data,
                     }) => {
+                        trace!(peer_id = ?peer, channel_id = ?channel_id, data = ?data, "Received raw packet");
+
                         if let Some(encryption) = encrypted {
                             // TODO: implement encryption
                             todo!();
@@ -280,7 +357,7 @@ impl ControlStream {
 
                         debug!(packet = ?packet, "Received Packet");
 
-                        return Ok(ControlStreamOutput::Event(ControlStreamEvent::OnPacket(
+                        return Ok(ControlStreamOutput::Event(ControlStreamEvent::Packet(
                             packet,
                         )));
                     }
@@ -331,8 +408,17 @@ impl ControlStream {
 
                     enet.handle_input(EnetInput::Receive { now, addr, data })?;
                 }
-                ControlStreamInput::Message(message) => {
-                    self.send(message.packet)?;
+                ControlStreamInput::Message(ControlMessage(inner)) => {
+                    debug!(control_message = ?inner, "Received message from main stream");
+
+                    match inner {
+                        ControlMessageInner::SendPacket { packet } => {
+                            self.send_inner(packet, true)?;
+                        }
+                        ControlMessageInner::AllowOtherPackets => {
+                            self.allow_packets = true;
+                        }
+                    }
                 }
             },
             Transport::Tcp {} => {
@@ -355,7 +441,8 @@ impl ControlStream {
                 Ok(()) => {}
                 Err(ControlStreamError::Enet(EnetError::PeerSendError(
                     PeerSendError::NotConnected,
-                ))) => {
+                )))
+                | Err(ControlStreamError::NotConnected) => {
                     debug!(
                         "Not sending periodic ping because the control stream (via enet) is not connected yet."
                     );

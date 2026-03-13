@@ -10,7 +10,7 @@ use moonlight_common::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::AudioConfig,
         control::ActiveGamepads,
-        debug::DebugListener,
+        debug::{DebugListener, NullListener},
         std::MoonlightStream,
         video::{ColorRange, ColorSpace, SupportedVideoFormats},
     },
@@ -20,6 +20,8 @@ use crate::common::{
     gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
     try_load_identity,
 };
+
+use tracing::info;
 
 mod common;
 
@@ -116,19 +118,15 @@ fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream = MoonlightStream::new(
-        config,
-        settings,
-        video_decoder,
-        audio_decoder,
-        DebugListener,
-    )
-    .unwrap();
+    let stream =
+        MoonlightStream::new(config, settings, NullListener, audio_decoder, DebugListener).unwrap();
 
     // TODO
-    sleep(Duration::from_secs(40));
+    sleep(Duration::from_secs(1000));
 
     // Stop the stream: this will block
     // Dropping the [MoonlightStream] will also stop the stream without blocking the current thread
     stream.stop();
+
+    info!("Stopped Stream");
 }

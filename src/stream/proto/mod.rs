@@ -20,8 +20,8 @@ use crate::{
         proto::{
             audio::{AudioStream, AudioStreamConfig, AudioStreamError},
             control::{
-                ControlMessage, ControlStream, ControlStreamConfig, ControlStreamError,
-                packet::ControlPacket,
+                ControlMessage, ControlMessageInner, ControlStream, ControlStreamConfig,
+                ControlStreamError, packet::ControlPacket,
             },
             rtsp::{
                 Rtsp, RtspError, RtspInput, RtspOutput,
@@ -201,6 +201,7 @@ enum State {
     RtspPlayReceive,
     ControlRequestIdr,
     ControlStartB,
+    ControlAllowPackets,
     Connected,
 }
 
@@ -517,20 +518,29 @@ impl MoonlightStreamProto {
 
                     return Ok(MoonlightStreamOutput::Action(
                         MoonlightStreamAction::SendControlMessage {
-                            message: ControlMessage {
+                            message: ControlMessage(ControlMessageInner::SendPacket {
                                 packet: ControlPacket::RequestIdr,
-                            },
+                            }),
                         },
                     ));
                 }
                 State::ControlStartB => {
+                    self.state = State::ControlAllowPackets;
+
+                    return Ok(MoonlightStreamOutput::Action(
+                        MoonlightStreamAction::SendControlMessage {
+                            message: ControlMessage(ControlMessageInner::SendPacket {
+                                packet: ControlPacket::StartB,
+                            }),
+                        },
+                    ));
+                }
+                State::ControlAllowPackets => {
                     self.state = State::Connected;
 
                     return Ok(MoonlightStreamOutput::Action(
                         MoonlightStreamAction::SendControlMessage {
-                            message: ControlMessage {
-                                packet: ControlPacket::StartB,
-                            },
+                            message: ControlMessage(ControlMessageInner::AllowOtherPackets),
                         },
                     ));
                 }
@@ -603,7 +613,8 @@ impl MoonlightStreamProto {
         if self.server_version.is_sunshine_like() {
             // New-style control stream encryption is low overhead, so we enable it any time it is supported
             if server_encryption_supported.contains(SunshineEncryptionFlags::CONTROL_V2) {
-                sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
+                // TODO: enable this when this is actually implemented inside the MoonlightControlStream
+                // sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
             }
 
             // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L280-L289

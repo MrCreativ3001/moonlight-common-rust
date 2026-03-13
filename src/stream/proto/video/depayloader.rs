@@ -6,7 +6,7 @@ use tracing::trace;
 
 use crate::stream::{
     proto::video::packet::{RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader, VideoHeaderFlags},
-    video::VideoFrameBuffer,
+    video::{BufferType, VideoFrameBuffer},
 };
 
 // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
@@ -147,18 +147,20 @@ impl VideoDepayloader {
         if parity_shards == 0 {
             // We don't need fec reconstruction and we can directly submit our data
 
-            // TODO
-            // let mut buffers = Vec::new();
-            // for packet in &packets {
-            //     buffers.push(packet.data.clone());
-            // }
+            // TODO: split them at the annex b prefix
+            let mut buffers = Vec::new();
+            for packet in &packets {
+                buffers.push(VideoFrameBuffer {
+                    buffer_type: BufferType::PicData,
+                    data: packet.data.clone(),
+                });
+            }
 
-            // return Ok(Some(VideoFrame {
-            //     frame_number: sequence_number,
-            //     timestamp,
-            //     buffers,
-            // }));
-            todo!()
+            return Ok(Some(VideoFrame {
+                frame_number: sequence_number,
+                timestamp,
+                buffers,
+            }));
         }
 
         // Do fec reconstruction
@@ -218,7 +220,7 @@ impl VideoDepayloader {
 
         let data = &packet[(RtpVideoHeader::SIZE + VideoHeader::SIZE)..];
 
-        trace!(target: "moonlight_proto_video", "Rtp Header: {rtp_header:?}, Video Header: {video_header:?}");
+        trace!("Rtp Header: {rtp_header:?}, Video Header: {video_header:?}");
 
         // FLAG_EXTENSION is required for all supported versions of GFE: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpVideoQueue.c#L549-L550
         if rtp_header.header & VIDEO_FLAG_EXTENSION == 0 {

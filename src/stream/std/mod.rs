@@ -10,7 +10,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, Span, info_span, instrument};
+use tracing::{Level, Span, info, info_span, instrument, trace};
 
 use crate::stream::{
     MoonlightStreamConfig, MoonlightStreamSettings,
@@ -284,6 +284,8 @@ fn proto_thread(
                     spawn(move || {
                         let _enter = span.enter();
 
+                        info!("Starting Audio Thread");
+
                         audio_thread(audio_stream, udp, send_udp, audio_decoder);
                     });
                     continue;
@@ -306,6 +308,8 @@ fn proto_thread(
                     let span = Span::current();
                     spawn(move || {
                         let _enter = span.enter();
+
+                        info!("Starting Video Thread");
 
                         video_thread(video_stream, udp, send_udp, video_decoder);
                     });
@@ -333,6 +337,7 @@ fn proto_thread(
                     let span = Span::current();
                     spawn(move || {
                         let _enter = span.enter();
+                        info!("Starting Control Thread");
 
                         control_thread(control_stream, udp, receiver, connection_listener);
                     });
@@ -492,7 +497,13 @@ fn video_thread(
     let mut buffer = vec![0; max_packet_size];
     let queue = Arc::new(RingBuffer::new(100, max_packet_size));
 
-    udp_queue_receive_thread(socket, queue.clone(), max_packet_size);
+    spawn({
+        let queue = queue.clone();
+
+        move || {
+            udp_queue_receive_thread(socket, queue.clone(), max_packet_size);
+        }
+    });
 
     loop {
         let timeout = match video_stream.poll_output().unwrap() {
@@ -555,6 +566,10 @@ fn video_thread(
                     data: slice,
                 })
                 .unwrap();
+        } else {
+            video_stream
+                .handle_input(VideoStreamInput::Timeout(Instant::now()))
+                .unwrap();
         }
     }
 }
@@ -569,8 +584,13 @@ fn control_thread(
     loop {
         let timeout = match control_stream.poll_output().unwrap() {
             ControlStreamOutput::Event(event) => match event {
-                ControlStreamEvent::OnPacket(packet) => {
-                    todo!()
+                ControlStreamEvent::Connect => {
+                    // TODO
+                    continue;
+                }
+                ControlStreamEvent::Packet(packet) => {
+                    // TODO
+                    continue;
                 }
             },
             ControlStreamOutput::Send { to, data } => {

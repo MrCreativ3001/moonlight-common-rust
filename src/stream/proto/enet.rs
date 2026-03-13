@@ -7,6 +7,7 @@ use std::{
 
 use rusty_enet::{Event, Host, HostSettings, Peer, PeerID, ReadWrite};
 use thiserror::Error;
+use tracing::{debug, trace};
 
 #[derive(Debug, Error)]
 pub enum EnetError {
@@ -44,12 +45,14 @@ pub enum EnetInput<'a> {
     },
     Timeout(Instant),
 }
+#[derive(Debug)]
 pub enum EnetOutput {
     Send { addr: SocketAddr, data: Vec<u8> },
     Event(EnetEvent),
     Timeout(Instant),
 }
 
+#[derive(Debug)]
 pub enum EnetEvent {
     Connect {
         peer: PeerID,
@@ -115,6 +118,8 @@ impl EnetHost {
         channel_count: usize,
         data: u32,
     ) -> Result<PeerID, EnetError> {
+        debug!(remote_addr = ?addr, connect_data = ?data, "Enet starting connect");
+
         let peer = self.enet.connect(addr, channel_count, data)?;
 
         Ok(peer.id())
@@ -135,6 +140,8 @@ impl EnetHost {
         if let Some(event) = self.enet.service().unwrap() {
             match event {
                 Event::Connect { peer, data } => {
+                    debug!(peer_id = ?peer, connect_data = ?data, "Enet connected");
+
                     return Ok(EnetOutput::Event(EnetEvent::Connect {
                         peer: peer.id(),
                         data,
@@ -145,6 +152,8 @@ impl EnetHost {
                     channel_id,
                     packet,
                 } => {
+                    trace!(peer_id = ?peer, channel_id = ?channel_id, packet = ?packet, "Enet received");
+
                     return Ok(EnetOutput::Event(EnetEvent::Receive {
                         peer: peer.id(),
                         channel_id,
@@ -152,6 +161,8 @@ impl EnetHost {
                     }));
                 }
                 Event::Disconnect { peer, data } => {
+                    debug!(peer_id = ?peer, disconnect_data = ?data, "Enet disconnected");
+
                     return Ok(EnetOutput::Event(EnetEvent::Disconnect {
                         peer: peer.id(),
                         data,

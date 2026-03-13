@@ -1,9 +1,12 @@
 use std::time::Duration;
 
 use thiserror::Error;
-use tracing::trace;
+use tracing::{Level, instrument, trace, warn};
 
-use crate::ServerVersion;
+use crate::{
+    ServerVersion,
+    stream::video::{HdrMetadataSunshine, Primary},
+};
 
 /// The server must be pinged every few milliseconds
 ///
@@ -372,6 +375,14 @@ pub enum ControlPacket {
     /// - Moonlight Interval: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L298
     /// - Moonlight Version Check: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L354
     PeriodicPing,
+    HdrMode {
+        enabled: bool,
+        /// Sunshine Extension
+        ///
+        /// References:
+        /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
+        sunshine: Option<HdrMetadataSunshine>,
+    },
 }
 
 impl ControlPacket {
@@ -462,6 +473,7 @@ impl ControlPacket {
     /// Payload is:
     /// - If not encrypted: the full payload
     /// - If encrypted: the decrypted payload
+    #[instrument(level = Level::TRACE)]
     pub fn deserialize(
         server_version: ServerVersion,
         encrypted: bool,
@@ -472,10 +484,12 @@ impl ControlPacket {
         }
         let ty = u16::from_le_bytes([payload[0], payload[1]]);
         let len = u16::from_le_bytes([payload[2], payload[3]]);
-        trace!(target: "moonlight_proto_control_packet", "Raw Ty: {ty:#x}, Len: {len}");
+        trace!("Raw Ty: {ty:#x}, Len: {len}");
 
         // TODO
         let ty = ControlPacketType::deserialize(ty, server_version, encrypted)?;
+        trace!("Parsed Ty: {ty:?}");
+
         match ty {
             ControlPacketType::RumbleData => {
                 todo!();
@@ -492,6 +506,60 @@ impl ControlPacket {
             ControlPacketType::Termination => {
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1241-L1269
                 todo!()
+            }
+            ControlPacketType::HdrMode => {
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
+                if payload.len() < 4 + 1 {
+                    warn!("Received invalid hdr packet: packet is too small");
+                    return None;
+                }
+
+                let enabled = payload[4] != 0;
+
+                let mut sunshine = None;
+                if server_version.is_sunshine_like() {
+                    if payload.len() < 31 {
+                        warn!(
+                            "Received hdr packet from a sunshine server that doesn't contain the sunshine hdr extension."
+                        );
+                    } else {
+                        let metadata = HdrMetadataSunshine {
+                            display_primaries: [
+                                Primary {
+                                    x: u16::from_le_bytes([payload[5], payload[6]]),
+                                    y: u16::from_le_bytes([payload[7], payload[8]]),
+                                },
+                                Primary {
+                                    x: u16::from_le_bytes([payload[9], payload[10]]),
+                                    y: u16::from_le_bytes([payload[11], payload[12]]),
+                                },
+                                Primary {
+                                    x: u16::from_le_bytes([payload[13], payload[14]]),
+                                    y: u16::from_le_bytes([payload[15], payload[16]]),
+                                },
+                            ],
+                            white_point: Primary {
+                                x: u16::from_le_bytes([payload[17], payload[18]]),
+                                y: u16::from_le_bytes([payload[19], payload[20]]),
+                            },
+                            max_display_luminance: u16::from_le_bytes([payload[21], payload[22]]),
+                            min_display_luminance: u16::from_le_bytes([payload[23], payload[24]]),
+                            max_content_light_level: u16::from_le_bytes([payload[25], payload[26]]),
+                            max_frame_average_light_level: u16::from_le_bytes([
+                                payload[27],
+                                payload[28],
+                            ]),
+                            max_full_frame_luminance: u16::from_le_bytes([
+                                payload[29],
+                                payload[30],
+                            ]),
+                        };
+
+                        sunshine = Some(metadata);
+                    }
+                }
+
+                Some(Self::HdrMode { enabled, sunshine })
             }
             _ => todo!(),
         }

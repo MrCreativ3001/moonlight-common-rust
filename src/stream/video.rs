@@ -145,6 +145,28 @@ pub struct VideoSetup {
     pub redraw_rate: u32,
 }
 
+///
+/// Sunshine Extension
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L967-L988
+#[derive(Debug, Clone, Copy)]
+pub struct HdrMetadataSunshine {
+    pub display_primaries: [Primary; 3],
+    pub white_point: Primary,
+    pub max_display_luminance: u16,
+    pub min_display_luminance: u16,
+    pub max_content_light_level: u16,
+    pub max_frame_average_light_level: u16,
+    pub max_full_frame_luminance: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Primary {
+    pub x: u16,
+    pub y: u16,
+}
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Default)]
 pub enum DecodeResult {

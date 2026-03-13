@@ -6,7 +6,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::trace;
+use tracing::{Level, debug, instrument, trace};
 
 use crate::{
     ServerVersion,
@@ -90,6 +90,7 @@ pub struct VideoStream {
 }
 
 impl VideoStream {
+    #[instrument(level = Level::DEBUG)]
     pub fn new(now: Instant, config: VideoStreamConfig) -> Self {
         Self {
             addr: config.addr,
@@ -113,14 +114,6 @@ impl VideoStream {
     }
 
     pub fn poll_output(&mut self) -> Result<VideoStreamOutput, VideoStreamError> {
-        let output = self.do_poll()?;
-
-        trace!(target: "moonlight_proto_video", "Output: {output:?}");
-
-        Ok(output)
-    }
-
-    fn do_poll(&mut self) -> Result<VideoStreamOutput, VideoStreamError> {
         match &mut self.state {
             State::SendPing {
                 last_send,
@@ -143,6 +136,8 @@ impl VideoStream {
                     // Just some magic bytes
                     vec![0x50, 0x49, 0x4E, 0x47]
                 };
+
+                debug!(packet = ?packet, "Sending initial ping");
 
                 last_send.replace(self.last_now);
 
@@ -167,8 +162,6 @@ impl VideoStream {
     }
 
     pub fn handle_input(&mut self, input: VideoStreamInput) -> Result<(), VideoStreamError> {
-        trace!(target: "moonlight_proto_video", "Input: {input:?}");
-
         match input {
             VideoStreamInput::Timeout(now) => {
                 self.last_now = now;

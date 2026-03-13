@@ -35,7 +35,7 @@ mod test;
 
 // TODO: this needs to be adjustable based on the audio sample length
 /// The maximum time to wait for a sample
-const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(1000);
+const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(40);
 
 #[derive(Debug)]
 pub struct AudioStreamConfig {
@@ -134,6 +134,7 @@ impl AudioStream {
                     // Just some magic bytes
                     vec![0x50, 0x49, 0x4E, 0x47]
                 };
+                debug!(packet = ?packet, "Sending initial ping");
 
                 last_send.replace(self.last_now);
 
