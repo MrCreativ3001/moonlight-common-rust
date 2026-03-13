@@ -272,21 +272,13 @@ fn proto_thread(
 
                     udp.connect(addr).unwrap();
 
-                    let (send_udp, send_udp_receiver) = channel();
-                    spawn({
-                        let udp = udp.clone();
-                        move || {
-                            udp_send_thread(udp, send_udp_receiver);
-                        }
-                    });
-
                     let span = Span::current();
                     spawn(move || {
                         let _enter = span.enter();
 
                         info!("Starting Audio Thread");
 
-                        audio_thread(audio_stream, udp, send_udp, audio_decoder);
+                        audio_thread(audio_stream, udp, audio_decoder);
                     });
                     continue;
                 }
@@ -297,21 +289,13 @@ fn proto_thread(
 
                     udp.connect(addr).unwrap();
 
-                    let (send_udp, send_udp_receiver) = channel();
-                    spawn({
-                        let udp = udp.clone();
-                        move || {
-                            udp_send_thread(udp, send_udp_receiver);
-                        }
-                    });
-
                     let span = Span::current();
                     spawn(move || {
                         let _enter = span.enter();
 
                         info!("Starting Video Thread");
 
-                        video_thread(video_stream, udp, send_udp, video_decoder);
+                        video_thread(video_stream, udp, video_decoder);
                     });
                     continue;
                 }
@@ -413,11 +397,30 @@ fn proto_thread(
 fn audio_thread(
     mut audio_stream: AudioStream,
     socket: Arc<UdpSocket>,
-    send_udp: Sender<(SocketAddr, Vec<u8>)>,
     mut audio_decoder: Box<dyn AudioDecoder + Send + 'static>,
 ) {
     let mut started = false;
-    let mut buffer = vec![0u8; 4096];
+
+    let (send_udp, send_udp_receiver) = channel();
+    spawn({
+        let socket = socket.clone();
+        move || {
+            udp_send_thread(socket, send_udp_receiver);
+        }
+    });
+
+    // TODO: max packet size
+    let max_packet_size = 4096;
+    let mut buffer = vec![0; max_packet_size];
+    let queue = Arc::new(RingBuffer::new(100, max_packet_size));
+
+    spawn({
+        let queue = queue.clone();
+
+        move || {
+            udp_queue_receive_thread(socket, queue.clone(), max_packet_size);
+        }
+    });
 
     loop {
         let timeout = match audio_stream.poll_output().unwrap() {
@@ -453,29 +456,20 @@ fn audio_thread(
             continue;
         };
 
-        socket.set_read_timeout(Some(duration)).unwrap();
+        if let Some(len) = queue.pop(&mut buffer, Some(duration)) {
+            let slice = &buffer[0..len];
 
-        match socket.recv_from(&mut buffer) {
-            Ok((len, addr)) => {
-                let slice = &buffer[0..len];
-
-                audio_stream
-                    .handle_input(AudioStreamInput::Receive {
-                        now: Instant::now(),
-                        from: addr,
-                        data: slice,
-                    })
-                    .unwrap();
-            }
-            Err(err) if err.kind() == IoError::WouldBlock || err.kind() == IoError::TimedOut => {
-                audio_stream
-                    .handle_input(AudioStreamInput::Timeout(Instant::now()))
-                    .unwrap();
-            }
-            Err(err) => {
-                todo!("{}", err)
-            }
-        };
+            audio_stream
+                .handle_input(AudioStreamInput::Receive {
+                    now: Instant::now(),
+                    data: slice,
+                })
+                .unwrap();
+        } else {
+            audio_stream
+                .handle_input(AudioStreamInput::Timeout(Instant::now()))
+                .unwrap();
+        }
     }
 }
 
@@ -487,11 +481,20 @@ const VIDEO_SECOND_TO_TIMESTAMP: f64 = 90000.0;
 fn video_thread(
     mut video_stream: VideoStream,
     socket: Arc<UdpSocket>,
-    send_udp: Sender<(SocketAddr, Vec<u8>)>,
     mut video_decoder: Box<dyn VideoDecoder + Send + 'static>,
     // TODO: get the video information
 ) {
     let mut started = false;
+
+    // Sending udp
+    let (send_udp, send_udp_receiver) = channel();
+    spawn({
+        let socket = socket.clone();
+        move || {
+            udp_send_thread(socket, send_udp_receiver);
+        }
+    });
+
     // TODO: max packet size
     let max_packet_size = 4096;
     let mut buffer = vec![0; max_packet_size];

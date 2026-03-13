@@ -35,7 +35,7 @@ mod test;
 
 // TODO: this needs to be adjustable based on the audio sample length
 /// The maximum time to wait for a sample
-const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(40);
+const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(100);
 
 #[derive(Debug)]
 pub struct AudioStreamConfig {
@@ -56,11 +56,7 @@ pub enum AudioStreamError {
 #[derive(Debug)]
 pub enum AudioStreamInput<'a> {
     Timeout(Instant),
-    Receive {
-        now: Instant,
-        from: SocketAddr,
-        data: &'a [u8],
-    },
+    Receive { now: Instant, data: &'a [u8] },
 }
 
 #[derive(Debug)]
@@ -184,12 +180,8 @@ impl AudioStream {
 
                 Ok(())
             }
-            AudioStreamInput::Receive { now, from, data } => {
+            AudioStreamInput::Receive { now, data } => {
                 self.last_now = now;
-
-                if from != self.addr {
-                    return Ok(());
-                }
 
                 if matches!(self.state, State::SendPing { .. }) {
                     self.state = State::Setup;
