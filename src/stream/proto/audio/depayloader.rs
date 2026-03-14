@@ -292,7 +292,10 @@ impl AudioDepayloader {
             // Maybe this is a late data packet -> try fec recovery
             let fec_packet = self.fec_packets.iter().find(|packet| {
                 let sequence_number_range = packet.header.base_sequence_number
-                    ..(packet.header.base_sequence_number + RTP_AUDIO_DATA_SHARDS as u16);
+                    ..(packet
+                        .header
+                        .base_sequence_number
+                        .saturating_add(RTP_AUDIO_DATA_SHARDS as u16));
 
                 sequence_number_range.contains(&rtp_header.sequence_number)
             });
