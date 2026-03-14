@@ -1,15 +1,19 @@
 use std::array;
 
-use crate::stream::proto::video::{
-    depayloader::{
-        VideoDepayloader, VideoDepayloaderConfig, VideoFrame, create_video_reed_solomon,
+use crate::stream::{
+    proto::video::{
+        depayloader::{
+            VideoDepayloader, VideoDepayloaderConfig, VideoFrame, create_video_reed_solomon,
+        },
+        nal::h264,
+        packet::{
+            FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
+            VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_from,
+            fec_percentage_to_parity_shards,
+        },
+        payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
     },
-    packet::{
-        FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
-        VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_from,
-        fec_percentage_to_parity_shards,
-    },
-    payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
+    video::{BufferType, VideoFormat, VideoFrameBuffer},
 };
 
 // TODO: test encrypted header serialization
@@ -716,12 +720,43 @@ fn test_video_payloader() {
 }
 
 #[test]
-fn test_video_depayloader() {
-    // TODO: what packet size?
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig { packet_size: 1024 });
+fn video_depayloader_simple_h264() {
+    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+        packet_size: RtpVideoHeader::SIZE + VideoHeader::SIZE + 10,
+        format: VideoFormat::H264,
+    });
 
-    let expected1 = vec![1, 2, 3, 4, 5, 6];
-    let expected2 = vec![7, 8, 9, 10, 11, 12];
+    let nal_header_sps = h264::NalHeader {
+        forbidden_zero_bit: false,
+        nal_ref_idc: 0,
+        nal_unit_type: h264::NalUnitType::Sps,
+    };
+    let expected1 = vec![0, 0, 0, 1, nal_header_sps.serialize()[0], 4, 5, 6, 7, 8];
+
+    let nal_header_pps = h264::NalHeader {
+        forbidden_zero_bit: false,
+        nal_ref_idc: 0,
+        nal_unit_type: h264::NalUnitType::Pps,
+    };
+    let expected2 = vec![0, 0, 0, 1, nal_header_pps.serialize()[0], 4, 5, 6, 7, 8];
+
+    let nal_header_pic_data = h264::NalHeader {
+        forbidden_zero_bit: false,
+        nal_ref_idc: 0,
+        nal_unit_type: h264::NalUnitType::CodedSliceNonIDR,
+    };
+    let expected3 = vec![
+        0,
+        0,
+        0,
+        1,
+        nal_header_pic_data.serialize()[0],
+        7,
+        6,
+        5,
+        4,
+        3,
+    ];
 
     depayloader
         .handle_packet(&construct_packet(
@@ -745,7 +780,7 @@ fn test_video_depayloader() {
                     unused: 0,
                 },
                 fec_info: VideoFecInfo {
-                    data_shards_total: 2,
+                    data_shards_total: 3,
                     shard_index: 0,
                     fec_percentage: 0,
                     unused: 0,
@@ -769,6 +804,39 @@ fn test_video_depayloader() {
             VideoHeader {
                 stream_packet_index: 0,
                 frame_index: 1,
+                flags: VideoHeaderFlags::START_OF_FILE | VideoHeaderFlags::CONTAINS_VIDEO_DATA,
+                reserved: 0,
+                multi_fec_flags: 0,
+                multi_fec_blocks: VideoMultiFecBlocks {
+                    block_index: 0,
+                    current_block: 0,
+                    unused: 0,
+                },
+                fec_info: VideoFecInfo {
+                    data_shards_total: 3,
+                    shard_index: 1,
+                    fec_percentage: 0,
+                    unused: 0,
+                },
+            },
+            &expected2,
+        ))
+        .unwrap();
+    assert_eq!(depayloader.poll_frame(), Ok(None));
+
+    depayloader
+        .handle_packet(&construct_packet(
+            RtpVideoHeader {
+                header: 0x80 | VIDEO_FLAG_EXTENSION,
+                packet_type: 0,
+                sequence_number: 2,
+                timestamp: 0,
+                ssrc: 0,
+                reserved: [0; 4],
+            },
+            VideoHeader {
+                stream_packet_index: 0,
+                frame_index: 1,
                 flags: VideoHeaderFlags::END_OF_FILE | VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                 reserved: 0,
                 multi_fec_flags: 0,
@@ -778,23 +846,40 @@ fn test_video_depayloader() {
                     unused: 0,
                 },
                 fec_info: VideoFecInfo {
-                    data_shards_total: 2,
-                    shard_index: 1,
+                    data_shards_total: 3,
+                    shard_index: 2,
                     fec_percentage: 0,
                     unused: 0,
                 },
             },
-            &expected2,
+            &expected3,
         ))
         .unwrap();
-    // TODO: convert those into actual frames
-    // assert_eq!(
-    //     depayloader.poll_frame(),
-    //     Ok(Some(VideoFrame {
-    //         frame_number: 1,
-    //         timestamp: 0,
-    //         buffers: vec![expected1, expected2],
-    //     }))
-    // );
+    assert_eq!(
+        depayloader.poll_frame(),
+        Ok(Some(VideoFrame {
+            frame_number: 1,
+            timestamp: 0,
+            buffers: vec![
+                VideoFrameBuffer {
+                    buffer_type: BufferType::Sps,
+                    data: expected1.clone(),
+                },
+                VideoFrameBuffer {
+                    buffer_type: BufferType::Pps,
+                    data: expected2.clone()
+                },
+                VideoFrameBuffer {
+                    buffer_type: BufferType::PicData,
+                    data: expected3.clone()
+                }
+            ],
+        }))
+    );
     assert_eq!(depayloader.poll_frame(), Ok(None));
+}
+
+#[test]
+fn video_depayloader_complex_h264() {
+    todo!()
 }

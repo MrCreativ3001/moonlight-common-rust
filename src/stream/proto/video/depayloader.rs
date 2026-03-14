@@ -5,8 +5,11 @@ use thiserror::Error;
 use tracing::trace;
 
 use crate::stream::{
-    proto::video::packet::{RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader, VideoHeaderFlags},
-    video::{BufferType, VideoFrameBuffer},
+    proto::video::packet::{
+        MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader,
+        VideoHeaderFlags, fec_percentage_to_parity_shards,
+    },
+    video::{VideoFormat, VideoFrameBuffer},
 };
 
 // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
@@ -14,13 +17,14 @@ use crate::stream::{
 
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoQueueError {
-    #[error("the received video rtp packet was too short")]
-    PacketTooShort,
+    #[error("a received video rtp packet doesn't have the configured packet size")]
+    PacketInvalidSize,
 }
 
 #[derive(Debug, Clone)]
 pub struct VideoDepayloaderConfig {
     pub packet_size: usize,
+    pub format: VideoFormat,
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,11 +45,13 @@ struct Packet {
     timestamp: u32,
     fec_shard_index: u32,
     fec_total_data_shards: u32,
+    fec_percentage: u32,
     data: Vec<u8>,
 }
 
 pub struct VideoDepayloader {
     config: VideoDepayloaderConfig,
+    current_frame_buffer: Vec<u8>,
     current_frame_index: u32,
     packets: BTreeMap<u16, Packet>,
 }
@@ -62,6 +68,7 @@ impl VideoDepayloader {
     pub fn new(config: VideoDepayloaderConfig) -> Self {
         Self {
             config,
+            current_frame_buffer: vec![],
             // Frame index starts at 1
             current_frame_index: 1,
             packets: Default::default(),
@@ -124,13 +131,19 @@ impl VideoDepayloader {
         }
 
         let total_data_shards = packets[0].fec_total_data_shards;
+        let fec_percentage = packets[0].fec_total_data_shards;
         let timestamp = packets[0].timestamp;
+
+        // Size of the payload of each packet. We checked the size in the handle_packet fn, so this cannot be different
+        // TODO: this might get influenced by encryption??
+        let payload_size = self.config.packet_size - RtpVideoHeader::SIZE - VideoHeader::SIZE;
 
         #[cfg(debug_assertions)]
         {
-            // Check the fec block for correctness
+            // Check the fec blocks for correctness
             for packet in packets.iter() {
                 debug_assert_eq!(packet.fec_total_data_shards, total_data_shards);
+                debug_assert_eq!(packet.fec_percentage, fec_percentage);
                 debug_assert_eq!(packet.timestamp, timestamp);
             }
         }
@@ -140,63 +153,78 @@ impl VideoDepayloader {
             return Ok(None);
         }
 
-        // TODO: calculate this using fec percentage
-        let parity_shards = packets.len() - total_data_shards as usize;
+        // -- Load all data shards into the current frame buffer and keep track of them
+        let mut data_shards_count = 0;
+        let mut data_shards = [false; MAX_VIDEO_SHARDS_PER_FEC_BLOCK];
 
-        // Check if we need fec reconstruction
-        if parity_shards == 0 {
-            // We don't need fec reconstruction and we can directly submit our data
+        // Make sure the frame buffer is big enough
+        self.current_frame_buffer
+            .resize(total_data_shards as usize * payload_size, 0);
 
-            // TODO: split them at the annex b prefix
-            let mut buffers = Vec::new();
-            for packet in &packets {
-                buffers.push(VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: packet.data.clone(),
-                });
+        for packet in packets.iter() {
+            if packet.fec_shard_index >= total_data_shards {
+                // this is a fec shard -> we don't need them inside the frame
+                continue;
             }
 
-            return Ok(Some(VideoFrame {
-                frame_number: sequence_number,
-                timestamp,
-                buffers,
-            }));
+            let index_start = packet.fec_shard_index as usize * payload_size;
+            let index_end = (packet.fec_shard_index as usize + 1) * payload_size;
+
+            self.current_frame_buffer[index_start..index_end].copy_from_slice(&packet.data);
+
+            data_shards_count += 1;
+            data_shards[packet.fec_shard_index as usize] = true;
         }
 
-        // Do fec reconstruction
-        // TODO: don't use a vec
-        // TODO: don't clone the vec
+        // -- Build all shards
         let mut shards = Vec::new();
-        for shard_index in 0..total_data_shards {
-            let shard = packets
-                .iter()
-                .find(|packet| packet.fec_shard_index == shard_index);
 
-            if let Some(shard) = shard {
-                shards.push(Some(shard.data.clone()));
-            } else {
-                shards.push(None);
-            }
+        // Insert all data shards
+        for (shard_exists, chunk) in data_shards
+            .iter()
+            .zip(self.current_frame_buffer.chunks_mut(payload_size))
+            .take(total_data_shards as usize)
+        {
+            shards.push((chunk, *shard_exists));
         }
 
-        let reed_solomon = create_video_reed_solomon(total_data_shards as usize, parity_shards);
+        // Insert all fec shards
+
+        for packet in packets {
+            // Only accept fec shards
+            if packet.fec_shard_index < total_data_shards {
+                continue;
+            }
+
+            shards.resize_with(packet.fec_shard_index as usize, || (&mut [], false));
+            shards[packet.fec_shard_index as usize] = (&mut packet.data, true);
+        }
+
+        // -- Reconstruct
+        let parity_shards_count =
+            fec_percentage_to_parity_shards(data_shards_count, fec_percentage as usize);
+        let reed_solomon =
+            create_video_reed_solomon(total_data_shards as usize, parity_shards_count);
+
         // TODO: remove unwrap
         reed_solomon.reconstruct_data(&mut shards).unwrap();
 
-        // TODO: fix
-        // Ok(Some(VideoFrame {
-        //     frame_number: sequence_number,
-        //     timestamp,
-        //     buffers: shards.into_iter().flatten().collect::<Vec<_>>(),
-        // }))
+        // -- Interpret frame
+        let frame = self.interpret_current_frame();
+
+        Ok(Some(frame))
+    }
+
+    /// Interprets the [Self::current_frame_buffer] and returns a VideoFrame
+    fn interpret_current_frame(&self) -> VideoFrame {
         todo!()
     }
 
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoQueueError> {
         // Wolf impl: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L234-L268
 
-        if packet.len() < RtpVideoHeader::SIZE + VideoHeader::SIZE {
-            return Err(VideoQueueError::PacketTooShort);
+        if packet.len() != self.config.packet_size {
+            return Err(VideoQueueError::PacketInvalidSize);
         }
 
         #[allow(clippy::unwrap_used)]
@@ -243,6 +271,7 @@ impl VideoDepayloader {
                 timestamp: rtp_header.timestamp,
                 fec_shard_index: video_header.fec_info.shard_index,
                 fec_total_data_shards: video_header.fec_info.data_shards_total,
+                fec_percentage: video_header.fec_info.fec_percentage,
                 data: data.to_vec(),
             },
         );

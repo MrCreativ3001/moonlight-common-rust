@@ -25,6 +25,7 @@ use crate::{
 };
 
 pub mod depayloader;
+mod nal;
 mod packet;
 pub mod payloader;
 

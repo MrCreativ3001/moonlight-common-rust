@@ -216,7 +216,7 @@ impl AudioDepayloader {
 
         // The timestamp increment for one audio packet
         // This won't panic because we need at least 2 data packets, excluding the first one we MUST get 1 packet
-        let some_data_packets = [data_shard2, data_shard3, data_shard3];
+        let some_data_packets = [data_shard2, data_shard3, data_shard4];
         #[allow(clippy::unwrap_used)]
         let (some_shard_index, some_data_packet) = some_data_packets
             .iter()

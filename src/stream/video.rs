@@ -205,6 +205,8 @@ pub enum FrameType {
 
 #[derive(Debug, PartialEq)]
 pub struct VideoFrameBuffer<Buf> {
+    /// The type of this buffer.
+    /// See [BufferType] for more information.
     pub buffer_type: BufferType,
     pub data: Buf,
 }

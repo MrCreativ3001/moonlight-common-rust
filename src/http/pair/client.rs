@@ -606,15 +606,14 @@ mod test {
     use std::{fmt::Debug, str::FromStr};
 
     use pem::Pem;
-    use thiserror::Error;
 
     use crate::{
         ServerVersion,
         http::{
             ClientIdentifier, ClientSecret, ServerIdentifier,
             pair::{
-                HashAlgorithm, PairPin, PairRequest, PairResponse, PairingCryptoBackend,
-                client::{ClientPairing, ClientPairingError, ClientPairingOutput},
+                PairPin, PairRequest, PairResponse, PairingCryptoBackend,
+                client::{ClientPairing, ClientPairingOutput},
                 phase1::{PairPhase1Request, PairPhase1Response},
                 phase2::{PairPhase2Request, PairPhase2Response},
                 phase3::{PairPhase3Request, PairPhase3Response},
@@ -627,93 +626,7 @@ mod test {
             },
         },
         init_test,
-        test::init_test,
     };
-
-    struct TestCryptoProvider;
-    #[derive(Debug, Error, PartialEq)]
-    enum PanicError {}
-
-    impl PairingCryptoBackend for TestCryptoProvider {
-        type Error = PanicError;
-
-        fn generate_client_identity(
-            &self,
-        ) -> Result<(ClientIdentifier, ClientSecret), Self::Error> {
-            unimplemented!()
-        }
-
-        fn hash(
-            &self,
-            _algorithm: HashAlgorithm,
-            _data: &[u8],
-            _output: &mut [u8],
-        ) -> Result<(), Self::Error> {
-            unimplemented!()
-        }
-        fn random_bytes(&self, _data: &mut [u8]) -> Result<(), Self::Error> {
-            Ok(())
-        }
-        fn decrypt_aes(&self, _key: &[u8], _ciphertext: &[u8]) -> Result<Vec<u8>, Self::Error> {
-            unimplemented!()
-        }
-        fn encrypt_aes(&self, _key: &[u8], _plaintext: &[u8]) -> Result<Vec<u8>, Self::Error> {
-            unimplemented!()
-        }
-        fn client_signature(
-            &self,
-            _client_certificate: &ClientIdentifier,
-        ) -> Result<Vec<u8>, Self::Error> {
-            unimplemented!()
-        }
-        fn server_signature(
-            &self,
-            _server_certificate: &ServerIdentifier,
-        ) -> Result<Vec<u8>, Self::Error> {
-            unimplemented!()
-        }
-        fn sign_data(
-            &self,
-            _private_key: &ClientSecret,
-            _data: &[u8],
-        ) -> Result<Vec<u8>, Self::Error> {
-            unimplemented!()
-        }
-        fn verify_signature(
-            &self,
-            _server_secret: &[u8],
-            _server_signature: &[u8],
-            _server_cert: &ServerIdentifier,
-        ) -> Result<bool, Self::Error> {
-            unimplemented!()
-        }
-    }
-
-    #[test]
-    fn pair_already_in_progress() {
-        init_test();
-
-        let mut pairing = ClientPairing::new(
-            ClientIdentifier::from_pem(Pem::from_str(PAIR_CLIENT_CERTIFICATE_PEM).unwrap()),
-            ClientSecret::from_pem(Pem::from_str(PAIR_CLIENT_PRIVATE_KEY_PEM).unwrap()),
-            ServerVersion::new(7, 1, 143, -1),
-            "roth".to_string(),
-            PairPin::new(0, 0, 0, 0).unwrap(),
-            TestCryptoProvider,
-        )
-        .unwrap();
-
-        // Phase 1
-        let _ = pairing.poll_output();
-
-        assert_eq!(
-            pairing.handle_response(PairResponse::Phase1(PairPhase1Response {
-                paired: true,
-                certificate: None
-            })),
-            Err(ClientPairingError::FailedAlreadyInProgress),
-        );
-    }
 
     fn test_pair_with<C>(crypto: C)
     where

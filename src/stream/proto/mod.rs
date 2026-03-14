@@ -388,6 +388,7 @@ impl MoonlightStreamProto {
                                         // Packet size will always exist
                                         #[allow(clippy::unwrap_used)]
                                         packet_size: sdp.client_sdp.packet_size.unwrap() as usize,
+                                        format: sdp.video_format,
                                     },
                                     sunshine_ping: video_setup.sunshine_ping.clone(),
                                     sunshine_encryption: None, // TODO <--
