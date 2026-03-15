@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use thiserror::Error;
-use tracing::{debug, trace, warn};
+use tracing::{debug, debug_span, trace, warn};
 
 use crate::stream::{
     proto::video::{
@@ -234,7 +234,11 @@ impl VideoDepayloader {
         }
 
         // -- Interpret frame
+        let parse_frame_span = debug_span!("parse_frame");
+
         let frame = self.interpret_current_frame(frame_index, timestamp);
+
+        drop(parse_frame_span);
 
         Ok(Some(frame))
     }
@@ -281,6 +285,7 @@ impl VideoDepayloader {
                 if self.config.format.contained_in(SupportedVideoFormats::H264) {
                     if buffer.len() < nalu_start + 1 {
                         warn!("Couldn't read nal header because nalu is too short!");
+                        trace!(frame = ?self.current_frame_buffer, buffer = ?buffer, nalu_start = nalu_start, "data");
 
                         BufferType::PicData
                     } else {
@@ -292,6 +297,7 @@ impl VideoDepayloader {
                 } else if self.config.format.contained_in(SupportedVideoFormats::H265) {
                     if buffer.len() < nalu_start + 2 {
                         warn!("Couldn't read nal header because nalu is too short!");
+                        trace!(frame = ?self.current_frame_buffer, buffer = ?buffer, nalu_start = nalu_start, "data");
 
                         BufferType::PicData
                     } else {
@@ -341,7 +347,7 @@ impl VideoDepayloader {
 
         if let Some((start_code_begin, start_code_len)) = last_start_code {
             add_buffer(
-                start_code_begin + start_code_len,
+                start_code_len,
                 &self.current_frame_buffer[start_code_begin..],
             );
         }

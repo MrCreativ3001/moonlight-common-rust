@@ -1111,7 +1111,7 @@ fn depayloader_simple_noparse_multiframe() {
 #[test]
 fn depayloader_simple_h264() {
     let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
-        packet_size: VideoHeader::SIZE + 10,
+        packet_size: VideoHeader::SIZE + 20,
         format: VideoFormat::H264,
     });
 
@@ -1120,14 +1120,56 @@ fn depayloader_simple_h264() {
         nal_ref_idc: 0,
         nal_unit_type: h264::NalUnitType::Sps,
     };
-    let expected1 = vec![0, 0, 0, 1, nal_header_sps.serialize()[0], 4, 5, 6, 7, 8];
+    let expected1 = vec![
+        0,
+        0,
+        0,
+        1,
+        nal_header_sps.serialize()[0],
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+    ];
 
     let nal_header_pps = h264::NalHeader {
         forbidden_zero_bit: false,
         nal_ref_idc: 0,
         nal_unit_type: h264::NalUnitType::Pps,
     };
-    let expected2 = vec![0, 0, 0, 1, nal_header_pps.serialize()[0], 4, 5, 6, 7, 8];
+    let expected2 = vec![
+        0,
+        0,
+        0,
+        1,
+        nal_header_pps.serialize()[0],
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        9,
+        8,
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+    ];
 
     let nal_header_pic_data = h264::NalHeader {
         forbidden_zero_bit: false,
@@ -1145,6 +1187,16 @@ fn depayloader_simple_h264() {
         5,
         4,
         3,
+        2,
+        1,
+        0,
+        0,
+        2,
+        2,
+        3,
+        4,
+        5,
+        6,
     ];
 
     depayloader
