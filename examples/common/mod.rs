@@ -25,7 +25,7 @@ pub fn init() {
     let audio_directive: Directive = "moonlight_common::stream::proto::audio::depayloader=debug"
         .parse()
         .unwrap();
-    let video_directive: Directive = "moonlight_common::stream::proto::video::depayloader=trace"
+    let video_directive: Directive = "moonlight_common::stream::proto::video::depayloader=debug"
         .parse()
         .unwrap();
     let control_directive: Directive = "moonlight_common::stream::proto::control=off"

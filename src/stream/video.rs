@@ -150,8 +150,8 @@ pub struct VideoSetup {
 ///
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L967-L988
-#[derive(Debug, Clone, Copy)]
-pub struct HdrMetadataSunshine {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SunshineHdrMetadata {
     pub display_primaries: [Primary; 3],
     pub white_point: Primary,
     pub max_display_luminance: u16,
@@ -161,7 +161,7 @@ pub struct HdrMetadataSunshine {
     pub max_full_frame_luminance: u16,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Primary {
     pub x: u16,
     pub y: u16,

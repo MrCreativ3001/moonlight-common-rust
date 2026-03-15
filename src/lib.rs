@@ -130,6 +130,7 @@ impl ServerVersion {
         self.mini_patch < 0 || matches!(self.server_type, ServerType::Sunshine | ServerType::Apollo)
     }
 
+    /// Any server that supports Apollo protocol
     pub fn is_apollo(&self) -> bool {
         matches!(self.server_type, ServerType::Apollo)
     }

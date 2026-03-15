@@ -5,7 +5,7 @@ use tracing::{Level, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
-    stream::video::{HdrMetadataSunshine, Primary},
+    stream::video::{Primary, SunshineHdrMetadata},
 };
 
 /// The server must be pinged every few milliseconds
@@ -351,7 +351,7 @@ impl ControlPacketType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ControlPacket {
     // -- Server Sent Events
     // TODO: are those be or le
@@ -381,14 +381,14 @@ pub enum ControlPacket {
         ///
         /// References:
         /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
-        sunshine: Option<HdrMetadataSunshine>,
+        sunshine: Option<SunshineHdrMetadata>,
     },
 }
 
 impl ControlPacket {
     // TODO: what is the max size
     /// This is the maximum size a packet can have
-    pub const SIZE: usize = 20;
+    pub const MAX_SIZE: usize = 32;
 
     pub fn ty(&self) -> ControlPacketType {
         // TODO
@@ -403,11 +403,12 @@ impl ControlPacket {
     /// - If not encrypted: the full payload
     /// - If encrypted: the decrypted payload -> it needs to be encrypted
     // TODO: make this return a result and handle error
+    #[instrument(level = Level::TRACE)]
     pub fn serialize(
         &self,
         server_version: ServerVersion,
         encrypted: bool,
-        buffer: &mut [u8; Self::SIZE],
+        buffer: &mut [u8; Self::MAX_SIZE],
     ) -> usize {
         match self {
             Self::PeriodicPing => {
@@ -417,11 +418,58 @@ impl ControlPacket {
 
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
-                // TODO: is this correct? https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1395-L1396
+                // Length of payload
                 buffer[2..4].copy_from_slice(&4u16.to_le_bytes());
+
+                // Timestamp?
                 buffer[4..8].copy_from_slice(&[0, 0, 0, 0]);
 
                 8
+            }
+            Self::HdrMode { enabled, sunshine } => {
+                // Ty
+                let ty = ControlPacketType::HdrMode
+                    .serialize(server_version, encrypted)
+                    .unwrap();
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length is set later
+
+                // Data
+                buffer[4] = *enabled as u8;
+
+                let data_len = if let Some(metadata) = sunshine {
+                    let mut serialize_primary = |i: usize, primary: Primary| {
+                        buffer[i..(i + 2)].copy_from_slice(&primary.x.to_le_bytes());
+                        buffer[(i + 2)..(i + 4)].copy_from_slice(&primary.y.to_le_bytes());
+                    };
+
+                    serialize_primary(5, metadata.display_primaries[0]);
+                    serialize_primary(9, metadata.display_primaries[1]);
+                    serialize_primary(13, metadata.display_primaries[2]);
+                    serialize_primary(17, metadata.white_point);
+
+                    buffer[21..23].copy_from_slice(&metadata.max_display_luminance.to_le_bytes());
+                    buffer[23..25].copy_from_slice(&metadata.min_display_luminance.to_le_bytes());
+
+                    buffer[25..27].copy_from_slice(&metadata.max_content_light_level.to_le_bytes());
+
+                    buffer[27..29]
+                        .copy_from_slice(&metadata.max_frame_average_light_level.to_le_bytes());
+
+                    buffer[29..31]
+                        .copy_from_slice(&metadata.max_full_frame_luminance.to_le_bytes());
+
+                    27
+                } else {
+                    1
+                };
+
+                // Length
+                buffer[2..4].copy_from_slice(&(data_len as u16).to_le_bytes());
+
+                // 4 = type + packet length
+                4 + data_len
             }
             Self::RequestIdr => {
                 let ty = ControlPacketType::RequestIdr
@@ -480,6 +528,7 @@ impl ControlPacket {
         payload: &[u8],
     ) -> Option<Self> {
         if payload.len() < 4 {
+            warn!("Received packet that is too short (< 4 bytes)");
             return None;
         }
         let ty = u16::from_le_bytes([payload[0], payload[1]]);
@@ -490,7 +539,18 @@ impl ControlPacket {
         let ty = ControlPacketType::deserialize(ty, server_version, encrypted)?;
         trace!("Parsed Ty: {ty:?}");
 
+        if payload.len() < 4 + len as usize - 1 {
+            warn!(packet_ty = ?ty, full_len = payload.len(), got_len = payload.len() - 4, expected_len = len, "Received payload that has incorrect length in its length field");
+            return None;
+        }
+        let payload = &payload[0..(4 + len as usize)];
+
         match ty {
+            ControlPacketType::PeriodicPing => {
+                // Moonlight says missing timestamp: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1395-L1396
+                // but Sunshine doesn't do anything: https://github.com/LizardByte/Sunshine/blob/0bbaa2db7c2ccececa696e11fb8c83e5f8a7f97d/src/stream.cpp#L923-L925
+                Some(ControlPacket::PeriodicPing)
+            }
             ControlPacketType::RumbleData => {
                 todo!();
             }
@@ -523,7 +583,7 @@ impl ControlPacket {
                             "Received hdr packet from a sunshine server that doesn't contain the sunshine hdr extension."
                         );
                     } else {
-                        let metadata = HdrMetadataSunshine {
+                        let metadata = SunshineHdrMetadata {
                             display_primaries: [
                                 Primary {
                                     x: u16::from_le_bytes([payload[5], payload[6]]),
@@ -566,12 +626,126 @@ impl ControlPacket {
     }
 }
 
-// TODO: maybe more tests
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod test {
+    // TODO: test that all ControlPacketType types serialize and deserialize to their correct types
+
+    use crate::{
+        ServerVersion, init_test,
+        stream::{
+            proto::control::packet::ControlPacket,
+            video::{Primary, SunshineHdrMetadata},
+        },
+    };
+
+    fn test_packet(
+        server_version: ServerVersion,
+        encrypted: bool,
+        expected_packet: ControlPacket,
+        expected_bytes: &[u8],
+    ) {
+        let mut bytes = [0; _];
+        let len = expected_packet.serialize(server_version, encrypted, &mut bytes);
+        let bytes = &bytes[0..len];
+        assert_eq!(bytes, expected_bytes, "Serialize: {:?}", expected_packet);
+
+        let packet = ControlPacket::deserialize(server_version, encrypted, bytes).unwrap();
+        assert_eq!(
+            packet, expected_packet,
+            "Deserialize: {:?}",
+            expected_packet
+        );
+    }
+
+    const SUNSHINE_GEN_7: ServerVersion = ServerVersion::new(7, 1, 431, -1);
+
     #[test]
-    fn test_control_packet_ty_serialize_deserialize() {
-        // TODO: test that all ControlPacketType types serialize and deserialize to their correct types
-        todo!()
+    fn ping() {
+        test_packet(
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::PeriodicPing,
+            &[0, 2, 4, 0, 0, 0, 0, 0],
+        );
+    }
+
+    #[test]
+    fn hdr_mode() {
+        init_test!();
+
+        test_packet(
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::HdrMode {
+                enabled: false,
+                sunshine: None,
+            },
+            &[14, 1, 1, 0, 0],
+        );
+
+        test_packet(
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::HdrMode {
+                enabled: true,
+                sunshine: None,
+            },
+            &[14, 1, 1, 0, 1],
+        );
+    }
+    #[test]
+    fn hdr_mode_sunshine() {
+        test_packet(
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::HdrMode {
+                enabled: true,
+                sunshine: Some(SunshineHdrMetadata {
+                    display_primaries: [
+                        Primary { x: 34000, y: 16000 }, // Red
+                        Primary { x: 13250, y: 34500 }, // Green
+                        Primary { x: 7500, y: 3000 },   // Blue
+                    ],
+                    white_point: Primary { x: 15635, y: 16450 },
+                    max_display_luminance: 1000,
+                    min_display_luminance: 50,
+                    max_content_light_level: 1000,
+                    max_frame_average_light_level: 400,
+                    max_full_frame_luminance: 600,
+                }),
+            },
+            &[
+                14, 1, // Ty
+                27, 0,    // Len
+                0x01, // HDR enabled
+                // Display Primaries
+                0xD0, 0x84, // R.x = 34000
+                0x80, 0x3E, // R.y = 16000
+                0xC2, 0x33, // G.x = 13250
+                0xC4, 0x86, // G.y = 34500
+                0x4C, 0x1D, // B.x = 7500
+                0xB8, 0x0B, // B.y = 3000
+                // White point
+                0x13, 0x3D, // x = 15635
+                0x42, 0x40, // y = 16450
+                // Luminance values
+                0xE8, 0x03, // maxDisplayLuminance = 1000
+                0x32, 0x00, // minDisplayLuminance = 50
+                0xE8, 0x03, // maxContentLightLevel = 1000
+                0x90, 0x01, // maxFrameAverageLightLevel = 400
+                0x58, 0x02, // maxFullFrameLuminance = 600
+            ],
+        );
+    }
+
+    #[test]
+    fn request_idr() {
+        test_packet(SUNSHINE_GEN_7, false, ControlPacket::RequestIdr, &[]);
+    }
+
+    #[test]
+    fn start_b() {
+        test_packet(SUNSHINE_GEN_7, false, ControlPacket::StartB, &[]);
     }
 }
