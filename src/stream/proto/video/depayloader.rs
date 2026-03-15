@@ -318,6 +318,7 @@ impl VideoDepayloader {
             });
         };
 
+        // Find annex b start codes
         for i in 0..self.current_frame_buffer.len() {
             start_code_window.rotate_left(1);
             start_code_window[3] = self.current_frame_buffer[i];

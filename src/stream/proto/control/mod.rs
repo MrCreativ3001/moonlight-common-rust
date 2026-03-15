@@ -62,7 +62,7 @@ pub enum ControlStreamError {
     #[error("the control stream hasn't successfully connected yet")]
     NotConnected,
     #[error("packet not supported")]
-    PacketNotSupported(ControlPacketNotSupported),
+    PacketNotSupported(#[from] ControlPacketNotSupported),
 }
 
 #[derive(Debug)]
@@ -184,7 +184,10 @@ impl ControlStream {
         packet: ControlPacket,
         force_packet: bool,
     ) -> Result<(), ControlStreamError> {
-        debug!(packet = ?packet, "Sending Packet");
+        // Avoid spam from ping
+        if !matches!(packet, ControlPacket::PeriodicPing) {
+            debug!(packet = ?packet, "Sending Packet");
+        }
 
         if !force_packet && !self.allow_packets {
             return Err(ControlStreamError::NotConnected);
@@ -212,7 +215,10 @@ impl ControlStream {
         };
 
         let channel = if self.server_version.is_sunshine_like() {
-            CHANNEL_GENERIC as u8
+            (match packet {
+                ControlPacket::RequestIdr | ControlPacket::StartB => CHANNEL_URGENT,
+                _ => CHANNEL_GENERIC,
+            }) as u8
         } else {
             // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
             // Always use channel 0 for GFE
@@ -227,7 +233,7 @@ impl ControlStream {
             }
         );
 
-        let len = packet.serialize(self.server_version, encrypted, &mut buffer);
+        let len = packet.serialize(self.server_version, encrypted, &mut buffer)?;
 
         // TODO: what channel?
         self.send_raw(packet_kind, channel, &buffer[0..len], force_packet)?;

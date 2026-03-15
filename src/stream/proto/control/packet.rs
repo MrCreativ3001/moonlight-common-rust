@@ -409,12 +409,10 @@ impl ControlPacket {
         server_version: ServerVersion,
         encrypted: bool,
         buffer: &mut [u8; Self::MAX_SIZE],
-    ) -> usize {
+    ) -> Result<usize, ControlPacketNotSupported> {
         match self {
             Self::PeriodicPing => {
-                let ty = ControlPacketType::PeriodicPing
-                    .serialize(server_version, encrypted)
-                    .unwrap();
+                let ty = ControlPacketType::PeriodicPing.serialize(server_version, encrypted)?;
 
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
@@ -424,21 +422,19 @@ impl ControlPacket {
                 // Timestamp?
                 buffer[4..8].copy_from_slice(&[0, 0, 0, 0]);
 
-                8
+                Ok(8)
             }
             Self::HdrMode { enabled, sunshine } => {
                 // Ty
-                let ty = ControlPacketType::HdrMode
-                    .serialize(server_version, encrypted)
-                    .unwrap();
+                let ty = ControlPacketType::HdrMode.serialize(server_version, encrypted)?;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
-                // Length is set later
+                // Length later
 
                 // Data
                 buffer[4] = *enabled as u8;
 
-                let data_len = if let Some(metadata) = sunshine {
+                let payload_len = if let Some(metadata) = sunshine {
                     let mut serialize_primary = |i: usize, primary: Primary| {
                         buffer[i..(i + 2)].copy_from_slice(&primary.x.to_le_bytes());
                         buffer[(i + 2)..(i + 4)].copy_from_slice(&primary.y.to_le_bytes());
@@ -466,36 +462,34 @@ impl ControlPacket {
                 };
 
                 // Length
-                buffer[2..4].copy_from_slice(&(data_len as u16).to_le_bytes());
+                buffer[2..4].copy_from_slice(&(payload_len as u16).to_le_bytes());
 
                 // 4 = type + packet length
-                4 + data_len
+                Ok(4 + payload_len)
             }
             Self::RequestIdr => {
-                let ty = ControlPacketType::RequestIdr
-                    .serialize(server_version, encrypted)
-                    .unwrap();
-
+                // Ty
+                let ty = ControlPacketType::RequestIdr.serialize(server_version, encrypted)?;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length later
 
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L218-L227
                 let contents = [0, 0];
 
-                let len = 2 + contents.len();
-                if buffer.len() < len {
-                    // TODO: error?
-                    todo!();
-                }
-                buffer[2..(contents.len() + 2)].copy_from_slice(&contents);
+                buffer[4..(contents.len() + 4)].copy_from_slice(&contents);
 
-                len
+                // Length
+                buffer[2..4].copy_from_slice(&(contents.len() as u16).to_le_bytes());
+
+                Ok(4 + contents.len())
             }
             Self::StartB => {
-                let ty = ControlPacketType::StartB
-                    .serialize(server_version, encrypted)
-                    .unwrap();
-
+                // Ty
+                let ty = ControlPacketType::StartB.serialize(server_version, encrypted)?;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length later
 
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L218-L227
                 let contents: &[u8] = match server_version.major {
@@ -503,14 +497,12 @@ impl ControlPacket {
                     _ => &[0],
                 };
 
-                let len = 2 + contents.len();
-                if buffer.len() < len {
-                    // TODO: error?
-                    todo!();
-                }
-                buffer[2..(contents.len() + 2)].copy_from_slice(contents);
+                buffer[4..(contents.len() + 4)].copy_from_slice(contents);
 
-                len
+                // Length
+                buffer[2..4].copy_from_slice(&(contents.len() as u16).to_le_bytes());
+
+                Ok(4 + contents.len())
             }
             _ => todo!(),
         }
@@ -551,6 +543,8 @@ impl ControlPacket {
                 // but Sunshine doesn't do anything: https://github.com/LizardByte/Sunshine/blob/0bbaa2db7c2ccececa696e11fb8c83e5f8a7f97d/src/stream.cpp#L923-L925
                 Some(ControlPacket::PeriodicPing)
             }
+            ControlPacketType::RequestIdr => Some(ControlPacket::RequestIdr),
+            ControlPacketType::StartB => Some(ControlPacket::StartB),
             ControlPacketType::RumbleData => {
                 todo!();
             }
@@ -646,7 +640,9 @@ mod test {
         expected_bytes: &[u8],
     ) {
         let mut bytes = [0; _];
-        let len = expected_packet.serialize(server_version, encrypted, &mut bytes);
+        let len = expected_packet
+            .serialize(server_version, encrypted, &mut bytes)
+            .unwrap();
         let bytes = &bytes[0..len];
         assert_eq!(bytes, expected_bytes, "Serialize: {:?}", expected_packet);
 
@@ -741,11 +737,21 @@ mod test {
 
     #[test]
     fn request_idr() {
-        test_packet(SUNSHINE_GEN_7, false, ControlPacket::RequestIdr, &[]);
+        test_packet(
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::RequestIdr,
+            &[5, 3, 2, 0, 0, 0],
+        );
     }
 
     #[test]
     fn start_b() {
-        test_packet(SUNSHINE_GEN_7, false, ControlPacket::StartB, &[]);
+        test_packet(
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::StartB,
+            &[7, 3, 1, 0, 0],
+        );
     }
 }
