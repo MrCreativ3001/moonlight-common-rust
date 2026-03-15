@@ -1,6 +1,8 @@
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
+use crate::stream::video::BufferType;
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, FromPrimitive)]
 pub enum NalUnitType {
@@ -37,6 +39,17 @@ pub enum NalUnitType {
     Unspecified29 = 29,
     Unspecified30 = 30,
     Unspecified31 = 31,
+}
+
+impl NalUnitType {
+    pub fn to_buffer_type(self) -> BufferType {
+        // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L49-L53
+        match self {
+            Self::Sps => BufferType::Sps,
+            Self::Pps => BufferType::Pps,
+            _ => BufferType::PicData,
+        }
+    }
 }
 
 // https://datatracker.ietf.org/doc/html/rfc3984#section-1.3

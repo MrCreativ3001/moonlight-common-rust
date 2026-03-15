@@ -7,6 +7,8 @@ use std::{net::IpAddr, time::Duration};
 
 use bitflags::bitflags;
 
+use tracing::info;
+
 use crate::{
     ServerVersion,
     stream::{
@@ -71,6 +73,8 @@ pub struct ClientSdp {
     pub client_viewport_height: Option<u32>,
     pub max_fps: Option<u32>,
     /// default is 1024
+    ///
+    /// See [VideoDepayloaderConfig::packet_size](crate::stream::proto::video::depayloader::VideoDepayloaderConfig::packet_size).
     pub packet_size: Option<u32>,
     /// default is 4
     pub rate_control_mode: Option<u32>,
@@ -220,7 +224,10 @@ impl ClientSdp {
     /// Creates a sdp like moonlight common c
     ///
     /// Some other values are changed which this function won't do:
-    /// - adjust packet size: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L322
+    /// - adjust packet size:
+    ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L322
+    ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L293-L295
+    ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L412-L423
     /// - adjust bitrate: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L336-L354
     /// - When streaming 4K, lower FEC levels to reduce stream overhead: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L224C9-L230
     /// - Slices per frame: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L424-L431
@@ -402,7 +409,7 @@ impl ClientSdp {
                     // HEVC output at 1080p60 (full of artifacts even on the SHIELD itself, go figure).
                     // It now appears to work fine on GFE 3.14.1.
 
-                    // TODO: log? https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L444
+                    info!("Disabling split encode for HEVC on older GFE version");
                     sdp.video_encoder_feature_setting = Some(0);
                 }
             } else {

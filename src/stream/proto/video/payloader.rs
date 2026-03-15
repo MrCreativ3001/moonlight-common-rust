@@ -21,6 +21,7 @@ pub struct VideoPayloaderFecConfig {
 }
 
 pub struct VideoPayloaderConfig {
+    // TODO: look at depayloader config packet_size and adjust accordingly to match that
     pub packet_size: usize,
     pub fec: Option<VideoPayloaderFecConfig>,
 }

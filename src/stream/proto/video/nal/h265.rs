@@ -1,6 +1,8 @@
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
+use crate::stream::video::BufferType;
+
 #[derive(Debug, Clone, Copy)]
 pub struct NalHeader {
     pub forbidden_zero_bit: bool,
@@ -134,4 +136,16 @@ pub enum NalUnitType {
     Unspec61 = 61,
     Unspec62 = 62,
     Unspec63 = 63,
+}
+
+impl NalUnitType {
+    pub fn to_buffer_type(self) -> BufferType {
+        // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L54-L59
+        match self {
+            Self::VpsNut => BufferType::Vps,
+            Self::SpsNut => BufferType::Sps,
+            Self::PpsNut => BufferType::Pps,
+            _ => BufferType::PicData,
+        }
+    }
 }

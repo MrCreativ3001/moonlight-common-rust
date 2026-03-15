@@ -118,8 +118,14 @@ fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream =
-        MoonlightStream::new(config, settings, NullListener, audio_decoder, DebugListener).unwrap();
+    let stream = MoonlightStream::new(
+        config,
+        settings,
+        video_decoder,
+        audio_decoder,
+        DebugListener,
+    )
+    .unwrap();
 
     // TODO
     sleep(Duration::from_secs(1000));

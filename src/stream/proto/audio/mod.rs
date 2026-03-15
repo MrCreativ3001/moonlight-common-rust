@@ -130,7 +130,7 @@ impl AudioStream {
                     // Just some magic bytes
                     vec![0x50, 0x49, 0x4E, 0x47]
                 };
-                debug!(packet = ?packet, "Sending initial ping");
+                debug!(packet = ?packet, "Sending initial audio ping");
 
                 last_send.replace(self.last_now);
 

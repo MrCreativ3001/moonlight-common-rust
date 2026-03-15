@@ -212,6 +212,7 @@ pub struct VideoFrameBuffer<Buf> {
 }
 
 /// A decode unit describes a buffer chain of video data from multiple packets
+// TODO: combine this type with the VideoFrame from the proto impl
 pub struct VideoDecodeUnit<'a> {
     /// Frame Number
     pub frame_number: i32,

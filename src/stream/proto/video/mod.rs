@@ -138,7 +138,7 @@ impl VideoStream {
                     vec![0x50, 0x49, 0x4E, 0x47]
                 };
 
-                debug!(packet = ?packet, "Sending initial ping");
+                debug!(packet = ?packet, "Sending initial video ping");
 
                 last_send.replace(self.last_now);
 

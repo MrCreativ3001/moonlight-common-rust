@@ -66,6 +66,7 @@ mod helper;
 mod test;
 
 // TODO: what is the correct way to handle errors in this system when receiving messages from a client (server impl)? e.g. failed to start stream, not authenticated for app endpoint?
+// TODO: all response serializations use string formatting -> also use escape sequences when needed
 
 pub const DEFAULT_HTTP_PORT: u16 = 47989;
 pub const DEFAULT_HTTPS_PORT: u16 = 47984;
