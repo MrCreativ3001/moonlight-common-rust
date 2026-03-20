@@ -38,10 +38,7 @@ roxmltree = "0.21.1"
 form_urlencoded = "1.2.2"
 
 # Stream Proto
-# We need to use this fork because the normal version doesn't allow us to use a custom parity matrix
-reed-solomon-erasure = { git = "https://github.com/MrCreativ3001/reed-solomon-erasure", rev = "e8b2f49d54118f69927254f83fff05830a601017", features = [
-    "simd-accel",
-], optional = true }
+fec-rs = { version = "0.1.0", features = ["parallel"], optional = true }
 rusty_enet = { version = "0.4.0", optional = true }
 
 # Stream c
@@ -118,7 +115,7 @@ std = ["stream-proto"]
 tokio = ["dep:tokio"]
 
 # Stream implementations
-stream-proto = ["dep:reed-solomon-erasure", "dep:rusty_enet"]
+stream-proto = ["dep:fec-rs", "dep:rusty_enet"]
 stream-c = ["dep:moonlight-common-sys"]
 
 # Crypto implementations

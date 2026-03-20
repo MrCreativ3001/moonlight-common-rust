@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use reed_solomon_erasure::galois_8::ReedSolomon;
+use fec_rs::ReedSolomon;
 use thiserror::Error;
 
 use crate::stream::{
@@ -25,7 +25,7 @@ pub enum AudioDepayloaderError {
     #[error("buffer too small")]
     BufferTooSmall,
     #[error("reed solomon: {0}")]
-    ReedSolomon(#[from] reed_solomon_erasure::Error),
+    ReedSolomon(#[from] fec_rs::Error),
 }
 
 // TODO: this should also handle decryption

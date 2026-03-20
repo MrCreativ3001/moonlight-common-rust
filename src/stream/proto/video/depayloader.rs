@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
-use reed_solomon_erasure::galois_8::ReedSolomon;
+use fec_rs::ReedSolomon;
 use thiserror::Error;
 use tracing::{debug, debug_span, trace, warn};
 
 use crate::stream::{
     proto::video::{
-        nal::{self, h264, h265},
+        nal::{h264, h265},
         packet::{
             MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader,
             VideoHeaderFlags, fec_percentage_to_parity_shards,
@@ -229,8 +229,9 @@ impl VideoDepayloader {
             // -- Reconstruct
             let reed_solomon = create_video_reed_solomon(total_data_shards, total_parity_shards);
 
-            // TODO: remove unwrap
-            reed_solomon.reconstruct_data(&mut shards).unwrap();
+            // TODO: reconstruct
+            // reed_solomon.reconstruct_data(&mut shards).unwrap();
+            todo!()
         }
 
         // -- Interpret frame

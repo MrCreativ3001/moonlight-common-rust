@@ -1,6 +1,6 @@
 use std::array;
 
-use reed_solomon_erasure::galois_8::ReedSolomon;
+use fec_rs::ReedSolomon;
 use thiserror::Error;
 
 use crate::stream::proto::audio::{

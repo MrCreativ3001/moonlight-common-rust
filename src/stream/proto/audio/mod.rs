@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use reed_solomon_erasure::{galois_8::ReedSolomon, matrix::Matrix};
+use fec_rs::ReedSolomon;
 use thiserror::Error;
 use tracing::{Level, debug, instrument};
 
@@ -15,7 +15,7 @@ use crate::stream::{
     proto::{
         audio::{
             depayloader::{AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError},
-            packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS, RTP_AUDIO_TOTAL_SHARDS},
+            packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
         },
         crypto::CryptoContext,
         packet::SunshinePingPacket,
@@ -207,28 +207,16 @@ impl Debug for AudioStream {
 }
 
 pub(crate) fn create_audio_reed_solomon() -> ReedSolomon {
-    // Our implementation doesn't generate a correct rs matrix: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtpAudioQueue.c#L52-L59
+    // Normal rs implementation don't generate a correct rs matrix: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtpAudioQueue.c#L52-L59
     let parity: [u8; 8] = [0x77, 0x40, 0x38, 0x0e, 0xc7, 0xa7, 0x0d, 0x6c];
-
-    let mut matrix = Matrix::new(RTP_AUDIO_TOTAL_SHARDS, RTP_AUDIO_DATA_SHARDS);
-
-    for row in 0..RTP_AUDIO_DATA_SHARDS {
-        for col in 0..RTP_AUDIO_DATA_SHARDS {
-            matrix.set(row, col, if row == col { 1 } else { 0 });
-        }
-    }
-
-    for row in 0..RTP_AUDIO_FEC_SHARDS {
-        for col in 0..RTP_AUDIO_DATA_SHARDS {
-            matrix.set(
-                RTP_AUDIO_DATA_SHARDS + row,
-                col,
-                parity[row * RTP_AUDIO_DATA_SHARDS + col],
-            );
-        }
-    }
 
     // This won't panic because all values are controlled by us and are correct for the rs implementation
     #[allow(clippy::unwrap_used)]
-    ReedSolomon::new_with_matrix(RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS, matrix).unwrap()
+    let mut reed_solomon = ReedSolomon::new(RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS).unwrap();
+
+    // This won't panic because all values are controlled by us and are correct for the rs implementation
+    #[allow(clippy::unwrap_used)]
+    reed_solomon.set_parity_matrix(&parity).unwrap();
+
+    reed_solomon
 }
