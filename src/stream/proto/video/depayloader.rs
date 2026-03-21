@@ -79,6 +79,8 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
 // TODO: this looks funny: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoDepacketizer.c#L849-L1124
 // TODO: this should also handle decryption
 
+// TODO: how to handle fec? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L455-L469
+
 impl VideoDepayloader {
     pub fn new(config: VideoDepayloaderConfig) -> Self {
         Self {

@@ -154,6 +154,14 @@ impl EncryptedControlHeader {
 // TODO: use this struct for the enet channel
 pub enum EnetChannel {}
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PacketDirection {
+    /// A packet that is send to the client.
+    ClientBound,
+    /// A packet that is send to the server.
+    ServerBound,
+}
+
 // Packets:
 // - New values: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html
 // - Old Value: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L146-L216
@@ -172,6 +180,11 @@ pub enum ControlPacketType {
     Termination,
     HdrMode,
     /// Sunshine Extension
+    ///
+    /// References:
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L57
+    FrameFec,
+    /// Sunshine Extension
     RumbleTriggers,
     /// Sunshine Extension
     SetMotionEvent,
@@ -182,6 +195,17 @@ pub enum ControlPacketType {
 }
 
 impl ControlPacketType {
+    pub fn direction(&self) -> PacketDirection {
+        match self {
+            Self::PeriodicPing => PacketDirection::ServerBound,
+            Self::RequestIdr => PacketDirection::ServerBound,
+            Self::StartB => PacketDirection::ServerBound,
+            Self::HdrMode => PacketDirection::ClientBound,
+            Self::FrameFec => PacketDirection::ServerBound,
+            _ => todo!(),
+        }
+    }
+
     pub fn serialize(
         &self,
         server_version: ServerVersion,
@@ -196,6 +220,7 @@ impl ControlPacketType {
                     Self::InvalidateReferenceFrames => Ok(0x1404), // Invalidate reference frames
                     Self::LossStats => Ok(0x140c),                 // Loss Stats
                     Self::FrameStats => Ok(0x1417),                // Frame Stats (unused)
+                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
                     _ => Err(ControlPacketNotSupported {
                         packet: *self,
                         server_version,
@@ -211,6 +236,7 @@ impl ControlPacketType {
                     Self::InvalidateReferenceFrames => Ok(0x0604), // Invalidate reference frames
                     Self::LossStats => Ok(0x060a),                 // Loss Stats
                     Self::FrameStats => Ok(0x0611),                // Frame Stats (unused)
+                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
                     _ => Err(ControlPacketNotSupported {
                         packet: *self,
                         server_version,
@@ -227,6 +253,7 @@ impl ControlPacketType {
                     Self::LossStats => Ok(0x0201),                 // Loss Stats
                     Self::FrameStats => Ok(0x0204),                // Frame Stats (unused)
                     Self::InputData => Ok(0x0207),                 // Input data
+                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
                     _ => Err(ControlPacketNotSupported {
                         packet: *self,
                         server_version,
@@ -251,6 +278,7 @@ impl ControlPacketType {
                     Self::SetMotionEvent => Ok(0x5501), // Set motion event (Sunshine protocol extension)
                     Self::SetRgbLed => Ok(0x5502),      // Set RGB LED (Sunshine protocol extension)
                     Self::SetAdaptiveTriggers => Ok(0x5503), // Set Adaptive Triggers (Sunshine protocol extension)
+                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
                     _ => Err(ControlPacketNotSupported {
                         packet: *self,
                         server_version,
@@ -271,6 +299,7 @@ impl ControlPacketType {
                     Self::RumbleData => Ok(0x010b), // Rumble data
                     Self::Termination => Ok(0x0100), // Termination
                     Self::HdrMode => Ok(0x010e),    // HDR mode
+                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
                     _ => Err(ControlPacketNotSupported {
                         packet: *self,
                         server_version,
@@ -285,65 +314,89 @@ impl ControlPacketType {
             }),
         }
     }
-    pub fn deserialize(ty: u16, server_version: ServerVersion, encrypted: bool) -> Option<Self> {
+    pub fn deserialize(
+        ty: u16,
+        direction: PacketDirection,
+        server_version: ServerVersion,
+        encrypted: bool,
+    ) -> Option<Self> {
         match server_version.major {
-            3 => match ty {
-                0x0200 => Some(Self::PeriodicPing),
-                0x1407 => Some(Self::RequestIdr),
-                0x1410 => Some(Self::StartB),
-                0x1404 => Some(Self::InvalidateReferenceFrames),
-                0x140c => Some(Self::LossStats),
-                0x1417 => Some(Self::FrameStats),
+            3 => match (direction, ty) {
+                (PacketDirection::ServerBound, 0x0200) => Some(Self::PeriodicPing),
+                (PacketDirection::ServerBound, 0x1407) => Some(Self::RequestIdr),
+                (PacketDirection::ServerBound, 0x1410) => Some(Self::StartB),
+                (PacketDirection::ServerBound, 0x1404) => Some(Self::InvalidateReferenceFrames),
+                (PacketDirection::ServerBound, 0x140c) => Some(Self::LossStats),
+                (PacketDirection::ServerBound, 0x1417) => Some(Self::FrameStats),
+                (PacketDirection::ServerBound, 0x5502) if server_version.is_sunshine_like() => {
+                    Some(Self::FrameFec)
+                }
                 _ => None,
             },
-            4 => match ty {
-                0x0200 => Some(Self::PeriodicPing),
-                0x0606 => Some(Self::RequestIdr),
-                0x0609 => Some(Self::StartB),
-                0x0604 => Some(Self::InvalidateReferenceFrames),
-                0x060a => Some(Self::LossStats),
-                0x0611 => Some(Self::FrameStats),
+            4 => match (direction, ty) {
+                (PacketDirection::ServerBound, 0x0200) => Some(Self::PeriodicPing),
+                (PacketDirection::ServerBound, 0x0606) => Some(Self::RequestIdr),
+                (PacketDirection::ServerBound, 0x0609) => Some(Self::StartB),
+                (PacketDirection::ServerBound, 0x0604) => Some(Self::InvalidateReferenceFrames),
+                (PacketDirection::ServerBound, 0x060a) => Some(Self::LossStats),
+                (PacketDirection::ServerBound, 0x0611) => Some(Self::FrameStats),
+                (PacketDirection::ServerBound, 0x5502) if server_version.is_sunshine_like() => {
+                    Some(Self::FrameFec)
+                }
                 _ => None,
             },
-            5 => match ty {
-                0x0200 => Some(Self::PeriodicPing),
-                0x0305 => Some(Self::RequestIdr),
-                0x0307 => Some(Self::StartB),
-                0x0301 => Some(Self::InvalidateReferenceFrames),
-                0x0201 => Some(Self::LossStats),
-                0x0204 => Some(Self::FrameStats),
-                0x0207 => Some(Self::InputData),
+            5 => match (direction, ty) {
+                (PacketDirection::ServerBound, 0x0200) => Some(Self::PeriodicPing),
+                (PacketDirection::ServerBound, 0x0305) => Some(Self::RequestIdr),
+                (PacketDirection::ServerBound, 0x0307) => Some(Self::StartB),
+                (PacketDirection::ServerBound, 0x0301) => Some(Self::InvalidateReferenceFrames),
+                (PacketDirection::ServerBound, 0x0201) => Some(Self::LossStats),
+                (PacketDirection::ServerBound, 0x0204) => Some(Self::FrameStats),
+                (PacketDirection::ServerBound, 0x0207) => Some(Self::InputData),
+                (PacketDirection::ServerBound, 0x5502) if server_version.is_sunshine_like() => {
+                    Some(Self::FrameFec)
+                }
                 _ => None,
             },
-            7 if encrypted => match ty {
-                0x0200 if server_version >= PERIODIC_PING_VERSION => Some(Self::PeriodicPing),
-                0x0302 => Some(Self::RequestIdr),
-                0x0307 => Some(Self::StartB),
-                0x0301 => Some(Self::InvalidateReferenceFrames),
-                0x0201 => Some(Self::LossStats),
-                0x0204 => Some(Self::FrameStats),
-                0x0206 => Some(Self::InputData),
-                0x010b => Some(Self::RumbleData),
-                0x0109 => Some(Self::Termination),
-                0x010e => Some(Self::HdrMode),
+            7 if encrypted => match (direction, ty) {
+                (PacketDirection::ServerBound, 0x0200)
+                    if server_version >= PERIODIC_PING_VERSION =>
+                {
+                    Some(Self::PeriodicPing)
+                }
+                (PacketDirection::ServerBound, 0x0302) => Some(Self::RequestIdr),
+                (PacketDirection::ServerBound, 0x0307) => Some(Self::StartB),
+                (PacketDirection::ServerBound, 0x0301) => Some(Self::InvalidateReferenceFrames),
+                (PacketDirection::ServerBound, 0x0201) => Some(Self::LossStats),
+                (PacketDirection::ServerBound, 0x0204) => Some(Self::FrameStats),
+                (PacketDirection::ServerBound, 0x0206) => Some(Self::InputData),
+                (PacketDirection::ClientBound, 0x010b) => Some(Self::RumbleData),
+                (PacketDirection::ServerBound, 0x0109) => Some(Self::Termination),
+                (PacketDirection::ClientBound, 0x010e) => Some(Self::HdrMode),
                 // Sunshine protocol extensions
-                0x5500 => Some(Self::RumbleTriggers),
-                0x5501 => Some(Self::SetMotionEvent),
-                0x5502 => Some(Self::SetRgbLed),
-                0x5503 => Some(Self::SetAdaptiveTriggers),
+                (PacketDirection::ServerBound, 0x5502) => Some(Self::FrameFec),
+                (PacketDirection::ClientBound, 0x5500) => Some(Self::RumbleTriggers),
+                (PacketDirection::ServerBound, 0x5501) => Some(Self::SetMotionEvent),
+                (PacketDirection::ClientBound, 0x5502) => Some(Self::SetRgbLed),
+                (PacketDirection::ClientBound, 0x5503) => Some(Self::SetAdaptiveTriggers),
                 _ => None,
             },
-            7 => match ty {
-                0x0200 if server_version >= PERIODIC_PING_VERSION => Some(Self::PeriodicPing),
-                0x0305 => Some(Self::RequestIdr),
-                0x0307 => Some(Self::StartB),
-                0x0301 => Some(Self::InvalidateReferenceFrames),
-                0x0201 => Some(Self::LossStats),
-                0x0204 => Some(Self::FrameStats),
-                0x0206 => Some(Self::InputData),
-                0x010b => Some(Self::RumbleData),
-                0x0100 => Some(Self::Termination),
-                0x010e => Some(Self::HdrMode),
+            7 => match (direction, ty) {
+                (PacketDirection::ServerBound, 0x0200)
+                    if server_version >= PERIODIC_PING_VERSION =>
+                {
+                    Some(Self::PeriodicPing)
+                }
+                (PacketDirection::ServerBound, 0x0305) => Some(Self::RequestIdr),
+                (PacketDirection::ServerBound, 0x0307) => Some(Self::StartB),
+                (PacketDirection::ServerBound, 0x0301) => Some(Self::InvalidateReferenceFrames),
+                (PacketDirection::ServerBound, 0x0201) => Some(Self::LossStats),
+                (PacketDirection::ServerBound, 0x0204) => Some(Self::FrameStats),
+                (PacketDirection::ServerBound, 0x0206) => Some(Self::InputData),
+                (PacketDirection::ClientBound, 0x010b) => Some(Self::RumbleData),
+                (PacketDirection::ServerBound, 0x0100) => Some(Self::Termination),
+                (PacketDirection::ClientBound, 0x010e) => Some(Self::HdrMode),
+                (PacketDirection::ServerBound, 0x5502) => Some(Self::FrameFec),
                 _ => None,
             },
             _ => None,
@@ -383,6 +436,24 @@ pub enum ControlPacket {
         /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
         sunshine: Option<SunshineHdrMetadata>,
     },
+    /// Reports the video fec status to the server so it can adjust the amount of fec packets it sends.
+    ///
+    /// References:
+    /// - moonlight sending: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1406-L1421
+    /// - moonlight definition: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L56-L70
+    FrameFec {
+        frame_index: u32,
+        highest_received_sequence_number: u16,
+        next_contiguous_sequence_number: u16,
+        missing_packets_before_highest_received: u16,
+        total_data_packets: u16,
+        total_parity_packets: u16,
+        received_data_packets: u16,
+        received_parity_packets: u16,
+        fec_percentage: u8,
+        multi_fec_block_index: u8,
+        multi_fec_block_count: u8,
+    },
 }
 
 impl ControlPacket {
@@ -393,8 +464,11 @@ impl ControlPacket {
     pub fn ty(&self) -> ControlPacketType {
         // TODO
         match self {
+            Self::PeriodicPing => ControlPacketType::PeriodicPing,
             Self::RequestIdr => ControlPacketType::RequestIdr,
             Self::StartB => ControlPacketType::StartB,
+            Self::HdrMode { .. } => ControlPacketType::HdrMode,
+            Self::FrameFec { .. } => ControlPacketType::FrameFec,
             _ => todo!(),
         }
     }
@@ -504,6 +578,43 @@ impl ControlPacket {
 
                 Ok(4 + contents.len())
             }
+            Self::FrameFec {
+                frame_index,
+                highest_received_sequence_number,
+                next_contiguous_sequence_number,
+                missing_packets_before_highest_received,
+                total_data_packets,
+                total_parity_packets,
+                received_data_packets,
+                received_parity_packets,
+                fec_percentage,
+                multi_fec_block_index,
+                multi_fec_block_count,
+            } => {
+                // Ty
+                let ty = ControlPacketType::FrameFec.serialize(server_version, encrypted)?;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let content_len: u16 = 21;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Data
+                buffer[4..8].copy_from_slice(&frame_index.to_be_bytes());
+                buffer[8..10].copy_from_slice(&highest_received_sequence_number.to_be_bytes());
+                buffer[10..12].copy_from_slice(&next_contiguous_sequence_number.to_be_bytes());
+                buffer[12..14]
+                    .copy_from_slice(&missing_packets_before_highest_received.to_be_bytes());
+                buffer[14..16].copy_from_slice(&total_data_packets.to_be_bytes());
+                buffer[16..18].copy_from_slice(&total_parity_packets.to_be_bytes());
+                buffer[18..20].copy_from_slice(&received_data_packets.to_be_bytes());
+                buffer[20..22].copy_from_slice(&received_parity_packets.to_be_bytes());
+                buffer[22..23].copy_from_slice(&fec_percentage.to_be_bytes());
+                buffer[23..24].copy_from_slice(&multi_fec_block_index.to_be_bytes());
+                buffer[24..25].copy_from_slice(&multi_fec_block_count.to_be_bytes());
+
+                Ok(4 + content_len as usize)
+            }
             _ => todo!(),
         }
         // TODO
@@ -515,6 +626,7 @@ impl ControlPacket {
     /// - If encrypted: the decrypted payload
     #[instrument(level = Level::TRACE)]
     pub fn deserialize(
+        packet_direction: PacketDirection,
         server_version: ServerVersion,
         encrypted: bool,
         payload: &[u8],
@@ -528,7 +640,7 @@ impl ControlPacket {
         trace!("Raw Ty: {ty:#x}, Len: {len}");
 
         // TODO
-        let ty = ControlPacketType::deserialize(ty, server_version, encrypted)?;
+        let ty = ControlPacketType::deserialize(ty, packet_direction, server_version, encrypted)?;
         trace!("Parsed Ty: {ty:?}");
 
         if payload.len() < 4 + len as usize - 1 {
@@ -564,7 +676,7 @@ impl ControlPacket {
             ControlPacketType::HdrMode => {
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
                 if payload.len() < 4 + 1 {
-                    warn!("Received invalid hdr packet: packet is too small");
+                    warn!("HdrMode packet too small");
                     return None;
                 }
 
@@ -574,7 +686,7 @@ impl ControlPacket {
                 if server_version.is_sunshine_like() {
                     if payload.len() < 31 {
                         warn!(
-                            "Received hdr packet from a sunshine server that doesn't contain the sunshine hdr extension."
+                            "Received HdrMode packet from a sunshine server that doesn't contain the sunshine hdr extension."
                         );
                     } else {
                         let metadata = SunshineHdrMetadata {
@@ -615,6 +727,51 @@ impl ControlPacket {
 
                 Some(Self::HdrMode { enabled, sunshine })
             }
+            ControlPacketType::FrameFec => {
+                if payload.len() < 4 + 21 {
+                    warn!("FrameFec packet too small");
+                    return None;
+                }
+
+                let frame_index =
+                    u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
+
+                let highest_received_sequence_number = u16::from_be_bytes([payload[8], payload[9]]);
+
+                let next_contiguous_sequence_number =
+                    u16::from_be_bytes([payload[10], payload[11]]);
+
+                let missing_packets_before_highest_received =
+                    u16::from_be_bytes([payload[12], payload[13]]);
+
+                let total_data_packets = u16::from_be_bytes([payload[14], payload[15]]);
+
+                let total_parity_packets = u16::from_be_bytes([payload[16], payload[17]]);
+
+                let received_data_packets = u16::from_be_bytes([payload[18], payload[19]]);
+
+                let received_parity_packets = u16::from_be_bytes([payload[20], payload[21]]);
+
+                let fec_percentage = payload[22];
+
+                let multi_fec_block_index = payload[23];
+
+                let multi_fec_block_count = payload[24];
+
+                Some(ControlPacket::FrameFec {
+                    frame_index,
+                    highest_received_sequence_number,
+                    next_contiguous_sequence_number,
+                    missing_packets_before_highest_received,
+                    total_data_packets,
+                    total_parity_packets,
+                    received_data_packets,
+                    received_parity_packets,
+                    fec_percentage,
+                    multi_fec_block_index,
+                    multi_fec_block_count,
+                })
+            }
             _ => todo!(),
         }
     }
@@ -628,17 +785,24 @@ mod test {
     use crate::{
         ServerVersion, init_test,
         stream::{
-            proto::control::packet::ControlPacket,
+            proto::control::packet::{ControlPacket, PacketDirection},
             video::{Primary, SunshineHdrMetadata},
         },
     };
 
     fn test_packet(
+        expected_packet_direction: PacketDirection,
         server_version: ServerVersion,
         encrypted: bool,
         expected_packet: ControlPacket,
         expected_bytes: &[u8],
     ) {
+        let packet_direction = expected_packet.ty().direction();
+        assert_eq!(
+            packet_direction, expected_packet_direction,
+            "Packet: {expected_packet:?}"
+        );
+
         let mut bytes = [0; _];
         let len = expected_packet
             .serialize(server_version, encrypted, &mut bytes)
@@ -646,7 +810,9 @@ mod test {
         let bytes = &bytes[0..len];
         assert_eq!(bytes, expected_bytes, "Serialize: {:?}", expected_packet);
 
-        let packet = ControlPacket::deserialize(server_version, encrypted, bytes).unwrap();
+        let packet =
+            ControlPacket::deserialize(expected_packet_direction, server_version, encrypted, bytes)
+                .unwrap();
         assert_eq!(
             packet, expected_packet,
             "Deserialize: {:?}",
@@ -659,6 +825,7 @@ mod test {
     #[test]
     fn ping() {
         test_packet(
+            PacketDirection::ServerBound,
             SUNSHINE_GEN_7,
             false,
             ControlPacket::PeriodicPing,
@@ -671,6 +838,7 @@ mod test {
         init_test!();
 
         test_packet(
+            PacketDirection::ClientBound,
             SUNSHINE_GEN_7,
             false,
             ControlPacket::HdrMode {
@@ -681,6 +849,7 @@ mod test {
         );
 
         test_packet(
+            PacketDirection::ClientBound,
             SUNSHINE_GEN_7,
             false,
             ControlPacket::HdrMode {
@@ -693,6 +862,7 @@ mod test {
     #[test]
     fn hdr_mode_sunshine() {
         test_packet(
+            PacketDirection::ClientBound,
             SUNSHINE_GEN_7,
             false,
             ControlPacket::HdrMode {
@@ -738,6 +908,7 @@ mod test {
     #[test]
     fn request_idr() {
         test_packet(
+            PacketDirection::ServerBound,
             SUNSHINE_GEN_7,
             false,
             ControlPacket::RequestIdr,
@@ -748,10 +919,48 @@ mod test {
     #[test]
     fn start_b() {
         test_packet(
+            PacketDirection::ServerBound,
             SUNSHINE_GEN_7,
             false,
             ControlPacket::StartB,
             &[7, 3, 1, 0, 0],
+        );
+    }
+
+    #[test]
+    fn frame_fec() {
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::FrameFec {
+                frame_index: 42,
+                highest_received_sequence_number: 1200,
+                next_contiguous_sequence_number: 1180,
+                missing_packets_before_highest_received: 20,
+                total_data_packets: 100,
+                total_parity_packets: 10,
+                received_data_packets: 95,
+                received_parity_packets: 8,
+                fec_percentage: 10,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1,
+            },
+            &[
+                2, 85, // Type
+                21, 0x00, // Length = 21 (LE)
+                0x00, 0x00, 0x00, 0x2A, // frame_index = 42 (BE)
+                0x04, 0xB0, // highest_received_sequence_number = 1200
+                0x04, 0x9C, // next_contiguous_sequence_number = 1180
+                0x00, 0x14, // missing_packets_before_highest_received = 20
+                0x00, 0x64, // total_data_packets = 100
+                0x00, 0x0A, // total_parity_packets = 10
+                0x00, 0x5F, // received_data_packets = 95
+                0x00, 0x08, // received_parity_packets = 8
+                0x0A, // fec_percentage = 10
+                0x00, // multi_fec_block_index = 0
+                0x01, // multi_fec_block_count = 1
+            ],
         );
     }
 }

@@ -17,13 +17,15 @@ use crate::{
         proto::{
             control::packet::{
                 ControlPacket, ControlPacketNotSupported, PERIODIC_PING_INTERVAL,
-                PERIODIC_PING_VERSION,
+                PERIODIC_PING_VERSION, PacketDirection,
             },
             crypto::CryptoContext,
             enet::{EnetConfig, EnetError, EnetEvent, EnetHost, EnetInput, EnetOutput},
         },
     },
 };
+
+// TODO: make this possible to use on the server and client
 
 pub(super) mod packet;
 
@@ -349,6 +351,7 @@ impl ControlStream {
                         }
 
                         let Some(packet) = ControlPacket::deserialize(
+                            PacketDirection::ClientBound,
                             self.server_version,
                             encrypted.is_some(),
                             &data,
