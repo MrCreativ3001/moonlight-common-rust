@@ -1,11 +1,15 @@
 use std::time::Duration;
 
+use num::FromPrimitive;
 use thiserror::Error;
 use tracing::{Level, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
-    stream::video::{Primary, SunshineHdrMetadata},
+    stream::{
+        control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
+        video::{Primary, SunshineHdrMetadata},
+    },
 };
 
 /// The server must be pinged every few milliseconds
@@ -175,10 +179,11 @@ pub enum ControlPacketType {
     InvalidateReferenceFrames,
     LossStats,
     FrameStats,
-    InputData,
     RumbleData,
     Termination,
     HdrMode,
+    /// An input packet.
+    InputData,
     /// Sunshine Extension
     ///
     /// References:
@@ -202,6 +207,7 @@ impl ControlPacketType {
             Self::StartB => PacketDirection::ServerBound,
             Self::HdrMode => PacketDirection::ClientBound,
             Self::FrameFec => PacketDirection::ServerBound,
+            Self::InputData => PacketDirection::ServerBound,
             _ => todo!(),
         }
     }
@@ -454,6 +460,68 @@ pub enum ControlPacket {
         multi_fec_block_index: u8,
         multi_fec_block_count: u8,
     },
+    // --- Inputs ---
+    /// Moves the mouse using relative motion
+    ///
+    /// References:
+    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_relative_move
+    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L130-L133
+    MouseMoveRelative {
+        delta_x: i16,
+        delta_y: i16,
+    },
+    /// Moves the mouse to x and y based on the reference width and height
+    ///
+    /// References:
+    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L135-L141
+    MouseMoveAbsolute {
+        x: i16,
+        y: i16,
+        unused: i16,
+        reference_width: i16,
+        reference_height: i16,
+    },
+    /// References:
+    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_button
+    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L143-L145
+    MouseButton {
+        action: MouseButtonAction,
+        button: MouseButton,
+    },
+    /// Sends a keyboard event to the host.
+    ///
+    /// References:
+    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_keyboard
+    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L157-L162
+    Keyboard {
+        action: KeyAction,
+        flags: KeyFlags,
+        key_code: KeyCode,
+        modifier: KeyModifiers,
+        zero: i16,
+    },
+    /// Vertical Scrolling.
+    ///
+    /// Only use scroll_amount_1.
+    ///
+    /// References:
+    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_scroll
+    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L147-L151
+    MouseScroll {
+        scroll_amount_1: i16,
+        /// This is unused
+        scroll_amount_2: i16,
+        /// This should be zero
+        zero: i16,
+    },
+    /// Horizontal Scrolling
+    ///
+    /// References:
+    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_horizontal_scroll
+    MouseHorizontalScroll {
+        amount: i16,
+    },
+    // TODO: touch, controller, pen
 }
 
 impl ControlPacket {
@@ -469,6 +537,10 @@ impl ControlPacket {
             Self::StartB => ControlPacketType::StartB,
             Self::HdrMode { .. } => ControlPacketType::HdrMode,
             Self::FrameFec { .. } => ControlPacketType::FrameFec,
+            Self::MouseMoveRelative { .. } => ControlPacketType::InputData,
+            Self::MouseMoveAbsolute { .. } => ControlPacketType::InputData,
+            Self::MouseButton { .. } => ControlPacketType::InputData,
+            Self::Keyboard { .. } => ControlPacketType::InputData,
             _ => todo!(),
         }
     }
@@ -612,6 +684,121 @@ impl ControlPacket {
                 buffer[22..23].copy_from_slice(&fec_percentage.to_be_bytes());
                 buffer[23..24].copy_from_slice(&multi_fec_block_index.to_be_bytes());
                 buffer[24..25].copy_from_slice(&multi_fec_block_count.to_be_bytes());
+
+                Ok(4 + content_len as usize)
+            }
+            Self::MouseMoveRelative { delta_x, delta_y } => {
+                // Ty
+                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 8;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = 0x00000007;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..14].copy_from_slice(&delta_x.to_be_bytes());
+                buffer[14..16].copy_from_slice(&delta_y.to_be_bytes());
+
+                Ok(4 + content_len as usize)
+            }
+            Self::MouseMoveAbsolute {
+                x,
+                y,
+                unused,
+                reference_width,
+                reference_height,
+            } => {
+                // Ty
+                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 14;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = 0x00000005;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..14].copy_from_slice(&x.to_be_bytes());
+                buffer[14..16].copy_from_slice(&y.to_be_bytes());
+                buffer[16..18].copy_from_slice(&unused.to_be_bytes());
+
+                buffer[18..20].copy_from_slice(&reference_width.to_be_bytes());
+                buffer[20..22].copy_from_slice(&reference_height.to_be_bytes());
+
+                Ok(4 + content_len as usize)
+            }
+            Self::MouseButton { action, button } => {
+                // Ty
+                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 5;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = match action {
+                    MouseButtonAction::Press => 0x00000008,
+                    MouseButtonAction::Release => 0x00000009,
+                };
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..13].copy_from_slice(&[*button as u8]);
+
+                Ok(4 + content_len as usize)
+            }
+            Self::Keyboard {
+                action,
+                flags,
+                key_code,
+                modifier,
+                zero,
+            } => {
+                // Ty
+                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 10;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = match action {
+                    KeyAction::Up => 0x00000004,
+                    KeyAction::Down => 0x00000003,
+                };
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..13].copy_from_slice(&[flags.bits() as u8]);
+                buffer[13..15].copy_from_slice(&key_code.0.to_le_bytes());
+                buffer[15..16].copy_from_slice(&[modifier.bits() as u8]);
+                buffer[16..18].copy_from_slice(&zero.to_le_bytes());
 
                 Ok(4 + content_len as usize)
             }
@@ -772,6 +959,106 @@ impl ControlPacket {
                     multi_fec_block_count,
                 })
             }
+            ControlPacketType::InputData => {
+                if payload.len() < 4 + 8 {
+                    warn!("InputData packet too small");
+                    return None;
+                }
+
+                let input_len =
+                    u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                let input_ty =
+                    u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+
+                // Control Header + Input Len + The rest
+                if payload.len() < 4 + 4 + input_len as usize {
+                    warn!(actual_payload_len = ?payload.len(), packet_header_len = ?len, input_header_len = ?input_len, "InputData length is bigger than the payload length");
+                    return None;
+                }
+
+                match input_ty {
+                    0x00000007 => {
+                        if input_len < 8 {
+                            warn!(input_len = ?input_len, "MouseMoveRelative packet too small!");
+                            None
+                        } else {
+                            let delta_x = i16::from_be_bytes([payload[12], payload[13]]);
+                            let delta_y = i16::from_be_bytes([payload[14], payload[15]]);
+
+                            Some(ControlPacket::MouseMoveRelative { delta_x, delta_y })
+                        }
+                    }
+                    0x00000005 => {
+                        if input_len < 14 {
+                            warn!(input_len = ?input_len, "MouseMoveAbsolute packet too small!");
+                            None
+                        } else {
+                            let x = i16::from_be_bytes([payload[12], payload[13]]);
+                            let y = i16::from_be_bytes([payload[14], payload[15]]);
+                            let unused = i16::from_be_bytes([payload[16], payload[17]]);
+                            let reference_width = i16::from_be_bytes([payload[18], payload[19]]);
+                            let reference_height = i16::from_be_bytes([payload[20], payload[21]]);
+
+                            Some(ControlPacket::MouseMoveAbsolute {
+                                x,
+                                y,
+                                unused,
+                                reference_width,
+                                reference_height,
+                            })
+                        }
+                    }
+                    0x00000008 | 0x00000009 => {
+                        if input_len < 5 {
+                            warn!(input_len = ?input_len, "MouseButton packet too small!");
+                            None
+                        } else {
+                            let action = match input_ty {
+                                0x00000008 => MouseButtonAction::Press,
+                                0x00000009 => MouseButtonAction::Release,
+                                _ => unreachable!(),
+                            };
+
+                            let button = u8::from_be_bytes([payload[12]]);
+                            let Some(button) = MouseButton::from_u8(button) else {
+                                warn!(mouse_button_raw = ?button, "Received invalid mouse button");
+                                return None;
+                            };
+
+                            Some(ControlPacket::MouseButton { action, button })
+                        }
+                    }
+                    0x00000003 | 0x00000004 => {
+                        if input_len < 10 {
+                            warn!(input_len = ?input_len, "Key packet too small!");
+                            None
+                        } else {
+                            let action = match input_ty {
+                                0x00000003 => KeyAction::Down,
+                                0x00000004 => KeyAction::Up,
+                                _ => unreachable!(),
+                            };
+
+                            let flags = KeyFlags::from_bits_retain(payload[12] as i8);
+                            let key_code = KeyCode(i16::from_le_bytes([payload[13], payload[14]]));
+                            let modifier = KeyModifiers::from_bits_retain(payload[15] as i8);
+                            let zero = i16::from_le_bytes([payload[16], payload[17]]);
+
+                            Some(ControlPacket::Keyboard {
+                                action,
+                                flags,
+                                key_code,
+                                modifier,
+                                zero,
+                            })
+                        }
+                    }
+                    _ => {
+                        warn!("InputData packet contains not known input type: {input_ty:#}");
+                        None
+                    }
+                }
+            }
             _ => todo!(),
         }
     }
@@ -785,6 +1072,7 @@ mod test {
     use crate::{
         ServerVersion, init_test,
         stream::{
+            control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
             proto::control::packet::{ControlPacket, PacketDirection},
             video::{Primary, SunshineHdrMetadata},
         },
@@ -960,6 +1248,140 @@ mod test {
                 0x0A, // fec_percentage = 10
                 0x00, // multi_fec_block_index = 0
                 0x01, // multi_fec_block_count = 1
+            ],
+        );
+    }
+
+    #[test]
+    fn mouse_move_relative() {
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::MouseMoveRelative {
+                delta_x: 1,
+                delta_y: 0,
+            },
+            &[
+                0x06, 0x02, // Ty
+                0x0c, 0x00, // Len
+                0x00, 0x00, 0x00, 0x08, // Input Len
+                0x07, 0x00, 0x00, 0x00, // Input Ty
+                0x00, 0x01, // Delta X
+                0x00, 0x00, // Delta Y
+            ],
+        );
+    }
+
+    #[test]
+    fn mouse_move_absolute() {
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::MouseMoveAbsolute {
+                x: 0,
+                y: 1,
+                unused: 0,
+                reference_width: 1000,
+                reference_height: 1000,
+            },
+            &[
+                0x06, 0x02, // Ty
+                0x12, 0x00, // Len
+                0x00, 0x00, 0x00, 0x0e, // Input Len
+                0x05, 0x00, 0x00, 0x00, // Input Ty
+                0x00, 0x00, // X
+                0x00, 0x01, // Y
+                0x00, 0x00, // Unused
+                3, 232, // Reference Width
+                3, 232, // Reference Height
+            ],
+        );
+    }
+
+    #[test]
+    fn mouse_button() {
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::MouseButton {
+                action: MouseButtonAction::Press,
+                button: MouseButton::Left,
+            },
+            &[
+                0x06, 0x02, // Ty
+                0x09, 0x00, // Len
+                0x00, 0x00, 0x00, 0x05, // Input Len
+                0x08, 0x00, 0x00, 0x00, // Mouse Action
+                0x01, // Mouse Button
+            ],
+        );
+
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::MouseButton {
+                action: MouseButtonAction::Release,
+                button: MouseButton::Left,
+            },
+            &[
+                0x06, 0x02, // Ty
+                0x09, 0x00, // Len
+                0x00, 0x00, 0x00, 0x05, // Input Len
+                0x09, 0x00, 0x00, 0x00, // Mouse Action
+                0x01, // Mouse Button
+            ],
+        );
+    }
+
+    #[test]
+    fn keyboard() {
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::Keyboard {
+                action: KeyAction::Down,
+                flags: KeyFlags::empty(),
+                key_code: KeyCode(0x41),
+                modifier: KeyModifiers::CTRL,
+                zero: 0,
+            },
+            &[
+                0x06, 0x02, // Ty
+                0x0e, 0x00, // Len
+                0x00, 0x00, 0x00, 0x0a, // Input Len
+                0x03, 0x00, 0x00, 0x00, // Key Action
+                0x00, // Flags
+                0x41, 0x00, // Key Code
+                0x02, // Modifiers
+                0x00, 0x00, // Zero
+            ],
+        );
+
+        test_packet(
+            PacketDirection::ServerBound,
+            SUNSHINE_GEN_7,
+            false,
+            ControlPacket::Keyboard {
+                action: KeyAction::Up,
+                flags: KeyFlags::SUNSHINE_NON_NORMALIZED,
+                key_code: KeyCode(0x41),
+                modifier: KeyModifiers::SHIFT,
+                zero: 0,
+            },
+            &[
+                0x06, 0x02, // Ty
+                0x0e, 0x00, // Len
+                0x00, 0x00, 0x00, 0x0a, // Input Len
+                0x04, 0x00, 0x00, 0x00, // Key Action
+                0x01, // Flags
+                0x41, 0x00, // Key Code
+                0x01, // Modifiers
+                0x00, 0x00, // Zero
             ],
         );
     }

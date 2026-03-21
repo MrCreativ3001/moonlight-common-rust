@@ -29,7 +29,7 @@ use crate::{
         connection::ConnectionListener,
         control::{
             ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
-            ControllerType, KeyAction, KeyFlags, KeyModifiers, MotionType, MouseButton,
+            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
             MouseButtonAction, TouchEventType,
         },
         video::VideoDecoder,
@@ -438,13 +438,13 @@ impl MoonlightStream {
     /// a US English layout.
     pub fn send_keyboard_event(
         &self,
-        code: i16,
+        code: KeyCode,
         action: KeyAction,
         modifiers: KeyModifiers,
     ) -> Result<(), MoonlightError> {
         unsafe {
             if let Some(err) = Self::send_event_error(LiSendKeyboardEvent(
-                code as c_short,
+                code.0 as c_short,
                 action as c_char,
                 modifiers.bits() as c_char,
             )) {

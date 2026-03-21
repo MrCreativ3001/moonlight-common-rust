@@ -117,37 +117,7 @@ pub trait QueryMap {
 /// ## Client Usage
 /// Use the [client::async_client::RequestClient] or [client::blocking_client::RequestClient] when possible to make integration into other systems easier.
 ///
-/// ```
-/// // Get client info and request
-/// let client_info = ClientInfo {
-///     unique_id: DEFAULT_UNIQUE_ID,
-///     uuid: Uuid::new_v4(),
-/// };
-///
-/// type Endpoint = ...;
-/// let request: Endpoint::Request = ...;
-///
-/// // If [Endpoint::https_required] is true, only authenticated https requests are allowed
-/// let mut url = Url::parse(format!("http:127.0.0.1:47989{}", Endpoint::path()));
-///
-/// // Append client information to url
-/// client_info.append_query_parameters(&mut url).unwrap();
-///
-/// // Append request query parameters to url
-/// request.append_query_parameters(&mut url).unwrap();
-///
-/// // Send a get request to the url and turn the response into a string
-/// let text_response: String = my_request_client.send_get_request(url).unwrap();
-///
-/// // Almost all responses are of type TextResponse
-/// let response: Endpoint::Response = Endpoint::Response::from_str(&text_response).unwrap();
-///
-/// // Some endpoints might also return a `Vec<u8>` for raw bytes (e.g. images).
-/// // Those don't need to be converted and can directly be used.
-///
-/// ```
-///
-/// For a real implementation see the [client::async_client::RequestClient] implementation of [reqwest::Client]
+/// For a real implementation see the [RequestClient](client::blocking_client::RequestClient) implementation of [Config](ureq::config::Config)
 ///
 /// ## Server Usage
 ///

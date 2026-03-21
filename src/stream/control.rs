@@ -24,14 +24,14 @@ pub const DEFAULT_CONTROL_PORT: u16 = 47999;
 // --------------- Keyboard ---------------
 
 #[repr(i8)]
-#[derive(Debug, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Clone, Copy, FromPrimitive, PartialEq)]
 pub enum KeyAction {
     Up = KEY_ACTION_UP as i8,
     Down = KEY_ACTION_DOWN as i8,
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct KeyModifiers: i8 {
         const SHIFT = MODIFIER_SHIFT as i8;
         const CTRL = MODIFIER_CTRL as i8;
@@ -41,23 +41,27 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct KeyFlags: i8 {
-        const NON_NORMALIZED = SS_KBE_FLAG_NON_NORMALIZED as i8;
+        /// Sunshine Extension
+        const SUNSHINE_NON_NORMALIZED = SS_KBE_FLAG_NON_NORMALIZED as i8;
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyCode(pub i16);
 
 // --------------- Mouse ---------------
 
 #[repr(i8)]
-#[derive(Debug, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Clone, Copy, FromPrimitive, PartialEq)]
 pub enum MouseButtonAction {
     Press = BUTTON_ACTION_PRESS as i8,
     Release = BUTTON_ACTION_RELEASE as i8,
 }
 
 #[repr(i32)]
-#[derive(Debug, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Clone, Copy, FromPrimitive, PartialEq)]
 pub enum MouseButton {
     Left = BUTTON_LEFT as i32,
     Middle = BUTTON_MIDDLE as i32,

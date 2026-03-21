@@ -27,7 +27,7 @@ use crate::{
 
 // TODO: make this possible to use on the server and client
 
-pub(super) mod packet;
+pub mod packet;
 
 #[cfg(test)]
 mod test;
