@@ -57,7 +57,7 @@ pub enum RustCryptoError {
     Pkcs8(#[from] pkcs8::Error),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RustCryptoBackend;
 
 fn secure_rng() -> Result<OsRng, RustCryptoError> {

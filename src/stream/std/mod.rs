@@ -1,4 +1,5 @@
 use std::{
+    error::Error,
     io::{self, ErrorKind as IoError, Read, Write},
     net::{SocketAddr, TcpStream, UdpSocket},
     sync::{
@@ -10,7 +11,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, Span, info, info_span, instrument, trace};
+use tracing::{Level, Span, info, info_span, instrument};
 
 use crate::stream::{
     MoonlightStreamConfig, MoonlightStreamSettings,
@@ -24,6 +25,7 @@ use crate::stream::{
             ControlMessage, ControlStream, ControlStreamEvent, ControlStreamInput,
             ControlStreamOutput,
         },
+        crypto::CryptoBackend,
         video::{VideoStream, VideoStreamInput, VideoStreamOutput},
     },
     std::ringbuffer::RingBuffer,
@@ -51,18 +53,23 @@ impl MoonlightStream {
         ""
     }
 
-    pub fn new(
+    pub fn new<Crypto>(
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         video_decoder: impl VideoDecoder + Send + 'static,
         audio_decoder: impl AudioDecoder + Send + 'static,
         connection_listener: impl ConnectionListener + Send + 'static,
-    ) -> Result<Self, MoonlightStreamError> {
+        crypto_backend: Crypto,
+    ) -> Result<Self, MoonlightStreamError>
+    where
+        Crypto: CryptoBackend + Clone + 'static,
+        Crypto::Error: Error + 'static,
+    {
         let span = info_span!("stream");
         let span2 = span.clone();
         let _enter = span2.enter();
 
-        let proto = MoonlightStreamProto::new(Instant::now(), config, settings)?;
+        let proto = MoonlightStreamProto::new(Instant::now(), config, settings, crypto_backend)?;
 
         let (sender, receiver) = channel();
 
@@ -226,8 +233,8 @@ fn tcp_receive_thread(stream: Arc<TcpStream>, mut sender: Sender<Input>) {
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn proto_thread(
-    mut proto: MoonlightStreamProto,
+fn proto_thread<Crypto>(
+    mut proto: MoonlightStreamProto<Crypto>,
     sender: Sender<Input>,
     receiver: Receiver<Input>,
     send_udp: Sender<(SocketAddr, Vec<u8>)>,
@@ -235,7 +242,10 @@ fn proto_thread(
     audio_decoder: Box<dyn AudioDecoder + Send + 'static>,
     video_decoder: Box<dyn VideoDecoder + Send + 'static>,
     connection_listener: Box<dyn ConnectionListener + Send + 'static>,
-) {
+) where
+    Crypto: CryptoBackend + Clone + 'static,
+    Crypto::Error: Error + 'static,
+{
     let mut send_tcp = None;
     let (send_control_message, receive_control_message) = channel();
 
@@ -394,11 +404,14 @@ fn proto_thread(
 // TODO: audio queue using synchronized buffer
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn audio_thread(
-    mut audio_stream: AudioStream,
+fn audio_thread<Crypto>(
+    mut audio_stream: AudioStream<Crypto>,
     socket: Arc<UdpSocket>,
     mut audio_decoder: Box<dyn AudioDecoder + Send + 'static>,
-) {
+) where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error,
+{
     let mut started = false;
 
     let (send_udp, send_udp_receiver) = channel();
@@ -478,12 +491,15 @@ fn audio_thread(
 const VIDEO_SECOND_TO_TIMESTAMP: f64 = 90000.0;
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn video_thread(
-    mut video_stream: VideoStream,
+fn video_thread<Crypto>(
+    mut video_stream: VideoStream<Crypto>,
     socket: Arc<UdpSocket>,
     mut video_decoder: Box<dyn VideoDecoder + Send + 'static>,
     // TODO: get the video information
-) {
+) where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
     let mut started = false;
 
     // Sending udp
@@ -578,12 +594,15 @@ fn video_thread(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn control_thread(
-    mut control_stream: ControlStream,
+fn control_thread<Crypto>(
+    mut control_stream: ControlStream<Crypto>,
     socket: Arc<UdpSocket>,
     receiver: Receiver<Input>,
     mut connection_listener: Box<dyn ConnectionListener + Send + 'static>,
-) {
+) where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
     loop {
         let timeout = match control_stream.poll_output().unwrap() {
             ControlStreamOutput::Event(event) => match event {

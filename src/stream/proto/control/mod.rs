@@ -1,8 +1,8 @@
 use std::{
+    error::Error,
     fmt::{self, Debug, Formatter},
     mem::swap,
     net::SocketAddr,
-    sync::Arc,
     time::Instant,
 };
 
@@ -19,7 +19,7 @@ use crate::{
                 ControlPacket, ControlPacketNotSupported, PERIODIC_PING_INTERVAL,
                 PERIODIC_PING_VERSION, PacketDirection,
             },
-            crypto::CryptoContext,
+            crypto::CryptoBackend,
             enet::{EnetConfig, EnetError, EnetEvent, EnetHost, EnetInput, EnetOutput},
         },
     },
@@ -109,14 +109,15 @@ enum Transport {
         enet: EnetHost,
         peer: Option<PeerID>,
         connected: bool,
-        encrypted: Option<(Arc<dyn CryptoContext>, AesKey, AesIv)>,
+        encrypted: Option<AesKey>,
     },
     Tcp {},
 }
 
-pub struct ControlStream {
+pub struct ControlStream<Crypto> {
     server_version: ServerVersion,
     addr: SocketAddr,
+    crypto_backend: Crypto,
     last_now: Instant,
     transport: Transport,
     allow_packets: bool,
@@ -125,9 +126,13 @@ pub struct ControlStream {
     buffered_packets: Vec<(u8, Vec<u8>)>,
 }
 
-impl ControlStream {
-    #[instrument(level = Level::DEBUG)]
-    pub fn new(now: Instant, mut config: ControlStreamConfig) -> Self {
+impl<Crypto> ControlStream<Crypto>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    #[instrument(level = Level::DEBUG, skip(crypto_backend))]
+    pub fn new(now: Instant, mut config: ControlStreamConfig, crypto_backend: Crypto) -> Self {
         if config.server_version < ServerVersion::new(5, 0, 0, 0) {
             // TODO: implement control over tcp
 
@@ -164,6 +169,7 @@ impl ControlStream {
         Self {
             server_version: config.server_version,
             addr: config.addr,
+            crypto_backend,
             last_now: now,
             transport: Transport::Enet {
                 enet,
@@ -473,7 +479,7 @@ impl ControlStream {
     }
 }
 
-impl Debug for ControlStream {
+impl<Crypto> Debug for ControlStream<Crypto> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[ControlStream]")
     }

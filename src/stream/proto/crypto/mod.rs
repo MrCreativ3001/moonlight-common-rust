@@ -1,55 +1,30 @@
-use std::sync::Arc;
-
-use bitflags::bitflags;
-use thiserror::Error;
+use std::{fmt, fmt::Debug, sync::Arc};
 
 use crate::stream::{AesIv, AesKey};
 
-#[derive(Debug, Error)]
-pub enum CryptoError {
-    #[error("invalid key length")]
-    InvalidKeyLength,
-    #[error("invalid iv length")]
-    InvalidIvLength,
-    #[error("invalid tag length")]
-    InvalidTagLength,
-    #[error("authentication failed")]
-    AuthenticationFailed,
-    #[error("buffer too small")]
-    BufferTooSmall,
-    #[error("unsupported operation")]
-    UnsupportedOperation,
-    #[error("backend error")]
-    BackendError,
-}
+#[cfg(test)]
+pub(crate) mod test;
 
 pub enum CipherAlgorithm {
-    AesCbc,
-    AesGcm,
+    Aes128Cbc,
+    Aes128Gcm,
 }
 
-bitflags! {
-    /// Cipher behavior flags
-    pub struct CipherFlags: u32 {
-        /// Reset IV
-        const RESET_IV = 0b0001;
-    }
-}
+pub trait CryptoBackend: Send + Sync {
+    type Error;
 
-pub trait CryptoContext: Send + Sync {
     /// Encrypt a message using the given crypto context and parameters:
     /// - For CBC, PKCS7 padding is applied automatically.
     /// - For GCM, an authentication tag is written to `tag`.
     fn encrypt(
         &self,
         algorithm: CipherAlgorithm,
-        flags: (),
         key: &[u8],
         iv: &[u8],
         tag: &mut [u8],
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<(), CryptoError>;
+    ) -> Result<(), Self::Error>;
 
     /// Decrypt a message using the given crypto context and parameters:
     /// - For CBC, `output` must be large enough to hold PKCS7-padded output.
@@ -58,18 +33,59 @@ pub trait CryptoContext: Send + Sync {
     fn decrypt(
         &self,
         algorithm: CipherAlgorithm,
-        flags: CipherFlags,
         key: &[u8],
         iv: &[u8],
         tag: Option<&[u8]>, // Required for AEAD (e.g. GCM), unused for CBC
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<usize, CryptoError>;
+    ) -> Result<usize, Self::Error>;
 }
 
 // TODO: better name, use this inside the proto streams
 pub struct EncryptionValues {
-    pub context: Arc<dyn CryptoContext>,
+    // TODO: what is error?
+    pub backend: Arc<dyn CryptoBackend<Error = ()>>,
     pub remote_aes_key: AesKey,
     pub remote_aes_iv: AesIv,
+}
+
+impl Debug for EncryptionValues {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "EncryptionValues {{ remote_aes_key: {:?}, remote_aes_iv: {:?} }}",
+            self.remote_aes_key, self.remote_aes_iv
+        )
+    }
+}
+
+impl<T> CryptoBackend for Arc<T>
+where
+    T: CryptoBackend,
+{
+    type Error = T::Error;
+
+    fn encrypt(
+        &self,
+        algorithm: CipherAlgorithm,
+        key: &[u8],
+        iv: &[u8],
+        tag: &mut [u8],
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<(), Self::Error> {
+        T::encrypt(&self, algorithm, key, iv, tag, input, output)
+    }
+
+    fn decrypt(
+        &self,
+        algorithm: CipherAlgorithm,
+        key: &[u8],
+        iv: &[u8],
+        tag: Option<&[u8]>, // Required for AEAD (e.g. GCM), unused for CBC
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, Self::Error> {
+        T::decrypt(&self, algorithm, key, iv, tag, input, output)
+    }
 }

@@ -16,17 +16,21 @@ use openssl::{
     rand::rand_bytes,
     rsa::Rsa,
     sha::{sha1, sha256},
+    symm::{self, Crypter, Mode},
     x509::{X509, X509Builder, X509NameBuilder},
 };
 use pem::Pem;
 use tracing::{Level, instrument, trace};
 
-use crate::http::{
-    ClientIdentifier, ClientSecret, ServerIdentifier,
-    pair::{HashAlgorithm, PairingCryptoBackend},
+use crate::{
+    http::{
+        ClientIdentifier, ClientSecret, ServerIdentifier,
+        pair::{HashAlgorithm, PairingCryptoBackend},
+    },
+    stream::proto::crypto::{CipherAlgorithm, CryptoBackend},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OpenSSLCryptoBackend;
 
 impl PairingCryptoBackend for OpenSSLCryptoBackend {
@@ -189,5 +193,120 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
         md_ctx.digest_sign_final_to_vec(&mut out)?;
 
         Ok(out)
+    }
+}
+
+fn add_pkcs7_padding(input: &[u8]) -> Vec<u8> {
+    let block_size = 16;
+    let pad_len = block_size - (input.len() % block_size);
+    let mut out = Vec::with_capacity(input.len() + pad_len);
+    out.extend_from_slice(input);
+    out.extend(std::iter::repeat(pad_len as u8).take(pad_len));
+    out
+}
+
+impl CryptoBackend for OpenSSLCryptoBackend {
+    type Error = ErrorStack;
+
+    fn encrypt(
+        &self,
+        algorithm: CipherAlgorithm,
+        key: &[u8],
+        iv: &[u8],
+        tag: &mut [u8],
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<(), ErrorStack> {
+        let cipher = match algorithm {
+            CipherAlgorithm::Aes128Cbc => symm::Cipher::aes_128_cbc(),
+            CipherAlgorithm::Aes128Gcm => symm::Cipher::aes_128_gcm(),
+        };
+
+        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv))?;
+        crypter.pad(false);
+
+        match algorithm {
+            CipherAlgorithm::Aes128Cbc => {
+                let padded = add_pkcs7_padding(input);
+
+                let mut count = crypter.update(&padded, output)?;
+                count += crypter.finalize(&mut output[count..])?;
+
+                Ok(())
+            }
+
+            CipherAlgorithm::Aes128Gcm => {
+                let mut count = crypter.update(input, output)?;
+                count += crypter.finalize(&mut output[count..])?;
+
+                crypter.get_tag(tag)?;
+
+                Ok(())
+            }
+        }
+    }
+
+    fn decrypt(
+        &self,
+        algorithm: CipherAlgorithm,
+        key: &[u8],
+        iv: &[u8],
+        tag: Option<&[u8]>,
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, ErrorStack> {
+        let cipher = match algorithm {
+            CipherAlgorithm::Aes128Cbc => symm::Cipher::aes_128_cbc(),
+            CipherAlgorithm::Aes128Gcm => symm::Cipher::aes_128_gcm(),
+        };
+
+        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))?;
+        crypter.pad(false);
+
+        match algorithm {
+            CipherAlgorithm::Aes128Cbc => {
+                let mut count = crypter.update(input, output)?;
+                count += crypter.finalize(&mut output[count..])?;
+                Ok(count)
+            }
+
+            CipherAlgorithm::Aes128Gcm => {
+                let mut count = crypter.update(input, output)?;
+
+                let tag = tag.ok_or_else(ErrorStack::get)?; // create an OpenSSL-style error
+
+                crypter.set_tag(tag)?;
+                count += crypter.finalize(&mut output[count..])?;
+
+                Ok(count)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::stream::proto::crypto::test::{
+        test_aes_cbc_roundtrip, test_aes_gcm_roundtrip, test_gcm_tag_failure,
+    };
+
+    use super::*;
+
+    #[test]
+    fn openssl_cbc() {
+        let backend = OpenSSLCryptoBackend;
+        test_aes_cbc_roundtrip(&backend);
+    }
+
+    #[test]
+    fn openssl_gcm() {
+        let backend = OpenSSLCryptoBackend;
+        test_aes_gcm_roundtrip(&backend);
+    }
+
+    #[test]
+    fn openssl_gcm_tag_fail() {
+        let backend = OpenSSLCryptoBackend;
+        test_gcm_tag_failure(&backend);
     }
 }

@@ -1,57 +1,54 @@
-use crate::stream::proto::{
-    MoonlightStreamConfig,
-    crypto::{CipherAlgorithm, CryptoContext, CryptoError},
+use thiserror::Error;
+
+use tracing::debug;
+
+use std::error::Error;
+
+use crate::stream::{
+    AesKey,
+    proto::{
+        crypto::{CipherAlgorithm, CryptoBackend},
+        rtsp::packet::RtspEncryptionHeader,
+    },
 };
 
-// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L92
-pub const ENCRYPTED_RTSP_BIT: u32 = 0x80000000;
-
-pub const RTSP_HEADER_SIZE: usize = 4 + 4 + 16;
-
-// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L94
-#[derive(Clone, Copy)]
-pub struct RtspEncryptionHeader {
-    pub encrypted: bool,
-    pub len: usize,
-    pub sequence_number: usize,
-    pub tag: [u8; 16],
+#[derive(Debug, Error)]
+pub enum RtspEncryptionError {
+    #[error("message is smaller than the required rtsp encryption header")]
+    MessageTooSmallHeader,
+    #[error("the received message is unencrypted!")]
+    MessageUnencrypted,
+    #[error("the expected message length doesn't match the content length of the message")]
+    EncryptedMessageWrongSize,
+    #[error("the provided output buffer is too small")]
+    OutputTooSmall,
+    #[error("crypto: {0}")]
+    Crypto(Box<dyn Error>),
 }
 
-impl RtspEncryptionHeader {
-    // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L100
-    pub fn serialize(self, header: &mut [u8; RTSP_HEADER_SIZE]) {
-        let type_and_length: u32 = self.len as u32
-            | if self.encrypted {
-                ENCRYPTED_RTSP_BIT
-            } else {
-                0
-            };
-
-        header[0..4].copy_from_slice(&u32::to_be_bytes(type_and_length));
-        header[4..8].copy_from_slice(&u32::to_be_bytes(self.sequence_number as u32));
-        header[8..24].copy_from_slice(&self.tag);
-    }
-
-    // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L155
-    pub fn deserialize(header: &[u8; RTSP_HEADER_SIZE]) -> Self {
-        todo!()
-    }
-}
-
-// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L100
-pub fn encrypt_rtsp_message(
-    context: &impl CryptoContext,
-    stream: &MoonlightStreamConfig,
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L100
+pub fn encrypt_client_rtsp_message_into<Crypto>(
+    crypto_backend: &Crypto,
+    aes_key: AesKey,
     sequence_number: usize,
     message: &[u8],
-) -> Result<Vec<u8>, CryptoError> {
+    encrypted_message: &mut [u8],
+) -> Result<usize, RtspEncryptionError>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    let len = RtspEncryptionHeader::SIZE + message.len();
+    if encrypted_message.len() < len {
+        return Err(RtspEncryptionError::OutputTooSmall);
+    }
+
     let mut iv = [0; 12];
     iv[0..4].copy_from_slice(&u32::to_le_bytes(sequence_number as u32));
 
     iv[10] = b'C'; // Client originated
     iv[11] = b'R'; // RTSP stream
-
-    let mut data = vec![0; RTSP_HEADER_SIZE + message.len()];
 
     let mut header = RtspEncryptionHeader {
         encrypted: true,
@@ -60,26 +57,134 @@ pub fn encrypt_rtsp_message(
         tag: [0; 16],
     };
 
-    context.encrypt(
-        CipherAlgorithm::AesGcm,
-        (),
-        &stream.remote_input_aes_key,
-        &iv,
-        &mut header.tag,
-        message,
-        &mut data[RTSP_HEADER_SIZE..],
-    )?;
+    crypto_backend
+        .encrypt(
+            CipherAlgorithm::Aes128Gcm,
+            &aes_key,
+            &iv,
+            &mut header.tag,
+            message,
+            &mut encrypted_message[RtspEncryptionHeader::SIZE..],
+        )
+        .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
 
     #[allow(clippy::unwrap_used)]
     // This won't panic because we're literally using the size to get the slice
     header.serialize(
-        data[0..RTSP_HEADER_SIZE]
-            .as_mut_array::<RTSP_HEADER_SIZE>()
+        encrypted_message[0..RtspEncryptionHeader::SIZE]
+            .as_mut_array::<{ RtspEncryptionHeader::SIZE }>()
             .unwrap(),
     );
 
-    Ok(data)
+    Ok(len)
 }
 
-// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L155
-pub fn decrypt_rtsp_message() {}
+// TODO
+/// References:
+/// - Sunshine:
+///   - https://github.com/LizardByte/Sunshine/blob/24b66feddaf6df889dc1330a02b3289c09ec62cc/src/rtsp.cpp#L176-L239
+///   - https://github.com/LizardByte/Sunshine/blob/24b66feddaf6df889dc1330a02b3289c09ec62cc/src/rtsp.cpp#L127-L174
+pub fn decrypt_client_rtsp_message_into() {
+    todo!()
+}
+
+pub fn encrypt_server_rtsp_message_into() {
+    todo!()
+}
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L166-L224
+pub fn decrypt_server_rtsp_message_into<Crypto>(
+    crypto_backend: &Crypto,
+    aes_key: AesKey,
+    sequence_number: usize,
+    encrypted_message: &[u8],
+    message: &mut [u8],
+) -> Result<usize, RtspEncryptionError>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    if encrypted_message.len() < RtspEncryptionHeader::SIZE {
+        return Err(RtspEncryptionError::MessageTooSmallHeader);
+    }
+
+    let len = RtspEncryptionHeader::SIZE - encrypted_message.len();
+    debug_assert!(message.len() >= len);
+
+    #[allow(clippy::unwrap_used)]
+    let header = RtspEncryptionHeader::deserialize(
+        message[0..RtspEncryptionHeader::SIZE].try_into().unwrap(),
+    );
+
+    if encrypted_message.len() != RtspEncryptionHeader::SIZE + header.len {
+        debug!(header = ?header, expected_len = RtspEncryptionHeader::SIZE + header.len, got_len = encrypted_message.len(), "encrypted rtsp message doesn't match expected size");
+        return Err(RtspEncryptionError::EncryptedMessageWrongSize);
+    }
+    let ciphertext =
+        &encrypted_message[RtspEncryptionHeader::SIZE..RtspEncryptionHeader::SIZE + header.len];
+
+    let mut iv = [0u8; 12];
+    iv[0] = (sequence_number >> 0) as u8;
+    iv[1] = (sequence_number >> 8) as u8;
+    iv[2] = (sequence_number >> 16) as u8;
+    iv[3] = (sequence_number >> 24) as u8;
+    iv[10] = b'H'; // Host
+    iv[11] = b'R'; // RTSP
+
+    if message.len() < ciphertext.len() {
+        return Err(RtspEncryptionError::OutputTooSmall);
+    }
+
+    crypto_backend
+        .decrypt(
+            CipherAlgorithm::Aes128Gcm,
+            &aes_key,
+            &iv,
+            Some(&header.tag),
+            ciphertext,
+            &mut message[..ciphertext.len()],
+        )
+        .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
+
+    Ok(len)
+}
+
+mod test {
+    use crate::stream::proto::crypto::CryptoBackend;
+
+    fn test_clientbound_message_encryption(
+        crypto: impl CryptoBackend,
+        decrypted_message: &[u8],
+        encrypted_message: &[u8],
+    ) {
+        todo!()
+    }
+
+    fn test_serverbound_message_encryption(
+        crypto: impl CryptoBackend,
+        decrypted_message: &[u8],
+        encrypted_message: &[u8],
+    ) {
+        todo!()
+    }
+
+    fn test_crypto(crypto: impl CryptoBackend) {
+        todo!()
+    }
+
+    #[cfg(feature = "openssl")]
+    #[test]
+    fn openssl() {
+        use crate::crypto::openssl::OpenSSLCryptoBackend;
+
+        test_crypto(OpenSSLCryptoBackend);
+    }
+
+    #[cfg(feature = "rustcrypto")]
+    #[test]
+    fn rustcrypto() {
+        // test_crypto(RustCryptoBackend);
+        todo!()
+    }
+}

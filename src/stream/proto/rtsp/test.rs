@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::stream::proto::rtsp::{
-    Rtsp, RtspInput, RtspOutput,
+    RtspClient, RtspClientConfig, RtspInput, RtspOutput,
     raw::{
         RtspAddr, RtspCommand, RtspProtocol, RtspRequest, RtspRequestMessage, RtspResponse,
         RtspResponseMessage,
@@ -250,7 +250,11 @@ fn rtsp_response() {
 
 #[test]
 fn rtsp_send_receive() {
-    let mut rtsp = Rtsp::new("rtsp://192.168.178.140:48010".parse().unwrap(), 14).unwrap();
+    let mut rtsp = RtspClient::new_unencrypted(RtspClientConfig {
+        target: "rtsp://192.168.178.140:48010".parse().unwrap(),
+        client_version: 14,
+        encryption: None,
+    });
 
     let request = RtspRequest {
         message: RtspRequestMessage {
@@ -286,31 +290,31 @@ fn rtsp_send_receive() {
         .options
         .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
 
-    assert_eq!(rtsp.poll_output(), Ok(RtspOutput::Timeout));
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
     rtsp.send(request);
     assert_eq!(
-        rtsp.poll_output(),
-        Ok(RtspOutput::Connect {
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Connect {
             addr: SocketAddrV4::new(Ipv4Addr::new(192, 168, 178, 140), 48010).into(),
-        })
+        }
     );
-    assert_eq!(rtsp.poll_output(), Ok(RtspOutput::Timeout));
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
     rtsp.handle_input(RtspInput::Connect).unwrap();
     assert_eq!(
-        rtsp.poll_output(),
-        Ok(RtspOutput::Write {
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Write {
             data: full_request.to_string().into_bytes()
-        })
+        }
     );
-    assert_eq!(rtsp.poll_output(), Ok(RtspOutput::Timeout));
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
     rtsp.handle_input(RtspInput::Receive(&response.to_string().into_bytes()))
         .unwrap();
-    assert_eq!(rtsp.poll_output(), Ok(RtspOutput::Timeout));
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
     rtsp.handle_input(RtspInput::Disconnect).unwrap();
-    assert_eq!(rtsp.poll_output(), Ok(RtspOutput::Response(response)));
-    assert_eq!(rtsp.poll_output(), Ok(RtspOutput::Timeout));
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Response(response));
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 }

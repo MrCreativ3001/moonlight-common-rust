@@ -4,6 +4,7 @@
 //!
 
 use std::{
+    error::Error,
     fmt::Debug,
     net::{IpAddr, SocketAddr},
     time::{Duration, Instant},
@@ -14,6 +15,7 @@ use tracing::{Level, debug, instrument};
 
 use crate::{
     ServerVersion,
+    crypto::disabled::DisabledCryptoBackend,
     stream::{
         EncryptionFlags, MoonlightStreamConfig, MoonlightStreamSettings, StreamingConfig,
         audio::{AudioConfig, OpusMultistreamConfig},
@@ -23,14 +25,15 @@ use crate::{
                 ControlMessage, ControlMessageInner, ControlStream, ControlStreamConfig,
                 ControlStreamError, packet::ControlPacket,
             },
+            crypto::CryptoBackend,
             rtsp::{
-                Rtsp, RtspError, RtspInput, RtspOutput,
+                RtspClient, RtspClientConfig, RtspError, RtspInput, RtspOutput,
                 moonlight::{
-                    DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspDescribeResponse,
-                    RtspOptionsResponse, RtspPlayResponse, RtspSetupAudioResponse,
-                    RtspSetupControlResponse, RtspSetupVideoResponse, send_rtsp_announce,
-                    send_rtsp_control_setup, send_rtsp_describe, send_rtsp_options, send_rtsp_play,
-                    send_rtsp_setup_audio, send_rtsp_video_setup,
+                    DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspAnnounceRequest,
+                    RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest,
+                    RtspOptionsResponse, RtspPlayRequest, RtspPlayResponse, RtspSetupAudioRequest,
+                    RtspSetupAudioResponse, RtspSetupControlRequest, RtspSetupControlResponse,
+                    RtspSetupVideoRequest, RtspSetupVideoResponse,
                 },
                 raw::{RtspAddr, RtspAddrParseError},
             },
@@ -64,6 +67,7 @@ use crate::{
 pub mod audio;
 pub mod control;
 pub mod crypto;
+pub mod microphone;
 pub mod video;
 
 mod rtsp;
@@ -115,14 +119,14 @@ pub enum MoonlightStreamInput<'a> {
 }
 
 #[derive(Debug)]
-pub enum MoonlightStreamOutput {
+pub enum MoonlightStreamOutput<Crypto> {
     Timeout(Instant),
-    Action(MoonlightStreamAction),
+    Action(MoonlightStreamAction<Crypto>),
     Event(MoonlightStreamEvent),
 }
 
 #[derive(Debug)]
-pub enum MoonlightStreamAction {
+pub enum MoonlightStreamAction<Crypto> {
     ConnectTcp {
         addr: SocketAddr,
     },
@@ -136,17 +140,17 @@ pub enum MoonlightStreamAction {
     /// Can only be called once by the implementation
     StartAudioStream {
         addr: SocketAddr,
-        audio_stream: AudioStream,
+        audio_stream: AudioStream<Crypto>,
     },
     /// Can only be called once by the implementation
     StartVideoStream {
         addr: SocketAddr,
-        video_stream: VideoStream,
+        video_stream: VideoStream<Crypto>,
     },
     /// Can only be called once by the implementation
     StartControlStream {
         addr: SocketAddr,
-        control_stream: ControlStream,
+        control_stream: ControlStream<Crypto>,
     },
     /// Send a control message to the [ControlStream] returned by [MoonlightStreamAction::StartControlStream]
     SendControlMessage {
@@ -177,9 +181,10 @@ struct Sdp {
 /// // TODO
 /// ```
 ///
-pub struct MoonlightStreamProto {
+pub struct MoonlightStreamProto<Crypto> {
     client_settings: MoonlightStreamSettings,
-    rtsp: Rtsp,
+    crypto_backend: Crypto,
+    rtsp: RtspClient<Crypto>,
     sdp: Option<Sdp>,
     server_version: ServerVersion,
     session_id: Option<String>,
@@ -205,17 +210,32 @@ enum State {
     Connected,
 }
 
-impl MoonlightStreamProto {
+impl MoonlightStreamProto<DisabledCryptoBackend> {
+    pub fn new_unencrypted(
+        now: Instant,
+        config: MoonlightStreamConfig,
+        settings: MoonlightStreamSettings,
+    ) -> Result<Self, MoonlightStreamProtoError> {
+        Self::new(now, config, settings, DisabledCryptoBackend)
+    }
+}
+
+impl<Crypto> MoonlightStreamProto<Crypto>
+where
+    Crypto: CryptoBackend + Clone,
+    Crypto::Error: Error + 'static,
+{
     ///
     /// The parameter [MoonlightStreamConfig] contains all the important technical details while the [MoonlightStreamSettings] are settings that the user can modify to enhance their streaming experience.
     ///
     /// To obtain a [MoonlightStreamConfig] you can use a [MoonlightClient](crate::high::MoonlightClient) and call the [MoonlightClient::start_stream](crate::high::MoonlightClient::start_stream) function.
     ///
-    #[instrument(level = Level::DEBUG, err)]
+    #[instrument(level = Level::DEBUG, skip(crypto_backend), err)]
     pub fn new(
         now: Instant,
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
+        crypto_backend: Crypto,
     ) -> Result<Self, MoonlightStreamProtoError> {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L976-L994
         #[allow(clippy::wildcard_in_or_patterns)]
@@ -248,21 +268,36 @@ impl MoonlightStreamProto {
 
         let mut this = Self {
             client_settings: settings,
+            crypto_backend: crypto_backend.clone(),
             last_now: now,
             // TODO: how to get this?
-            rtsp: Rtsp::new(rtsp_addr, client_version)?,
+            rtsp: RtspClient::new(
+                RtspClientConfig {
+                    target: rtsp_addr,
+                    client_version,
+                    encryption: None,
+                },
+                crypto_backend,
+            ),
             server_version: config.version,
             sdp: None,
             session_id: None,
             state: State::RtspOptionsReceive,
         };
 
-        send_rtsp_options(&mut this.rtsp);
+        this.rtsp.send(
+            RtspOptionsRequest {
+                target: this.rtsp.target_addr(),
+            }
+            .into_request(this.server_version),
+        );
 
         Ok(this)
     }
 
-    pub fn poll_output(&mut self) -> Result<MoonlightStreamOutput, MoonlightStreamProtoError> {
+    pub fn poll_output(
+        &mut self,
+    ) -> Result<MoonlightStreamOutput<Crypto>, MoonlightStreamProtoError> {
         let mut timeout;
         loop {
             match self.rtsp.poll_output()? {
@@ -281,7 +316,12 @@ impl MoonlightStreamProto {
                         State::RtspOptionsReceive => {
                             let _options = RtspOptionsResponse::try_from_response(&response)?;
 
-                            send_rtsp_describe(&mut self.rtsp);
+                            self.rtsp.send(
+                                RtspDescribeRequest {
+                                    target: self.rtsp.target_addr(),
+                                }
+                                .into_request(self.server_version),
+                            );
                             self.state = State::RtspDescribeReceive;
                         }
                         State::RtspDescribeReceive => {
@@ -303,7 +343,13 @@ impl MoonlightStreamProto {
                             debug!(sdp = ?sdp, "Generated Client Sdp");
                             self.sdp = Some(sdp);
 
-                            send_rtsp_setup_audio(&mut self.rtsp, None);
+                            self.rtsp.send(
+                                RtspSetupAudioRequest {
+                                    target: self.rtsp.target_addr(),
+                                    session_id: None,
+                                }
+                                .into_request(self.server_version),
+                            );
                             self.state = State::SetupAudio;
                         }
                         State::SetupAudio => {
@@ -341,6 +387,7 @@ impl MoonlightStreamProto {
                                     // TODO: encryption?
                                     sunshine_encryption: None,
                                 },
+                                self.crypto_backend.clone(),
                             );
 
                             self.state = State::RtspSetupAudioReceive {
@@ -393,6 +440,7 @@ impl MoonlightStreamProto {
                                     sunshine_ping: video_setup.sunshine_ping.clone(),
                                     sunshine_encryption: None, // TODO <--
                                 },
+                                self.crypto_backend.clone(),
                             );
 
                             self.state = State::RtspSetupVideoReceive {
@@ -432,6 +480,7 @@ impl MoonlightStreamProto {
                                     sunshine_connect_data: control_setup.sunshine_connect_data,
                                     sunshine_encryption: None, // TODO <--
                                 },
+                                self.crypto_backend.clone(),
                             );
 
                             self.state = State::RtspSetupControlReceive {
@@ -450,7 +499,12 @@ impl MoonlightStreamProto {
                             #[allow(clippy::unwrap_used)]
                             let session_id = self.session_id.as_ref().unwrap();
 
-                            send_rtsp_play(&mut self.rtsp, session_id.clone());
+                            self.rtsp.send(
+                                RtspPlayRequest {
+                                    session_id: session_id.to_owned(),
+                                }
+                                .into_request(self.server_version),
+                            );
 
                             // We can never receive a response from the play
                             self.state = State::RtspPlayReceive;
@@ -479,10 +533,12 @@ impl MoonlightStreamProto {
             // This doesn't require any rtsp actions
             match &mut self.state {
                 State::RtspSetupAudioReceive { response } => {
-                    send_rtsp_video_setup(
-                        &mut self.rtsp,
-                        self.server_version,
-                        Some(response.session_id.clone()),
+                    self.rtsp.send(
+                        RtspSetupVideoRequest {
+                            target: self.rtsp.target_addr(),
+                            session_id: Some(response.session_id.clone()),
+                        }
+                        .into_request(self.server_version),
                     );
 
                     self.session_id = Some(response.session_id.clone());
@@ -495,7 +551,12 @@ impl MoonlightStreamProto {
                     #[allow(clippy::unwrap_used)]
                     let session_id = self.session_id.as_ref().unwrap();
 
-                    send_rtsp_control_setup(&mut self.rtsp, Some(session_id.clone()));
+                    self.rtsp.send(
+                        RtspSetupControlRequest {
+                            session_id: Some(session_id.clone()),
+                        }
+                        .into_request(self.server_version),
+                    );
 
                     self.state = State::SetupControl;
                     continue;
@@ -509,7 +570,13 @@ impl MoonlightStreamProto {
                     #[allow(clippy::unwrap_used)]
                     let sdp = self.sdp.as_ref().unwrap();
 
-                    send_rtsp_announce(&mut self.rtsp, session_id.clone(), sdp.client_sdp.clone());
+                    self.rtsp.send(
+                        RtspAnnounceRequest {
+                            session_id: session_id.clone(),
+                            sdp: sdp.client_sdp.clone(),
+                        }
+                        .into_request(self.server_version),
+                    );
 
                     self.state = State::RtspAnnounceReceive;
                     continue;

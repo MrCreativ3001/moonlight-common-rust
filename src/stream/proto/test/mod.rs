@@ -1,18 +1,25 @@
 use std::{
+    fmt::Debug,
     net::{IpAddr, Ipv4Addr},
     time::Instant,
 };
 
 use crate::{
     ServerVersion,
+    crypto::disabled::DisabledCryptoBackend,
     stream::{
         AesIv, AesKey, MoonlightStreamConfig,
-        proto::{MoonlightStreamAction, MoonlightStreamOutput, rtsp::Rtsp},
+        proto::{MoonlightStreamAction, MoonlightStreamOutput, rtsp::RtspClient},
         video::ServerCodecModeSupport,
     },
 };
 
-fn assert_eq_output(value: MoonlightStreamOutput, expected: MoonlightStreamOutput) {
+fn assert_eq_output<Crypto>(
+    value: MoonlightStreamOutput<Crypto>,
+    expected: MoonlightStreamOutput<Crypto>,
+) where
+    Crypto: Debug,
+{
     let matches = match &value {
         MoonlightStreamOutput::Timeout(t1) => {
             if let MoonlightStreamOutput::Timeout(t2) = &expected {

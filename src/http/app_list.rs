@@ -32,7 +32,7 @@ impl Request for AppListRequest {
     ) -> Result<(), QueryBuilderError> {
         Ok(())
     }
-    fn from_query_params<Q>(query_map: &Q) -> Result<Self, super::FromQueryError>
+    fn from_query_params<Q>(_query_map: &Q) -> Result<Self, super::FromQueryError>
     where
         Q: QueryMap,
     {

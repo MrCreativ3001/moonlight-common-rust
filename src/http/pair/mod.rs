@@ -187,9 +187,9 @@ impl Request for PairRequest {
         } else if phrase == Some("pairchallenge") {
             PairPhase5Request::from_query_params(query_map).map(Self::Phase5)
         } else {
-            Err(FromQueryError::Other(format!(
-                "Couldn't detect correct pairing stage!"
-            )))
+            Err(FromQueryError::Other(
+                "Couldn't detect correct pairing stage!".to_string(),
+            ))
         }
     }
 }

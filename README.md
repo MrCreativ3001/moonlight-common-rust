@@ -12,10 +12,11 @@ Separating protocol logic from I/O makes the library flexible and reusable acros
 
 Because the core does not depend on native sockets or a specific runtime, it can:
 
-- Integrate with custom networking backends
-- Work with any async ecosystem
 - Support multiple independent streams within a single process
+- Work with any async ecosystem
+- Integrate with custom networking backends
 - Compile to WebAssembly and run in the browser, where networking is provided externally (e.g. WebRTC, WebTransport, Direct Sockets in IWA's)
+- Easily be tested for without real network I/O
 
 This design allows the same protocol implementation to be reused across native and web targets while remaining modular and easy to embed.
 

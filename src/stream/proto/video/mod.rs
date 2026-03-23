@@ -1,19 +1,19 @@
 use std::{
+    error::Error,
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, instrument, trace};
+use tracing::{Level, debug, instrument};
 
 use crate::{
     ServerVersion,
     stream::{
         AesKey,
         proto::{
-            crypto::{CipherAlgorithm, CipherFlags, CryptoContext},
+            crypto::{CipherAlgorithm, CryptoBackend},
             packet::SunshinePingPacket,
             rtsp::moonlight::SunshinePing,
             video::{
@@ -36,7 +36,10 @@ mod test;
 const PING_RETRY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Error)]
-pub enum VideoStreamError {}
+pub enum VideoStreamError {
+    #[error("crypto: {0}")]
+    Crypto(Box<dyn Error>),
+}
 
 #[derive(Debug)]
 pub enum VideoStreamInput<'a> {
@@ -76,9 +79,10 @@ enum FirstFrame {
     Finished,
 }
 
-pub struct VideoStream {
+pub struct VideoStream<Crypto> {
     addr: SocketAddr,
-    encryption: Option<(Arc<dyn CryptoContext>, AesKey)>,
+    crypto_backend: Crypto,
+    aes_key: Option<AesKey>,
     last_now: Instant,
     state: State,
     queue: VideoDepayloader,
@@ -90,13 +94,17 @@ pub struct VideoStream {
     first_frame_connect: FirstFrame,
 }
 
-impl VideoStream {
-    #[instrument(level = Level::DEBUG)]
-    pub fn new(now: Instant, config: VideoStreamConfig) -> Self {
+impl<Crypto> VideoStream<Crypto>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    #[instrument(level = Level::DEBUG, skip(crypto_backend))]
+    pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: Crypto) -> Self {
         Self {
             addr: config.addr,
-            // TODO: get crypto context when config.encrypted
-            encryption: None,
+            crypto_backend,
+            aes_key: config.sunshine_encryption,
             state: State::SendPing {
                 last_send: None,
                 sunshine_ping: config.sunshine_ping.map(|payload| SunshinePingPacket {
@@ -174,7 +182,8 @@ impl VideoStream {
 
                 self.state = State::ReceiveVideo;
 
-                let data = if let Some((crypto_context, key)) = self.encryption.as_ref() {
+                // TODO: move this into the depayloader
+                let data = if let Some(aes_key) = self.aes_key.as_ref() {
                     // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/VideoStream.c#L213-L220
 
                     // TODO: check size before access
@@ -188,17 +197,17 @@ impl VideoStream {
                     let mut decrypted = vec![0; data.len() - EncryptedVideoHeader::SIZE];
 
                     // TODO: fix unwrap
-                    let size = crypto_context
+                    let size = self
+                        .crypto_backend
                         .decrypt(
-                            CipherAlgorithm::AesGcm,
-                            CipherFlags::empty(),
-                            &key, // TODO: get key <---
+                            CipherAlgorithm::Aes128Gcm,
+                            &aes_key, // TODO: get key <---
                             &encryption_header.iv,
                             Some(&encryption_header.tag),
                             &data[32..],
                             &mut decrypted,
                         )
-                        .unwrap();
+                        .map_err(|err| VideoStreamError::Crypto(Box::new(err)))?;
                     decrypted.resize(size, 0);
 
                     decrypted
@@ -214,7 +223,7 @@ impl VideoStream {
     }
 }
 
-impl Debug for VideoStream {
+impl<Crypto> Debug for VideoStream<Crypto> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[VideoStream]")
     }

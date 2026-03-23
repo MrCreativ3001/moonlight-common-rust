@@ -1,7 +1,6 @@
 use std::{
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -9,17 +8,20 @@ use fec_rs::ReedSolomon;
 use thiserror::Error;
 use tracing::{Level, debug, instrument};
 
-use crate::stream::{
-    AesIv, AesKey,
-    audio::{AudioSample, OpusMultistreamConfig},
-    proto::{
-        audio::{
-            depayloader::{AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError},
-            packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
+use crate::{
+    crypto::disabled::DisabledCryptoBackend,
+    stream::{
+        AesIv, AesKey,
+        audio::{AudioSample, OpusMultistreamConfig},
+        proto::{
+            audio::{
+                depayloader::{AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError},
+                packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
+            },
+            crypto::CryptoBackend,
+            packet::SunshinePingPacket,
+            rtsp::moonlight::SunshinePing,
         },
-        crypto::CryptoContext,
-        packet::SunshinePingPacket,
-        rtsp::moonlight::SunshinePing,
     },
 };
 
@@ -77,23 +79,34 @@ enum State {
     ReceiveAudio,
 }
 
-pub struct AudioStream {
+pub struct AudioStream<Crypto> {
     addr: SocketAddr,
     opus_config: OpusMultistreamConfig,
-    encryption: Option<(Arc<dyn CryptoContext>, AesKey, AesIv)>,
+    crypto_backend: Crypto,
+    encryption: Option<(AesKey, AesIv)>,
     last_now: Instant,
     last_sample: Instant,
     state: State,
     queue: AudioDepayloader,
 }
 
-impl AudioStream {
-    #[instrument(level = Level::DEBUG)]
-    pub fn new(now: Instant, config: AudioStreamConfig) -> Self {
+impl AudioStream<DisabledCryptoBackend> {
+    pub fn new_unencrypted(now: Instant, config: AudioStreamConfig) -> Self {
+        Self::new(now, config, DisabledCryptoBackend)
+    }
+}
+
+impl<Crypto> AudioStream<Crypto>
+where
+    Crypto: CryptoBackend,
+{
+    #[instrument(level = Level::DEBUG, skip(crypto_backend))]
+    pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: Crypto) -> Self {
         Self {
             addr: config.addr,
             opus_config: config.opus_config,
-            encryption: None,
+            crypto_backend,
+            encryption: config.sunshine_encryption,
             last_now: now,
             last_sample: now,
             state: State::SendPing {
@@ -200,7 +213,7 @@ impl AudioStream {
     }
 }
 
-impl Debug for AudioStream {
+impl<Crypto> Debug for AudioStream<Crypto> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[AudioStream]")
     }

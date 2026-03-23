@@ -8,12 +8,14 @@ use crate::{
     ServerVersion,
     stream::proto::{
         rtsp::{
-            Rtsp, RtspRequest,
-            raw::{RtspCommand, RtspProtocol, RtspRequestMessage, RtspResponse},
+            RtspRequest,
+            raw::{RtspAddr, RtspCommand, RtspProtocol, RtspRequestMessage, RtspResponse},
         },
         sdp::{ParseSdpError, Sdp, client::ClientSdp, server::ServerSdp},
     },
 };
+
+// TODO: add tests
 
 pub const DEFAULT_AUDIO_PORT: u16 = 48000;
 
@@ -34,18 +36,22 @@ pub enum ParseMoonlightRtspResponseError {
     MissingSessionId,
 }
 
-pub fn send_rtsp_options(rtsp: &mut Rtsp) {
-    let request = RtspRequest {
-        message: RtspRequestMessage {
-            command: RtspCommand::Options,
-            target: rtsp.target_addr().to_string(),
-            protocol: RtspProtocol::V1_0,
-        },
-        options: vec![],
-        payload: None,
-    };
+pub struct RtspOptionsRequest {
+    pub target: RtspAddr,
+}
 
-    rtsp.send(request);
+impl RtspOptionsRequest {
+    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
+        RtspRequest {
+            message: RtspRequestMessage {
+                command: RtspCommand::Options,
+                target: self.target.to_string(),
+                protocol: RtspProtocol::V1_0,
+            },
+            options: vec![],
+            payload: None,
+        }
+    }
 }
 
 // TODO: check for values in the response that they are what they say
@@ -63,24 +69,28 @@ impl RtspOptionsResponse {
     }
 }
 
-pub fn send_rtsp_describe(rtsp: &mut Rtsp) {
-    let request = RtspRequest {
-        message: RtspRequestMessage {
-            command: RtspCommand::Describe,
-            target: rtsp.target_addr().to_string(),
-            protocol: RtspProtocol::V1_0,
-        },
-        options: vec![
-            ("Accept".to_string(), "application/sdp".to_string()),
-            (
-                "If-Modified-Since".to_string(),
-                "Thu, 01 Jan 1970 00:00:00 GMT".to_string(),
-            ),
-        ],
-        payload: None,
-    };
+pub struct RtspDescribeRequest {
+    pub target: RtspAddr,
+}
 
-    rtsp.send(request);
+impl RtspDescribeRequest {
+    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
+        RtspRequest {
+            message: RtspRequestMessage {
+                command: RtspCommand::Describe,
+                target: self.target.to_string(),
+                protocol: RtspProtocol::V1_0,
+            },
+            options: vec![
+                ("Accept".to_string(), "application/sdp".to_string()),
+                (
+                    "If-Modified-Since".to_string(),
+                    "Thu, 01 Jan 1970 00:00:00 GMT".to_string(),
+                ),
+            ],
+            payload: None,
+        }
+    }
 }
 
 // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1057
@@ -104,35 +114,42 @@ impl RtspDescribeResponse {
     }
 }
 
-fn send_rtsp_setup(rtsp: &mut Rtsp, target: String, session_id: Option<String>) {
-    let mut request = RtspRequest {
-        message: RtspRequestMessage {
-            command: RtspCommand::Setup,
-            target,
-            protocol: RtspProtocol::V1_0,
-        },
-        options: vec![
-            // TODO: set based on appversionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L577
-            (
-                "Transport".to_string(),
-                // It looks like GFE doesn't care what we say our port is but
-                // we need to give it some port to successfully complete the
-                // handshake process.
-                "unicast;X-GS-ClientPort=50000-50001".to_string(),
-            ),
-            (
-                "If-Modified-Since".to_string(),
-                "Thu, 01 Jan 1970 00:00:00 GMT".to_string(),
-            ),
-        ],
-        payload: None,
-    };
+struct RtspSetupRequest {
+    target: String,
+    session_id: Option<String>,
+}
 
-    if let Some(session_id) = session_id {
-        request.options.push(("Session".to_string(), session_id));
+impl RtspSetupRequest {
+    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
+        let mut request = RtspRequest {
+            message: RtspRequestMessage {
+                command: RtspCommand::Setup,
+                target: self.target,
+                protocol: RtspProtocol::V1_0,
+            },
+            options: vec![
+                // TODO: set based on appversionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L577
+                (
+                    "Transport".to_string(),
+                    // It looks like GFE doesn't care what we say our port is but
+                    // we need to give it some port to successfully complete the
+                    // handshake process.
+                    "unicast;X-GS-ClientPort=50000-50001".to_string(),
+                ),
+                (
+                    "If-Modified-Since".to_string(),
+                    "Thu, 01 Jan 1970 00:00:00 GMT".to_string(),
+                ),
+            ],
+            payload: None,
+        };
+
+        if let Some(session_id) = self.session_id {
+            request.options.push(("Session".to_string(), session_id));
+        }
+
+        request
     }
-
-    rtsp.send(request);
 }
 
 #[derive(Debug)]
@@ -209,14 +226,25 @@ impl RtspSetupResponse {
     }
 }
 
-pub fn send_rtsp_setup_audio(rtsp: &mut Rtsp, session_id: Option<String>) {
-    // TODO: set target based on appversionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1161C75-L1161C89
+pub struct RtspSetupAudioRequest {
+    pub target: RtspAddr,
+    pub session_id: Option<String>,
+}
 
-    // TODO: implement this
-    // For GFE 3.22 compatibility, we must start the audio ping thread before the RTSP handshake.
-    // It will not reply to our RTSP PLAY request until the audio ping has been received.
+impl RtspSetupAudioRequest {
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+        // TODO: set target based on appversionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1161C75-L1161C89
 
-    send_rtsp_setup(rtsp, "streamid=audio".to_string(), session_id);
+        // TODO: implement this
+        // For GFE 3.22 compatibility, we must start the audio ping thread before the RTSP handshake.
+        // It will not reply to our RTSP PLAY request until the audio ping has been received.
+
+        RtspSetupRequest {
+            target: "streamid=audio".to_string(),
+            session_id: self.session_id,
+        }
+        .into_request(server_version)
+    }
 }
 
 #[derive(Debug)]
@@ -241,19 +269,26 @@ impl RtspSetupAudioResponse {
     }
 }
 
-pub fn send_rtsp_video_setup(
-    rtsp: &mut Rtsp,
-    server_version: ServerVersion,
-    session_id: Option<String>,
-) {
-    // set based target on version quad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1229
-    let target = if server_version.major >= 5 {
-        "streamid=video/0/0"
-    } else {
-        "streamid=video"
-    };
+pub struct RtspSetupVideoRequest {
+    pub target: RtspAddr,
+    pub session_id: Option<String>,
+}
 
-    send_rtsp_setup(rtsp, target.to_string(), session_id);
+impl RtspSetupVideoRequest {
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+        // set based target on version quad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1229
+        let target = if server_version.major >= 5 {
+            "streamid=video/0/0"
+        } else {
+            "streamid=video"
+        };
+
+        RtspSetupRequest {
+            target: target.to_owned(),
+            session_id: self.session_id,
+        }
+        .into_request(server_version)
+    }
 }
 
 #[derive(Debug)]
@@ -278,10 +313,18 @@ impl RtspSetupVideoResponse {
     }
 }
 
-pub fn send_rtsp_control_setup(rtsp: &mut Rtsp, session_id: Option<String>) {
-    // TODO: set target based on versionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L939
+pub struct RtspSetupControlRequest {
+    pub session_id: Option<String>,
+}
 
-    send_rtsp_setup(rtsp, "stream=control/13/0".to_string(), session_id);
+impl RtspSetupControlRequest {
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+        RtspSetupRequest {
+            target: "stream=control/13/0".to_string(),
+            session_id: self.session_id,
+        }
+        .into_request(server_version)
+    }
 }
 
 #[derive(Debug)]
@@ -315,47 +358,57 @@ impl RtspSetupControlResponse {
     }
 }
 
-pub fn send_rtsp_announce(rtsp: &mut Rtsp, session_id: String, sdp: ClientSdp) {
-    // TODO: set target based on versionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L633
-
-    // TODO: generate sdp: https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/SdpGenerator.c#L566
-
-    let request = RtspRequest {
-        message: RtspRequestMessage {
-            command: RtspCommand::Announce,
-            target: "streamid=control".to_string(),
-            protocol: RtspProtocol::V1_0,
-        },
-        options: vec![
-            ("Session".to_string(), session_id),
-            ("Content-Type".to_string(), "application/sdp".to_string()),
-        ],
-        payload: Some(format!("{}", sdp.into_sdp())),
-    };
-
-    rtsp.send(request);
+pub struct RtspAnnounceRequest {
+    pub sdp: ClientSdp,
+    pub session_id: String,
 }
 
-// TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1330-L1390
-pub fn send_rtsp_play(rtsp: &mut Rtsp, session_id: String) {
-    let request = RtspRequest {
-        message: RtspRequestMessage {
-            command: RtspCommand::Play,
-            target: "/".to_string(),
-            protocol: RtspProtocol::V1_0,
-        },
-        options: vec![("Session".to_string(), session_id)],
-        payload: None,
-    };
+impl RtspAnnounceRequest {
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+        // TODO: set target based on versionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L633
 
-    rtsp.send(request);
+        // TODO: generate sdp: https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/SdpGenerator.c#L566
+
+        RtspRequest {
+            message: RtspRequestMessage {
+                command: RtspCommand::Announce,
+                target: "streamid=control".to_string(),
+                protocol: RtspProtocol::V1_0,
+            },
+            options: vec![
+                ("Session".to_string(), self.session_id),
+                ("Content-Type".to_string(), "application/sdp".to_string()),
+            ],
+            payload: Some(format!("{}", self.sdp.into_sdp())),
+        }
+    }
+}
+
+pub struct RtspPlayRequest {
+    pub session_id: String,
+}
+
+impl RtspPlayRequest {
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+        // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1330-L1390
+
+        RtspRequest {
+            message: RtspRequestMessage {
+                command: RtspCommand::Play,
+                target: "/".to_string(),
+                protocol: RtspProtocol::V1_0,
+            },
+            options: vec![("Session".to_string(), self.session_id)],
+            payload: None,
+        }
+    }
 }
 
 pub struct RtspPlayResponse {}
 
 impl RtspPlayResponse {
     pub fn try_from_response(
-        response: &RtspResponse,
+        _response: &RtspResponse,
     ) -> Result<Self, ParseMoonlightRtspResponseError> {
         Ok(Self {})
     }

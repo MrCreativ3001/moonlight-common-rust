@@ -84,6 +84,11 @@ impl AesIv {
 
         Ok(Self(u32::from_le_bytes(iv)))
     }
+
+    /// Useful for passing the [AesIv] into functions from the [CryptoBackend](proto::crypto::CryptoBackend)
+    pub fn to_array(self) -> [u8; 4] {
+        self.0.to_le_bytes()
+    }
 }
 
 impl Debug for AesIv {

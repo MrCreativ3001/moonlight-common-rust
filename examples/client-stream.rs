@@ -3,14 +3,14 @@
 use std::{sync::Arc, thread::sleep, time::Duration};
 
 use moonlight_common::{
-    crypto::rustcrypto::RustCryptoBackend,
+    crypto::{openssl::OpenSSLCryptoBackend, rustcrypto::RustCryptoBackend},
     high::std::MoonlightHost,
     http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::ureq::UreqClient},
     stream::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::AudioConfig,
         control::ActiveGamepads,
-        debug::{DebugListener, NullListener},
+        debug::DebugListener,
         std::MoonlightStream,
         video::{ColorRange, ColorSpace, SupportedVideoFormats},
     },
@@ -41,7 +41,7 @@ fn main() {
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
-    let crypto_backend = Arc::new(RustCryptoBackend);
+    let crypto_backend = OpenSSLCryptoBackend;
 
     // -- Load identity
     let (client_identifier, client_secret, server_identifier) = try_load_identity().unwrap();
@@ -124,6 +124,7 @@ fn main() {
         video_decoder,
         audio_decoder,
         DebugListener,
+        crypto_backend,
     )
     .unwrap();
 

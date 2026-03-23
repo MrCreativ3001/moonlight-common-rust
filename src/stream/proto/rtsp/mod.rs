@@ -1,29 +1,40 @@
 //! A sans io rtsp implementation with moonlight encryption support
 
-use std::{
-    collections::VecDeque,
-    mem::swap,
-    net::{AddrParseError, SocketAddr},
-    str::Utf8Error,
-};
+use std::{collections::VecDeque, error::Error, mem::swap, net::SocketAddr, str::Utf8Error};
 
 use thiserror::Error;
 use tracing::{Level, debug, instrument};
 
-use crate::stream::proto::rtsp::raw::{
-    ParseRtspResponseError, RtspAddr, RtspAddrParseError, RtspRequest, RtspResponse,
+use crate::{
+    crypto::disabled::DisabledCryptoBackend,
+    stream::{
+        AesIv, AesKey,
+        proto::{
+            crypto::CryptoBackend,
+            rtsp::{
+                encryption::{RtspEncryptionError, encrypt_client_rtsp_message_into},
+                packet::RtspEncryptionHeader,
+                raw::{
+                    ParseRtspResponseError, RtspAddr, RtspAddrParseError, RtspRequest, RtspResponse,
+                },
+            },
+        },
+    },
 };
 
-pub mod encryption;
+mod encryption;
 pub mod moonlight;
+mod packet;
 pub mod raw;
 
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
 pub mod test;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum RtspError {
+    #[error("encryption: {0}")]
+    Encryption(#[from] RtspEncryptionError),
     #[error("rtsp addr: {0}")]
     ParseTarget(#[from] RtspAddrParseError),
     #[error("error status code: {0}")]
@@ -52,9 +63,18 @@ pub enum RtspInput<'a> {
 }
 
 #[derive(Debug)]
-pub struct Rtsp {
+pub struct RtspClientConfig {
+    pub target: RtspAddr,
+    pub client_version: usize,
+    pub encryption: Option<(AesKey, AesIv)>,
+}
+
+#[derive(Debug)]
+pub struct RtspClient<Crypto> {
     target: RtspAddr,
     client_version: String,
+    crypto_backend: Crypto,
+    encryption: Option<AesKey>,
     sequence_number: usize,
     state: State,
     transmit: VecDeque<RtspRequest>,
@@ -71,23 +91,33 @@ enum State {
     Disconnected,
 }
 
+impl RtspClient<DisabledCryptoBackend> {
+    pub fn new_unencrypted(config: RtspClientConfig) -> Self {
+        Self::new(config, DisabledCryptoBackend)
+    }
+}
+
 /// Sans Io Moonlight Rtsp protocol with encryption support.
-impl Rtsp {
+impl<Crypto> RtspClient<Crypto>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
     // TODO: enet? https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L246-L371
     // TODO: maybe make client version an enum?
-    #[instrument(level = Level::DEBUG, err)]
-    pub fn new(target: RtspAddr, client_version: usize) -> Result<Self, RtspError> {
-        let client_version = client_version.to_string();
-
-        Ok(Self {
-            target,
+    #[instrument(level = Level::DEBUG, skip(crypto_backend))]
+    pub fn new(config: RtspClientConfig, crypto_backend: Crypto) -> Self {
+        Self {
+            target: config.target,
+            crypto_backend,
+            encryption: config.encryption.map(|(aes_key, _)| aes_key),
+            client_version: config.client_version.to_string(),
             sequence_number: 1,
-            client_version,
             state: State::Disconnected,
             transmit: Default::default(),
             current_response: None,
             receive: Default::default(),
-        })
+        }
     }
 
     pub fn target_addr(&self) -> RtspAddr {
@@ -151,12 +181,29 @@ impl Rtsp {
                     // TODO: host?
 
                     // Send data
-                    let data = request.to_string().into_bytes();
+                    let plaintext = request.to_string().into_bytes();
 
-                    if self.target.encrypted {
-                        // TODO: encryption
-                        todo!()
-                    }
+                    let data = if self.target.encrypted {
+                        // We are allowed to unwrap because we've already checked for this in the constructor
+                        #[allow(clippy::unwrap_used)]
+                        let aes_key = self.encryption.unwrap();
+
+                        let mut encrypted = vec![0u8; RtspEncryptionHeader::SIZE + plaintext.len()];
+
+                        let len = encrypt_client_rtsp_message_into(
+                            &self.crypto_backend,
+                            aes_key,
+                            self.sequence_number,
+                            &plaintext,
+                            &mut encrypted,
+                        )?;
+
+                        encrypted.truncate(len);
+
+                        encrypted
+                    } else {
+                        plaintext
+                    };
 
                     self.state = State::WaitResponse;
 
