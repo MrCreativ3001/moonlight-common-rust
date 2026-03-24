@@ -131,7 +131,7 @@ where
     }
 
     pub fn send(&mut self, request: RtspRequest) {
-        debug!(request = ?request, "Sending Rtsp Request");
+        debug!(request = ?request, "sending rtsp request");
         self.transmit.push_back(request);
     }
 
@@ -147,7 +147,7 @@ where
                 let mut receive = Vec::new();
                 swap(&mut receive, &mut self.receive);
 
-                trace!("received full rtsp message");
+                trace!("received rtsp response");
 
                 // Decrypt if needed
                 let plaintext = if let Some(aes_key) = self.encryption {
@@ -169,6 +169,8 @@ where
                 };
 
                 let text = str::from_utf8(&plaintext)?;
+                debug!(plaintext = ?text,"received raw rtsp response");
+
                 // This response doesn't contain the body yet
                 let (header_len, mut response) =
                     RtspResponse::try_parse_header(text)?.ok_or(RtspError::IncompleteResponse)?;
@@ -233,6 +235,7 @@ where
 
                     // Send data
                     let plaintext = request.to_string().into_bytes();
+                    debug!(plaintext = ?plaintext, "sending raw rtsp request");
 
                     let data = if self.target.encrypted {
                         let aes_key = self.encryption.ok_or(RtspError::NoEncryptionKey)?;
@@ -265,7 +268,7 @@ where
             State::WaitResponse => Ok(RtspOutput::Timeout),
             State::Disconnected => {
                 if let Some(current_response) = self.current_response.take() {
-                    debug!(response = ?current_response, "Received Rtsp Response");
+                    debug!(response = ?current_response, "received rtsp response");
                     return Ok(RtspOutput::Response(current_response));
                 }
 

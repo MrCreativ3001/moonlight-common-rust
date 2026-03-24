@@ -1,0 +1,14 @@
+[package]
+name = "moonlight-common-bindings"
+edition = "2024"
+version.workspace = true
+license.workspace = true
+
+# TODO: use https://github.com/mozilla/uniffi-rs ?
+
+[dependencies]
+
+[features]
+
+[lints]
+workspace = true
