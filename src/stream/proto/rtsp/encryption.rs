@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use tracing::debug;
+use tracing::{Level, debug, instrument, trace};
 
 use std::error::Error;
 
@@ -94,6 +94,7 @@ pub fn encrypt_server_rtsp_message_into() {
 
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L166-L224
+#[instrument(level = Level::TRACE, skip(crypto_backend, encrypted_message, message))]
 pub fn decrypt_server_rtsp_message_into<Crypto>(
     crypto_backend: &Crypto,
     aes_key: AesKey,
@@ -109,26 +110,30 @@ where
         return Err(RtspEncryptionError::MessageTooSmallHeader);
     }
 
-    let len = RtspEncryptionHeader::SIZE - encrypted_message.len();
-    debug_assert!(message.len() >= len);
-
+    // We checked that the size must match
     #[allow(clippy::unwrap_used)]
     let header = RtspEncryptionHeader::deserialize(
-        message[0..RtspEncryptionHeader::SIZE].try_into().unwrap(),
+        encrypted_message[0..RtspEncryptionHeader::SIZE]
+            .try_into()
+            .unwrap(),
     );
+    trace!(header = ?header, "parsed header");
+
+    if !header.encrypted {
+        return Err(RtspEncryptionError::MessageUnencrypted);
+    }
 
     if encrypted_message.len() != RtspEncryptionHeader::SIZE + header.len {
         debug!(header = ?header, expected_len = RtspEncryptionHeader::SIZE + header.len, got_len = encrypted_message.len(), "encrypted rtsp message doesn't match expected size");
         return Err(RtspEncryptionError::EncryptedMessageWrongSize);
     }
+    let message_len = header.len;
     let ciphertext =
         &encrypted_message[RtspEncryptionHeader::SIZE..RtspEncryptionHeader::SIZE + header.len];
 
-    let mut iv = [0u8; 12];
-    iv[0] = (sequence_number >> 0) as u8;
-    iv[1] = (sequence_number >> 8) as u8;
-    iv[2] = (sequence_number >> 16) as u8;
-    iv[3] = (sequence_number >> 24) as u8;
+    let mut iv = [0; 12];
+    iv[0..4].copy_from_slice(&u32::to_le_bytes(sequence_number as u32));
+
     iv[10] = b'H'; // Host
     iv[11] = b'R'; // RTSP
 
@@ -143,11 +148,11 @@ where
             &iv,
             Some(&header.tag),
             ciphertext,
-            &mut message[..ciphertext.len()],
+            &mut message[..message_len],
         )
         .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
 
-    Ok(len)
+    Ok(message_len)
 }
 
 mod test {

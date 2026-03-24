@@ -3,16 +3,19 @@
 use std::{collections::VecDeque, error::Error, mem::swap, net::SocketAddr, str::Utf8Error};
 
 use thiserror::Error;
-use tracing::{Level, debug, instrument};
+use tracing::{Level, debug, instrument, trace};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        AesIv, AesKey,
+        AesKey,
         proto::{
             crypto::CryptoBackend,
             rtsp::{
-                encryption::{RtspEncryptionError, encrypt_client_rtsp_message_into},
+                encryption::{
+                    RtspEncryptionError, decrypt_server_rtsp_message_into,
+                    encrypt_client_rtsp_message_into,
+                },
                 packet::RtspEncryptionHeader,
                 raw::{
                     ParseRtspResponseError, RtspAddr, RtspAddrParseError, RtspRequest, RtspResponse,
@@ -35,12 +38,16 @@ pub mod test;
 pub enum RtspError {
     #[error("encryption: {0}")]
     Encryption(#[from] RtspEncryptionError),
+    #[error("the connection is secured, but no key present")]
+    NoEncryptionKey,
     #[error("rtsp addr: {0}")]
     ParseTarget(#[from] RtspAddrParseError),
     #[error("error status code: {0}")]
     StatusCode(u32),
     #[error("failed to parse rtsp response: {0}")]
     Response(#[from] ParseRtspResponseError),
+    #[error("received an incomplete rtsp response")]
+    IncompleteResponse,
     #[error("failed to convert bytes into utf8")]
     Utf8(#[from] Utf8Error),
     #[error("the connection was closed without any payload")]
@@ -66,7 +73,7 @@ pub enum RtspInput<'a> {
 pub struct RtspClientConfig {
     pub target: RtspAddr,
     pub client_version: usize,
-    pub encryption: Option<(AesKey, AesIv)>,
+    pub encryption: Option<AesKey>,
 }
 
 #[derive(Debug)]
@@ -87,7 +94,6 @@ enum State {
     Connecting,
     SendRequest,
     WaitResponse,
-    WaitPayload,
     Disconnected,
 }
 
@@ -106,11 +112,11 @@ where
     // TODO: enet? https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L246-L371
     // TODO: maybe make client version an enum?
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(config: RtspClientConfig, crypto_backend: Crypto) -> Self {
+    pub fn new(mut config: RtspClientConfig, crypto_backend: Crypto) -> Self {
         Self {
             target: config.target,
             crypto_backend,
-            encryption: config.encryption.map(|(aes_key, _)| aes_key),
+            encryption: config.encryption.take_if(|_| config.target.encrypted),
             client_version: config.client_version.to_string(),
             sequence_number: 1,
             state: State::Disconnected,
@@ -138,20 +144,65 @@ where
                 self.receive.extend_from_slice(data);
             }
             RtspInput::Disconnect => {
-                if let Some(current_receive) = &mut self.current_response {
-                    let mut receive = Vec::new();
-                    swap(&mut receive, &mut self.receive);
+                let mut receive = Vec::new();
+                swap(&mut receive, &mut self.receive);
 
-                    let payload = String::from_utf8(receive).map_err(|err| err.utf8_error())?;
+                trace!("received full rtsp message");
 
-                    if !payload.trim().is_empty() {
-                        current_receive.payload = Some(payload);
+                // Decrypt if needed
+                let plaintext = if let Some(aes_key) = self.encryption {
+                    let mut plaintext = vec![0; receive.len()];
+
+                    let len = decrypt_server_rtsp_message_into(
+                        &self.crypto_backend,
+                        aes_key,
+                        self.sequence_number,
+                        &receive,
+                        &mut plaintext,
+                    )?;
+
+                    plaintext.truncate(len);
+
+                    plaintext
+                } else {
+                    receive
+                };
+
+                let text = str::from_utf8(&plaintext)?;
+                // This response doesn't contain the body yet
+                let (header_len, mut response) =
+                    RtspResponse::try_parse_header(text)?.ok_or(RtspError::IncompleteResponse)?;
+
+                // check if sequence number matches
+                if let Some((_, response_sequence_number)) = response
+                    .options
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("CSeq"))
+                    && let Ok(response_sequence_number) = response_sequence_number.parse::<usize>()
+                {
+                    if response_sequence_number == self.sequence_number {
+                        self.sequence_number += 1;
+                    } else {
+                        // TODO: error
+                        todo!()
                     }
+                } else {
+                    // TODO: error
+                    todo!()
                 }
+
+                // TODO: maybe only look for error codes?
+                if response.message.status_code != 200 {
+                    return Err(RtspError::StatusCode(response.message.status_code));
+                }
+
+                let payload = &text[header_len..];
+                response.payload = Some(payload.to_owned());
 
                 self.state = State::Disconnected;
 
                 self.receive.clear();
+                self.current_response = Some(response);
             }
         }
 
@@ -184,9 +235,7 @@ where
                     let plaintext = request.to_string().into_bytes();
 
                     let data = if self.target.encrypted {
-                        // We are allowed to unwrap because we've already checked for this in the constructor
-                        #[allow(clippy::unwrap_used)]
-                        let aes_key = self.encryption.unwrap();
+                        let aes_key = self.encryption.ok_or(RtspError::NoEncryptionKey)?;
 
                         let mut encrypted = vec![0u8; RtspEncryptionHeader::SIZE + plaintext.len()];
 
@@ -213,47 +262,7 @@ where
                 // TODO: what now? we don't have anything to send
                 Ok(RtspOutput::Timeout)
             }
-            State::WaitResponse => {
-                let text = str::from_utf8(&self.receive)?;
-                if let Some((len, response)) = RtspResponse::try_parse_header(text)? {
-                    self.receive.drain(..len);
-
-                    // check if sequence number matches
-                    if let Some((_, response_sequence_number)) = response
-                        .options
-                        .iter()
-                        .find(|(key, _)| key.eq_ignore_ascii_case("CSeq"))
-                        && let Ok(response_sequence_number) =
-                            response_sequence_number.parse::<usize>()
-                    {
-                        if response_sequence_number == self.sequence_number {
-                            self.sequence_number += 1;
-                        } else {
-                            // TODO: error
-                            todo!()
-                        }
-                    } else {
-                        // TODO: error
-                        todo!()
-                    }
-
-                    // TODO: maybe only look for error codes?
-                    if response.message.status_code != 200 {
-                        return Err(RtspError::StatusCode(response.message.status_code));
-                    }
-
-                    // Don't submit instantly, ml rtsp protocol doesn't send any indication of content length
-                    // the content length will only be known when the connection is closed
-                    self.state = State::WaitPayload;
-                    self.current_response = Some(response);
-
-                    // We're now waiting for disconnect which will append payload
-                    return Ok(RtspOutput::Timeout);
-                }
-
-                Ok(RtspOutput::Timeout)
-            }
-            State::WaitPayload => Ok(RtspOutput::Timeout),
+            State::WaitResponse => Ok(RtspOutput::Timeout),
             State::Disconnected => {
                 if let Some(current_response) = self.current_response.take() {
                     debug!(response = ?current_response, "Received Rtsp Response");

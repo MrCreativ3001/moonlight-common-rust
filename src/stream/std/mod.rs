@@ -13,23 +13,26 @@ use std::{
 use thiserror::Error;
 use tracing::{Level, Span, info, info_span, instrument};
 
-use crate::stream::{
-    MoonlightStreamConfig, MoonlightStreamSettings,
-    audio::{AudioConfig, AudioDecoder},
-    connection::ConnectionListener,
-    proto::{
-        MoonlightStreamAction, MoonlightStreamInput, MoonlightStreamOutput, MoonlightStreamProto,
-        MoonlightStreamProtoError,
-        audio::{AudioStream, AudioStreamInput, AudioStreamOutput},
-        control::{
-            ControlMessage, ControlStream, ControlStreamEvent, ControlStreamInput,
-            ControlStreamOutput,
+use crate::{
+    crypto::disabled::DisabledCryptoBackend,
+    stream::{
+        MoonlightStreamConfig, MoonlightStreamSettings,
+        audio::{AudioConfig, AudioDecoder},
+        connection::ConnectionListener,
+        proto::{
+            MoonlightStreamAction, MoonlightStreamInput, MoonlightStreamOutput,
+            MoonlightStreamProto, MoonlightStreamProtoError,
+            audio::{AudioStream, AudioStreamInput, AudioStreamOutput},
+            control::{
+                ControlMessage, ControlStream, ControlStreamEvent, ControlStreamInput,
+                ControlStreamOutput,
+            },
+            crypto::CryptoBackend,
+            video::{VideoStream, VideoStreamInput, VideoStreamOutput},
         },
-        crypto::CryptoBackend,
-        video::{VideoStream, VideoStreamInput, VideoStreamOutput},
+        std::ringbuffer::RingBuffer,
+        video::{ColorSpace, FrameType, VideoDecodeUnit, VideoDecoder, VideoFrameBuffer},
     },
-    std::ringbuffer::RingBuffer,
-    video::{ColorSpace, FrameType, VideoDecodeUnit, VideoDecoder, VideoFrameBuffer},
 };
 
 // TODO: move decoders into different thread because the network thread NEEDS to be quick to avoid packet losses by the underlying buffer dropping packets
@@ -48,9 +51,7 @@ pub struct MoonlightStream {}
 
 impl MoonlightStream {
     pub fn launch_query_parameters() -> &'static str {
-        // TODO: change this to corever=1 when rtsp encryption is supported
-        // "&corever=1"
-        ""
+        MoonlightStreamProto::<DisabledCryptoBackend>::launch_query_parameters()
     }
 
     pub fn new<Crypto>(

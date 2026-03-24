@@ -225,6 +225,12 @@ where
     Crypto: CryptoBackend + Clone,
     Crypto::Error: Error + 'static,
 {
+    pub fn launch_query_parameters() -> &'static str {
+        // TODO: change this to corever=1 when rtsp encryption is supported
+        "&corever=1"
+        // ""
+    }
+
     ///
     /// The parameter [MoonlightStreamConfig] contains all the important technical details while the [MoonlightStreamSettings] are settings that the user can modify to enhance their streaming experience.
     ///
@@ -275,7 +281,7 @@ where
                 RtspClientConfig {
                     target: rtsp_addr,
                     client_version,
-                    encryption: None,
+                    encryption: Some(config.remote_input_aes_key),
                 },
                 crypto_backend,
             ),
