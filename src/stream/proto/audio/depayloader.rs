@@ -313,9 +313,14 @@ where
             // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
 
             let mut iv = [0u8; 16];
-            iv[0..4].copy_from_slice(&(*aes_iv + rtp_header.sequence_number as u32).to_be_bytes());
+            iv[0..4].copy_from_slice(
+                &aes_iv
+                    .wrapping_add(rtp_header.sequence_number as u32)
+                    .to_be_bytes(),
+            );
 
-            self.crypto_backend
+            let len = self
+                .crypto_backend
                 .decrypt(
                     CipherAlgorithm::Aes128Cbc,
                     &aes_key,
@@ -326,7 +331,7 @@ where
                 )
                 .map_err(|err| AudioDepayloaderError::Crypto(Box::new(err)))?;
 
-            &unencrypt_buffer[0..(packet.len() - payload_start)]
+            &unencrypt_buffer[0..len]
         } else {
             &packet[payload_start..]
         };

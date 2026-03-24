@@ -267,13 +267,18 @@ impl CryptoBackend for OpenSSLCryptoBackend {
             CipherAlgorithm::Aes128Cbc => {
                 let mut count = crypter.update(input, output)?;
                 count += crypter.finalize(&mut output[count..])?;
+
+                let pad_len = output[count - 1];
+                if pad_len > 0 && pad_len <= 16 {
+                    count -= pad_len as usize;
+                }
+
                 Ok(count)
             }
-
             CipherAlgorithm::Aes128Gcm => {
                 let mut count = crypter.update(input, output)?;
 
-                let tag = tag.ok_or_else(ErrorStack::get)?; // create an OpenSSL-style error
+                let tag = tag.ok_or_else(ErrorStack::get)?;
 
                 crypter.set_tag(tag)?;
                 count += crypter.finalize(&mut output[count..])?;
@@ -291,6 +296,8 @@ mod test {
     };
 
     use super::*;
+
+    // TODO: also test the padding
 
     #[test]
     fn openssl_cbc() {
