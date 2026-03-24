@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::stream::proto::rtsp::{
-    RtspClient, RtspClientConfig, RtspInput, RtspOutput,
+    client::{RtspClient, RtspClientConfig, RtspInput, RtspOutput},
     raw::{
         RtspAddr, RtspCommand, RtspProtocol, RtspRequest, RtspRequestMessage, RtspResponse,
         RtspResponseMessage,
@@ -253,7 +253,7 @@ fn rtsp_send_receive() {
     let mut rtsp = RtspClient::new_unencrypted(RtspClientConfig {
         target: "rtsp://192.168.178.140:48010".parse().unwrap(),
         client_version: 14,
-        encryption: None,
+        aes_key: None,
     });
 
     let request = RtspRequest {

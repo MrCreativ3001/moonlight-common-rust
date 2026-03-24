@@ -1,4 +1,5 @@
 use std::{
+    error::Error,
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
     time::{Duration, Instant},
@@ -46,7 +47,7 @@ pub struct AudioStreamConfig {
     /// See: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44
     pub fec: bool,
     pub sunshine_ping: Option<SunshinePing>,
-    pub sunshine_encryption: Option<(AesKey, AesIv)>,
+    pub sunshine_encryption: Option<AesKey>,
 }
 
 #[derive(Debug, Error)]
@@ -82,12 +83,10 @@ enum State {
 pub struct AudioStream<Crypto> {
     addr: SocketAddr,
     opus_config: OpusMultistreamConfig,
-    crypto_backend: Crypto,
-    encryption: Option<(AesKey, AesIv)>,
     last_now: Instant,
     last_sample: Instant,
     state: State,
-    queue: AudioDepayloader,
+    queue: AudioDepayloader<Crypto>,
 }
 
 impl AudioStream<DisabledCryptoBackend> {
@@ -99,14 +98,13 @@ impl AudioStream<DisabledCryptoBackend> {
 impl<Crypto> AudioStream<Crypto>
 where
     Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: Crypto) -> Self {
         Self {
             addr: config.addr,
             opus_config: config.opus_config,
-            crypto_backend,
-            encryption: config.sunshine_encryption,
             last_now: now,
             last_sample: now,
             state: State::SendPing {
@@ -116,7 +114,13 @@ where
                     sequence_number: 0,
                 }),
             },
-            queue: AudioDepayloader::new(AudioDepayloaderConfig { fec: config.fec }),
+            queue: AudioDepayloader::new(
+                AudioDepayloaderConfig {
+                    fec: config.fec,
+                    aes_key: config.sunshine_encryption,
+                },
+                crypto_backend,
+            ),
         }
     }
 
@@ -200,12 +204,7 @@ where
                     self.state = State::Setup;
                 }
 
-                // TODO: encryption?
-                if let Some(_) = self.encryption {
-                    todo!();
-                } else {
-                    self.queue.handle_packet(data)?;
-                }
+                self.queue.handle_packet(data)?;
 
                 Ok(())
             }

@@ -27,7 +27,7 @@ use crate::{
             },
             crypto::CryptoBackend,
             rtsp::{
-                RtspClient, RtspClientConfig, RtspError, RtspInput, RtspOutput,
+                client::{RtspClient, RtspClientConfig, RtspClientError, RtspInput, RtspOutput},
                 moonlight::{
                     DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspAnnounceRequest,
                     RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest,
@@ -62,7 +62,7 @@ use crate::{
 // - https://github.com/ClassicOldSong/Apollo/blob/a40b179886856bba1dfe311f430a25b9f3c44390/src/nvhttp.cpp#L882-L1013
 // - OTP pairing?
 
-// TODO: replace Instant with a custom Timestamp struct for Wasm compat
+// TODO: replace Instant with a custom Timestamp struct for Wasm compat, https://docs.rs/sans-io-time/latest/sans_io_time/index.html
 
 pub mod audio;
 pub mod control;
@@ -86,7 +86,7 @@ pub const DEFAULT_RTSP_PORT: u16 = 48010;
 #[derive(Debug, Error)]
 pub enum MoonlightStreamProtoError {
     #[error("rtsp: {0}")]
-    Rtsp(#[from] RtspError),
+    Rtsp(#[from] RtspClientError),
     #[error("parse rtsp response: {0}")]
     RtspParse(#[from] ParseMoonlightRtspResponseError),
     #[error("sunshine returned the wrong session id: \"{session}\"")]
@@ -259,7 +259,7 @@ where
                     .address
                     .parse()
                     .map_err(RtspAddrParseError::from)
-                    .map_err(RtspError::from)?;
+                    .map_err(RtspClientError::from)?;
                 let addr = SocketAddr::new(ip, DEFAULT_RTSP_PORT);
 
                 debug!(rtsp_addr = %addr, "No rtsp address given, generating using given information");
@@ -269,7 +269,7 @@ where
                     addr,
                 }
             }
-            Some(rtsp_url) => rtsp_url.parse().map_err(RtspError::from)?,
+            Some(rtsp_url) => rtsp_url.parse().map_err(RtspClientError::from)?,
         };
 
         let mut this = Self {
@@ -281,7 +281,7 @@ where
                 RtspClientConfig {
                     target: rtsp_addr,
                     client_version,
-                    encryption: Some(config.remote_input_aes_key),
+                    aes_key: Some(config.remote_input_aes_key),
                 },
                 crypto_backend,
             ),

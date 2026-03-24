@@ -6,10 +6,9 @@ use std::{
 
 use crate::{
     ServerVersion,
-    crypto::disabled::DisabledCryptoBackend,
     stream::{
         AesIv, AesKey, MoonlightStreamConfig,
-        proto::{MoonlightStreamAction, MoonlightStreamOutput, rtsp::RtspClient},
+        proto::{MoonlightStreamAction, MoonlightStreamOutput},
         video::ServerCodecModeSupport,
     },
 };

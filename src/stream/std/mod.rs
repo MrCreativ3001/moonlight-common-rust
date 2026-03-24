@@ -411,7 +411,7 @@ fn audio_thread<Crypto>(
     mut audio_decoder: Box<dyn AudioDecoder + Send + 'static>,
 ) where
     Crypto: CryptoBackend,
-    Crypto::Error: Error,
+    Crypto::Error: Error + 'static,
 {
     let mut started = false;
 

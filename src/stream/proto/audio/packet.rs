@@ -1,6 +1,12 @@
 // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/AudioStream.c#L22
 pub const INVALID_OPUS_HEADER: u8 = 0;
 
+/// The maximum size of an audio packet
+///
+/// References:
+/// - Definition: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L26
+pub const MAX_AUDIO_PACKET_SIZE: usize = 1400;
+
 /// This is the header used for audio.
 /// There are no checks that disallow this header from being another value.
 ///

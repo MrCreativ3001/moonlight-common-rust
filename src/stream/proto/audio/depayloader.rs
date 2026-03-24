@@ -1,31 +1,41 @@
 use std::{
     collections::{BTreeMap, VecDeque},
+    error::Error,
     time::Duration,
 };
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
 
-use crate::stream::{
-    audio::AudioSample,
-    proto::audio::{
-        create_audio_reed_solomon,
-        packet::{
-            AudioFecHeader, INVALID_OPUS_HEADER, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
-            RTP_AUDIO_TOTAL_SHARDS, RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC,
-            RtpAudioHeader,
+use crate::{
+    crypto::round_to_pkcs7_padded_len,
+    stream::{
+        AesKey,
+        audio::AudioSample,
+        proto::{
+            audio::{
+                create_audio_reed_solomon,
+                packet::{
+                    AudioFecHeader, INVALID_OPUS_HEADER, MAX_AUDIO_PACKET_SIZE,
+                    RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER, RTP_AUDIO_TOTAL_SHARDS,
+                    RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC, RtpAudioHeader,
+                },
+            },
+            crypto::{CipherAlgorithm, CryptoBackend},
         },
     },
 };
 
 use tracing::{Level, instrument, warn};
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum AudioDepayloaderError {
     #[error("buffer too small")]
     BufferTooSmall,
     #[error("reed solomon: {0}")]
     ReedSolomon(#[from] fec_rs::Error),
+    #[error("crypto: {0}")]
+    Crypto(Box<dyn Error>),
 }
 
 // TODO: this should also handle decryption
@@ -36,6 +46,8 @@ pub enum AudioDepayloaderError {
 pub struct AudioDepayloaderConfig {
     /// See: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44
     pub fec: bool,
+    /// Use encryption with the aes_key if [Some].
+    pub aes_key: Option<AesKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +72,9 @@ struct FecPacket {
 }
 
 #[derive(Debug)]
-pub struct AudioDepayloader {
+pub struct AudioDepayloader<Crypto> {
+    crypto_backend: Crypto,
+    aes_key: Option<AesKey>,
     current_sequence_number: u16,
     // TODO: don't deallocate those Vec's but reuse them
     data_packets: BTreeMap<u16, DataPacket>,
@@ -68,9 +82,13 @@ pub struct AudioDepayloader {
     fec_decoder: Option<ReedSolomon>,
 }
 
-impl AudioDepayloader {
-    #[instrument(level = Level::DEBUG)]
-    pub fn new(config: AudioDepayloaderConfig) -> Self {
+impl<Crypto> AudioDepayloader<Crypto>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    #[instrument(level = Level::DEBUG, skip(crypto_backend))]
+    pub fn new(config: AudioDepayloaderConfig, crypto_backend: Crypto) -> Self {
         let decoder = if config.fec {
             Some(create_audio_reed_solomon())
         } else {
@@ -78,6 +96,8 @@ impl AudioDepayloader {
         };
 
         Self {
+            crypto_backend,
+            aes_key: config.aes_key,
             current_sequence_number: 0,
             data_packets: Default::default(),
             fec_packets: Default::default(),
@@ -252,11 +272,9 @@ impl AudioDepayloader {
     /// Will insert this packet into internal buffers
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), AudioDepayloaderError> {
         if packet.len() < RtpAudioHeader::SIZE {
-            // TODO: should we error or just ignore, or warn?
             return Err(AudioDepayloaderError::BufferTooSmall);
         }
 
-        // We checked the size beforehand
         #[allow(clippy::unwrap_used)]
         let rtp_header = RtpAudioHeader::deserialize(
             packet[0..RtpAudioHeader::SIZE]
@@ -273,9 +291,48 @@ impl AudioDepayloader {
             return Ok(());
         }
 
-        if rtp_header.packet_type == RTP_PAYLOAD_TYPE_AUDIO {
-            let data = &packet[RtpAudioHeader::SIZE..];
+        let payload_start = match rtp_header.packet_type {
+            RTP_PAYLOAD_TYPE_AUDIO => RtpAudioHeader::SIZE,
+            RTP_PAYLOAD_TYPE_AUDIO_FEC => RtpAudioHeader::SIZE + AudioFecHeader::SIZE,
+            _ => {
+                warn!(rtp_header = ?rtp_header, packet_type = ?rtp_header.packet_type, "received unknown audio packet type");
+                return Ok(());
+            }
+        };
 
+        // Check size for fec packets
+        if packet.len() < payload_start {
+            warn!(rtp_header = ?rtp_header, packet = ?packet, "received a too small packet");
+            return Ok(());
+        }
+
+        // -- Decrypt data if necessary
+        let mut unencrypt_buffer = [0; round_to_pkcs7_padded_len(MAX_AUDIO_PACKET_SIZE)];
+
+        let payload = if let Some(aes_key) = self.aes_key {
+            // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
+
+            let mut iv = [0u8; 16];
+            iv[0..4].copy_from_slice(&rtp_header.sequence_number.to_be_bytes());
+
+            self.crypto_backend
+                .decrypt(
+                    CipherAlgorithm::Aes128Cbc,
+                    &aes_key,
+                    &iv,
+                    None,
+                    &packet[payload_start..],
+                    &mut unencrypt_buffer,
+                )
+                .map_err(|err| AudioDepayloaderError::Crypto(Box::new(err)))?;
+
+            &unencrypt_buffer[0..(packet.len() - payload_start)]
+        } else {
+            &packet[payload_start..]
+        };
+
+        // -- Handle packet
+        if rtp_header.packet_type == RTP_PAYLOAD_TYPE_AUDIO {
             if rtp_header.sequence_number < self.current_sequence_number {
                 // Drop the packet because it is too old
                 return Ok(());
@@ -283,7 +340,7 @@ impl AudioDepayloader {
 
             let packet = DataPacket {
                 timestamp: rtp_header.timestamp,
-                payload: data.to_vec(),
+                payload: payload.to_vec(),
             };
 
             // Insert it into the queue
@@ -309,11 +366,6 @@ impl AudioDepayloader {
                 return Ok(());
             }
 
-            if packet.len() < RtpAudioHeader::SIZE + AudioFecHeader::SIZE {
-                // TODO: should we error or just ignore, or warn?
-                return Err(AudioDepayloaderError::BufferTooSmall);
-            }
-
             // We checked the size beforehand
             #[allow(clippy::unwrap_used)]
             let fec_header = AudioFecHeader::deserialize(
@@ -321,8 +373,6 @@ impl AudioDepayloader {
                     .as_array::<{ AudioFecHeader::SIZE }>()
                     .unwrap(),
             );
-
-            let data = &packet[RtpAudioHeader::SIZE + AudioFecHeader::SIZE..];
 
             let base_sequence_number = fec_header.base_sequence_number;
             if self.current_sequence_number
@@ -334,7 +384,7 @@ impl AudioDepayloader {
 
             let packet = FecPacket {
                 header: fec_header,
-                payload: data.to_vec(),
+                payload: payload.to_vec(),
             };
 
             // Insert it into the queue ordered by base_sequence_number and fec_shard_index

@@ -7,9 +7,8 @@ use thiserror::Error;
 use crate::{
     ServerVersion,
     stream::proto::{
-        rtsp::{
-            RtspRequest,
-            raw::{RtspAddr, RtspCommand, RtspProtocol, RtspRequestMessage, RtspResponse},
+        rtsp::raw::{
+            RtspAddr, RtspCommand, RtspProtocol, RtspRequest, RtspRequestMessage, RtspResponse,
         },
         sdp::{ParseSdpError, Sdp, client::ClientSdp, server::ServerSdp},
     },

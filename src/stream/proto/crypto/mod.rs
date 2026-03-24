@@ -3,6 +3,7 @@ use std::{fmt, fmt::Debug, sync::Arc};
 use crate::stream::{AesIv, AesKey};
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 pub(crate) mod test;
 
 pub enum CipherAlgorithm {

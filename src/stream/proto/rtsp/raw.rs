@@ -6,7 +6,7 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::stream::proto::rtsp::RtspError;
+use crate::stream::proto::rtsp::client::RtspClientError;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RtspCommand {
@@ -254,7 +254,7 @@ pub enum ParseRtspResponseError {
 
 impl RtspResponse {
     /// Important: try parse will only parse until the header end "\r\n\r\n" because moonlight server doesn't send any way to determine the length of a payload
-    pub fn try_parse_header(text: &str) -> Result<Option<(usize, RtspResponse)>, RtspError> {
+    pub fn try_parse_header(text: &str) -> Result<Option<(usize, RtspResponse)>, RtspClientError> {
         let Some(header_end) = Self::find_double_crlf(text) else {
             return Ok(None);
         };
@@ -265,7 +265,9 @@ impl RtspResponse {
 
         // parse message
         let Some(message) = lines.next() else {
-            return Err(RtspError::Response(ParseRtspResponseError::MissingMessage));
+            return Err(RtspClientError::Response(
+                ParseRtspResponseError::MissingMessage,
+            ));
         };
         let message =
             RtspResponseMessage::from_str(message).map_err(ParseRtspResponseError::from)?;
@@ -275,7 +277,7 @@ impl RtspResponse {
 
         for line in lines {
             let Some((key, value)) = line.split_once(':') else {
-                return Err(RtspError::Response(
+                return Err(RtspClientError::Response(
                     ParseRtspResponseError::InvalidOptionEntry(line.to_string()),
                 ));
             };
