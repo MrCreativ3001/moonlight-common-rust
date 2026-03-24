@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::{
     crypto::round_to_pkcs7_padded_len,
     stream::{
-        AesKey,
+        AesIv, AesKey,
         audio::AudioSample,
         proto::{
             audio::{
@@ -46,8 +46,8 @@ pub enum AudioDepayloaderError {
 pub struct AudioDepayloaderConfig {
     /// See: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44
     pub fec: bool,
-    /// Use encryption with the aes_key if [Some].
-    pub aes_key: Option<AesKey>,
+    /// Use encryption if [Some].
+    pub encryption: Option<(AesKey, AesIv)>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +74,7 @@ struct FecPacket {
 #[derive(Debug)]
 pub struct AudioDepayloader<Crypto> {
     crypto_backend: Crypto,
-    aes_key: Option<AesKey>,
+    encryption: Option<(AesKey, AesIv)>,
     current_sequence_number: u16,
     // TODO: don't deallocate those Vec's but reuse them
     data_packets: BTreeMap<u16, DataPacket>,
@@ -97,7 +97,7 @@ where
 
         Self {
             crypto_backend,
-            aes_key: config.aes_key,
+            encryption: config.encryption,
             current_sequence_number: 0,
             data_packets: Default::default(),
             fec_packets: Default::default(),
@@ -309,11 +309,11 @@ where
         // -- Decrypt data if necessary
         let mut unencrypt_buffer = [0; round_to_pkcs7_padded_len(MAX_AUDIO_PACKET_SIZE)];
 
-        let payload = if let Some(aes_key) = self.aes_key {
+        let payload = if let Some((aes_key, aes_iv)) = self.encryption {
             // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
 
             let mut iv = [0u8; 16];
-            iv[0..4].copy_from_slice(&rtp_header.sequence_number.to_be_bytes());
+            iv[0..4].copy_from_slice(&(*aes_iv + rtp_header.sequence_number as u32).to_be_bytes());
 
             self.crypto_backend
                 .decrypt(

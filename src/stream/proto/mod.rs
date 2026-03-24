@@ -11,7 +11,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, instrument};
+use tracing::{Level, debug, instrument, warn};
 
 use crate::{
     ServerVersion,
@@ -182,6 +182,7 @@ struct Sdp {
 /// ```
 ///
 pub struct MoonlightStreamProto<Crypto> {
+    client_config: MoonlightStreamConfig,
     client_settings: MoonlightStreamSettings,
     crypto_backend: Crypto,
     rtsp: RtspClient<Crypto>,
@@ -226,9 +227,7 @@ where
     Crypto::Error: Error + 'static,
 {
     pub fn launch_query_parameters() -> &'static str {
-        // TODO: change this to corever=1 when rtsp encryption is supported
         "&corever=1"
-        // ""
     }
 
     ///
@@ -269,7 +268,7 @@ where
                     addr,
                 }
             }
-            Some(rtsp_url) => rtsp_url.parse().map_err(RtspClientError::from)?,
+            Some(ref rtsp_url) => rtsp_url.parse().map_err(RtspClientError::from)?,
         };
 
         let mut this = Self {
@@ -286,6 +285,7 @@ where
                 crypto_backend,
             ),
             server_version: config.version,
+            client_config: config,
             sdp: None,
             session_id: None,
             state: State::RtspOptionsReceive,
@@ -365,7 +365,16 @@ where
 
                             // This won't panic because the sdp was created before this
                             #[allow(clippy::unwrap_used)]
-                            let opus_config = self.sdp.as_ref().unwrap().opus_config.clone();
+                            let sdp = self.sdp.as_ref().unwrap();
+
+                            // Get configurations
+                            let opus_config = sdp.opus_config.clone();
+
+                            let encrypted = sdp
+                                .client_sdp
+                                .sunshine_encryption
+                                .unwrap_or(SunshineEncryptionFlags::empty())
+                                .contains(SunshineEncryptionFlags::AUDIO);
 
                             let addr =
                                 SocketAddr::new(ip, audio_setup.port.unwrap_or(DEFAULT_AUDIO_PORT));
@@ -390,8 +399,10 @@ where
                                     // TODO: want fec disabled
                                     fec: self.server_version >= ServerVersion::new(7, 1, 415, 0),
                                     sunshine_ping: audio_setup.sunshine_ping.clone(),
-                                    // TODO: encryption?
-                                    sunshine_encryption: None,
+                                    sunshine_encryption: encrypted.then_some((
+                                        self.client_config.remote_input_aes_key,
+                                        self.client_config.remote_input_aes_iv,
+                                    )),
                                 },
                                 self.crypto_backend.clone(),
                             );
@@ -679,7 +690,7 @@ where
             .sunshine_encryption_requested
             .unwrap_or(SunshineEncryptionFlags::empty());
         let server_encryption_supported = server_sdp
-            .sunshine_encryption_requested
+            .sunshine_encryption_supported
             .unwrap_or(SunshineEncryptionFlags::empty());
 
         let mut sunshine_encryption = SunshineEncryptionFlags::empty();
@@ -691,48 +702,50 @@ where
                 // sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
             }
 
+            let client_wants_video = self
+                .client_settings
+                .encryption_flags
+                .contains(EncryptionFlags::VIDEO);
+
             // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L280-L289
             // If video encryption is supported by the host and desired by the client, use it
             if server_encryption_supported.contains(SunshineEncryptionFlags::VIDEO)
-                && !self
-                    .client_settings
-                    .encryption_flags
-                    .contains(EncryptionFlags::VIDEO)
+                && client_wants_video
             {
                 sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
             }
             // If video encryption is explicitly requested by the host but *not* by the client,
             // we'll encrypt anyway (since we are capable of doing so) and print a warning.
             if server_encryption_requested.contains(SunshineEncryptionFlags::VIDEO)
-                && !self
-                    .client_settings
-                    .encryption_flags
-                    .contains(EncryptionFlags::VIDEO)
+                && !client_wants_video
             {
                 sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
-                // TODO: print warning
+                warn!(
+                    "Server requested video encryption; enabling it even though the client disabled it"
+                );
             }
+
+            let client_wants_audio = self
+                .client_settings
+                .encryption_flags
+                .contains(EncryptionFlags::AUDIO);
 
             // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L291-L300
             // If audio encryption is supported by the host and desired by the client, use it
             if server_encryption_supported.contains(SunshineEncryptionFlags::AUDIO)
-                && !self
-                    .client_settings
-                    .encryption_flags
-                    .contains(EncryptionFlags::AUDIO)
+                && client_wants_audio
             {
                 sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
             }
             // If audio encryption is explicitly requested by the host but *not* by the client,
             // we'll encrypt anyway (since we are capable of doing so) and print a warning.
             if server_encryption_requested.contains(SunshineEncryptionFlags::AUDIO)
-                && !self
-                    .client_settings
-                    .encryption_flags
-                    .contains(EncryptionFlags::AUDIO)
+                && !client_wants_audio
             {
                 sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
-                // TODO: print warning
+                warn!(
+                    "Server requested audio encryption; enabling it even though the client disabled it"
+                );
             }
         }
 

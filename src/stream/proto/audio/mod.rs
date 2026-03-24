@@ -47,7 +47,8 @@ pub struct AudioStreamConfig {
     /// See: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44
     pub fec: bool,
     pub sunshine_ping: Option<SunshinePing>,
-    pub sunshine_encryption: Option<AesKey>,
+    /// If [Some] the audio stream is encrypted.
+    pub sunshine_encryption: Option<(AesKey, AesIv)>,
 }
 
 #[derive(Debug, Error)]
@@ -117,7 +118,7 @@ where
             queue: AudioDepayloader::new(
                 AudioDepayloaderConfig {
                     fec: config.fec,
-                    aes_key: config.sunshine_encryption,
+                    encryption: config.sunshine_encryption,
                 },
                 crypto_backend,
             ),

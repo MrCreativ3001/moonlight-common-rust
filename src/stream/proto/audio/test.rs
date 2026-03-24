@@ -596,7 +596,7 @@ pub fn test_audio_depayloader_no_fec() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: false,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -698,7 +698,7 @@ fn test_audio_depayloader_no_fec_reorder() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: false,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -798,7 +798,7 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: false,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -904,7 +904,7 @@ fn test_audio_depayloader() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1034,7 +1034,7 @@ fn test_audio_depayloader_reorder() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1151,7 +1151,7 @@ fn test_audio_depayloader_packet_loss_no_recover() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1222,7 +1222,7 @@ fn test_audio_depayloader_packet_loss_recover() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1286,7 +1286,7 @@ fn test_audio_depayloader_packet_loss_recover_use_polled_packet() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1352,7 +1352,7 @@ fn test_audio_depayloader_late_data_packet_fec_recovery() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1418,7 +1418,7 @@ fn test_audio_depayloader_big_packet_loss() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1485,7 +1485,7 @@ fn test_audio_depayloader_sunshine() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
@@ -1540,7 +1540,7 @@ fn test_audio_depayloader_sunshine() {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            aes_key: None,
+            encryption: None,
         },
         DisabledCryptoBackend,
     );
