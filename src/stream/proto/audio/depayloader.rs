@@ -1,10 +1,13 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     error::Error,
+    mem::swap,
     time::Duration,
 };
 
 use fec_rs::ReedSolomon;
+use rand::RngExt;
+use rand_v8::{Rng, rngs::StdRng};
 use thiserror::Error;
 
 use crate::{
@@ -80,6 +83,7 @@ pub struct AudioDepayloader<Crypto> {
     data_packets: BTreeMap<u16, DataPacket>,
     fec_packets: VecDeque<FecPacket>,
     fec_decoder: Option<ReedSolomon>,
+    unencrypt_buffer: Vec<u8>,
 }
 
 impl<Crypto> AudioDepayloader<Crypto>
@@ -102,12 +106,15 @@ where
             data_packets: Default::default(),
             fec_packets: Default::default(),
             fec_decoder: decoder,
+            unencrypt_buffer: Vec::new(),
         }
     }
 
     /// Will try to construct the next sample using the internal buffers
     pub fn poll_sample(&mut self) -> Result<Option<AudioSample>, AudioDepayloaderError> {
         let mut output = None;
+
+        let sequence_number = self.current_sequence_number;
 
         if self
             .data_packets
@@ -135,6 +142,37 @@ where
             .pop_front_if(|packet| packet.header.base_sequence_number < minimum_sequence_number)
             .is_some()
         {}
+
+        // -- Decrypt data if necessary
+        if let Some(output) = output.as_mut()
+            && let Some((aes_key, aes_iv)) = self.encryption
+        {
+            // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
+
+            let mut iv = [0u8; 16];
+            iv[0..4].copy_from_slice(&aes_iv.wrapping_add(sequence_number as u32).to_be_bytes());
+
+            // Ensure output buffer is big enough
+            self.unencrypt_buffer
+                .resize(round_to_pkcs7_padded_len(output.buffer.len()) + 16, 0);
+
+            // Decrypt
+            let len = self
+                .crypto_backend
+                .decrypt(
+                    CipherAlgorithm::Aes128Cbc,
+                    &aes_key,
+                    &iv,
+                    None,
+                    &output.buffer,
+                    &mut self.unencrypt_buffer,
+                )
+                .map_err(|err| AudioDepayloaderError::Crypto(Box::new(err)))?;
+
+            // Swap buffers
+            self.unencrypt_buffer.truncate(len);
+            swap(&mut output.buffer, &mut self.unencrypt_buffer);
+        }
 
         Ok(output)
     }
@@ -306,35 +344,7 @@ where
             return Ok(());
         }
 
-        // -- Decrypt data if necessary
-        let mut unencrypt_buffer = [0; round_to_pkcs7_padded_len(MAX_AUDIO_PACKET_SIZE)];
-
-        let payload = if let Some((aes_key, aes_iv)) = self.encryption {
-            // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
-
-            let mut iv = [0u8; 16];
-            iv[0..4].copy_from_slice(
-                &aes_iv
-                    .wrapping_add(rtp_header.sequence_number as u32)
-                    .to_be_bytes(),
-            );
-
-            let len = self
-                .crypto_backend
-                .decrypt(
-                    CipherAlgorithm::Aes128Cbc,
-                    &aes_key,
-                    &iv,
-                    None,
-                    &packet[payload_start..],
-                    &mut unencrypt_buffer,
-                )
-                .map_err(|err| AudioDepayloaderError::Crypto(Box::new(err)))?;
-
-            &unencrypt_buffer[0..len]
-        } else {
-            &packet[payload_start..]
-        };
+        let payload = &packet[payload_start..];
 
         // -- Handle packet
         if rtp_header.packet_type == RTP_PAYLOAD_TYPE_AUDIO {

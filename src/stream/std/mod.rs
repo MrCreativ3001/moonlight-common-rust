@@ -402,8 +402,6 @@ fn proto_thread<Crypto>(
     }
 }
 
-// TODO: audio queue using synchronized buffer
-
 #[instrument(level = Level::DEBUG, skip_all)]
 fn audio_thread<Crypto>(
     mut audio_stream: AudioStream<Crypto>,

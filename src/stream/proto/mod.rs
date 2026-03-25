@@ -50,11 +50,7 @@ use crate::{
     },
 };
 
-// TODO: replace simplelog with tracingfor this common crate!
-
 // TODO: avoid heap alloc by using 'a in certain structs (e.g. RtspRequest / Response, Sdp)
-
-// TODO: rename video/audio queue to depay?
 
 // TODO: implement apollo extensions: https://github.com/ClassicOldSong/moonlight-common-c/commit/84af637de7718d1bb390332f0e37a4c6d59e6b78
 // Detect apollo based on: if we have a "Permission" field in the xml?

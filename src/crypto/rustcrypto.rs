@@ -12,7 +12,7 @@ use aes::{
 use der::Decode;
 use pem::Pem;
 use pkcs8::{DecodePrivateKey, EncodePrivateKey, SubjectPublicKeyInfo, der::Encode};
-use rand::RngCore;
+use rand_v8::RngCore;
 use rsa::{
     RsaPrivateKey, RsaPublicKey,
     pkcs1v15::{Signature, SigningKey, VerifyingKey},
@@ -40,7 +40,7 @@ use crate::http::{
 #[derive(Debug, Error)]
 pub enum RustCryptoError {
     #[error("rand: {0}")]
-    Rand(#[from] rand::Error),
+    Rand(#[from] rand_v8::Error),
     #[error("certificate builder: {0}")]
     CertificateBuilder(#[from] x509_cert::builder::Error),
     #[error("rsa: {0}")]

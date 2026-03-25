@@ -20,6 +20,30 @@ Because the core does not depend on native sockets or a specific runtime, it can
 
 This design allows the same protocol implementation to be reused across native and web targets while remaining modular and easy to embed.
 
+## Feature Support
+
+|Host|moonlight-common-rust|moonlight-common-c|
+|---|---|---|
+|Nvidia GameStream|❌|✅|
+|Sunshine|✅|✅|
+|Wolf|✅|✅|
+|Apollo|✅|✅|
+
+|Video Codec|moonlight-common-rust|moonlight-common-c|
+|---|---|---|
+|H264|✅|✅|
+|H265|✅|✅|
+|AV1|❌|✅|
+
+|Features|moonlight-common-rust|moonlight-common-c|
+|---|---|---|
+|Rtsp Encryption|✅|✅|
+|Audio Encryption|✅|✅|
+|Video Encryption|❌|✅|
+|Control Encryption|❌|✅|
+|Reference Frame Invalidation|❌|✅|
+|Long Term Reference Frames<sup><a href="https://github.com/moonlight-stream/moonlight-common-c/issues/120">1</a></sup>|❌|✅|
+
 ## Usage
 
 The [`examples/`](./examples) directory contains examples demonstrating how to use the crate with the I/O implementations this library provides.

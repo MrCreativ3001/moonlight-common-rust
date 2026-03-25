@@ -86,7 +86,7 @@ sha2 = { version = "0.10.9", features = [
     "oid",
 ], default-features = false, optional = true }
 # rsa requires this rand version for private key generation
-rand = { version = "0.8.5", default-features = false, optional = true }
+rand_v8 = { package = "rand", version = "0.8.5", default-features = false, optional = true }
 aes = { version = "0.8.4", default-features = false, optional = true }
 rsa = { version = "0.9.10", features = [
     "std",
@@ -105,6 +105,9 @@ signature = { version = "2.2.0", default-features = false, optional = true }
 
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
+
+# TODO: remove this
+rand = "0.10.0"
 
 [features]
 default = ["ureq", "std", "rustcrypto"]
@@ -125,7 +128,7 @@ openssl = ["dep:openssl"]
 rustcrypto = [
     "dep:sha1",
     "dep:sha2",
-    "dep:rand",
+    "dep:rand_v8",
     "dep:aes",
     "dep:rsa",
     "dep:der",
