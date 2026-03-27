@@ -16,33 +16,29 @@ Because the core does not depend on native sockets or a specific runtime, it can
 - Work with any async ecosystem
 - Integrate with custom networking backends
 - Compile to WebAssembly and run in the browser, where networking is provided externally (e.g. WebRTC, WebTransport, Direct Sockets in IWA's)
-- Easily be tested for without real network I/O
+- Easily be tested without real network I/O
 
 This design allows the same protocol implementation to be reused across native and web targets while remaining modular and easy to embed.
 
 ## Feature Support
 
-|Host|moonlight-common-rust|moonlight-common-c|
-|---|---|---|
-|Nvidia GameStream|❌|✅|
-|Sunshine|✅|✅|
-|Wolf|✅|✅|
-|Apollo|✅|✅|
+|Category|Item|moonlight-common-rust|moonlight-common-c|
+|---|---|---|---|
+|**Host**|Nvidia GameStream|❌|✅|
+||Sunshine|✅|✅|
+||Wolf|✅|✅|
+||Apollo|✅|✅|
+|**Video Codec**|H264|✅|✅|
+||H265|✅|✅|
+||AV1|❌|✅|
+|**Video Encoding Features**|Reference Frame Invalidation|❌|✅|
+||Long Term Reference Frames[^1]|❌|✅|
+|**Encryption**|RTSP Encryption|✅|✅|
+||Audio Encryption|✅|✅|
+||Video Encryption|❌|✅|
+||Control Encryption|✅|✅|
 
-|Video Codec|moonlight-common-rust|moonlight-common-c|
-|---|---|---|
-|H264|✅|✅|
-|H265|✅|✅|
-|AV1|❌|✅|
-
-|Features|moonlight-common-rust|moonlight-common-c|
-|---|---|---|
-|Rtsp Encryption|✅|✅|
-|Audio Encryption|✅|✅|
-|Video Encryption|❌|✅|
-|Control Encryption|❌|✅|
-|Reference Frame Invalidation|❌|✅|
-|Long Term Reference Frames<sup><a href="https://github.com/moonlight-stream/moonlight-common-c/issues/120">1</a></sup>|❌|✅|
+[^1]: https://github.com/moonlight-stream/moonlight-common-c/issues/120
 
 ## Usage
 

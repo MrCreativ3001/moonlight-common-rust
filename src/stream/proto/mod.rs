@@ -22,8 +22,8 @@ use crate::{
         proto::{
             audio::{AudioStream, AudioStreamConfig, AudioStreamError},
             control::{
-                ControlMessage, ControlMessageInner, ControlStream, ControlStreamConfig,
-                ControlStreamError, packet::ControlPacket,
+                ControlEncryptionMethod, ControlMessage, ControlMessageInner, ControlStream,
+                ControlStreamConfig, ControlStreamError, packet::ControlPacket,
             },
             crypto::CryptoBackend,
             rtsp::{
@@ -485,13 +485,41 @@ where
                                 control_setup.port.unwrap_or(DEFAULT_VIDEO_PORT),
                             );
 
+                            // Sdp is initialized by now
+                            #[allow(clippy::unwrap_used)]
+                            let sdp = self.sdp.as_ref().unwrap();
+
+                            let should_enable_encryption =
+                                self.server_version >= ServerVersion::new(7, 1, 431, 0);
+                            let encryption = if should_enable_encryption
+                                && sdp
+                                    .client_sdp
+                                    .sunshine_encryption
+                                    .unwrap_or(SunshineEncryptionFlags::empty())
+                                    .contains(SunshineEncryptionFlags::CONTROL_V2)
+                            {
+                                Some((
+                                    ControlEncryptionMethod::Sunshine,
+                                    self.client_config.remote_input_aes_key,
+                                    self.client_config.remote_input_aes_iv,
+                                ))
+                            } else if should_enable_encryption {
+                                Some((
+                                    ControlEncryptionMethod::Nvidia,
+                                    self.client_config.remote_input_aes_key,
+                                    self.client_config.remote_input_aes_iv,
+                                ))
+                            } else {
+                                None
+                            };
+
                             let control_stream = ControlStream::new(
                                 self.last_now,
                                 ControlStreamConfig {
                                     server_version: self.server_version,
                                     addr,
                                     sunshine_connect_data: control_setup.sunshine_connect_data,
-                                    sunshine_encryption: None, // TODO <--
+                                    encryption,
                                 },
                                 self.crypto_backend.clone(),
                             );
@@ -694,8 +722,7 @@ where
         if self.server_version.is_sunshine_like() {
             // New-style control stream encryption is low overhead, so we enable it any time it is supported
             if server_encryption_supported.contains(SunshineEncryptionFlags::CONTROL_V2) {
-                // TODO: enable this when this is actually implemented inside the MoonlightControlStream
-                // sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
+                sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
             }
 
             let client_wants_video = self
@@ -775,6 +802,8 @@ where
             self.rtsp.target_addr().addr.ip(),
             moonlight_features,
             sunshine_encryption,
+            // Enable encryption
+            13,
             negotiated_video_format,
             self.client_settings.width,
             self.client_settings.height,

@@ -15,11 +15,19 @@ use crate::{
     stream::{
         AesIv, AesKey,
         proto::{
-            control::packet::{
-                ControlPacket, ControlPacketNotSupported, PERIODIC_PING_INTERVAL,
-                PERIODIC_PING_VERSION, PacketDirection,
+            control::{
+                encryption::{
+                    ControlEncryptionError, decrypt_server_control_packet_into,
+                    encrypt_client_control_packet_into,
+                },
+                packet::{
+                    ControlPacket, ControlPacketNotSupported,
+                    ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
+                    EncryptedControlHeader, PERIODIC_PING_INTERVAL, PERIODIC_PING_VERSION,
+                    PacketDirection,
+                },
             },
-            crypto::CryptoBackend,
+            crypto::{CipherAlgorithm, CryptoBackend},
             enet::{EnetConfig, EnetError, EnetEvent, EnetHost, EnetInput, EnetOutput},
         },
     },
@@ -29,10 +37,14 @@ use crate::{
 
 pub mod packet;
 
+mod encryption;
+
 #[cfg(test)]
 mod test;
 
 // TODO: send loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
+
+// TODO: where's the difference between v1 and v2 headers?
 
 const CHANNEL_GENERIC: usize = 0x00;
 const CHANNEL_URGENT: usize = 0x01; // IDR and reference frame invalidation requests
@@ -65,6 +77,23 @@ pub enum ControlStreamError {
     NotConnected,
     #[error("packet not supported")]
     PacketNotSupported(#[from] ControlPacketNotSupported),
+    #[error("encryption: {0}")]
+    Encryption(#[from] ControlEncryptionError),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ControlEncryptionMethod {
+    /// Used for nvidia control encryption.
+    /// Prefer [Sunshine](Self::Sunshine) over this because it's more secure.
+    ///
+    /// Enabled if APP_VERSION_AT_LEAST(7, 1, 431)
+    ///
+    /// References:
+    /// - Server Version: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L309
+    /// - Encryption: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L568-L574
+    Nvidia,
+    /// Enabled if [SunshineEncryptionFlags::CONTROL_V2](super::sdp::client::SunshineEncryptionFlags::CONTROL_V2).
+    Sunshine,
 }
 
 #[derive(Debug)]
@@ -72,8 +101,7 @@ pub struct ControlStreamConfig {
     pub server_version: ServerVersion,
     pub addr: SocketAddr,
     pub sunshine_connect_data: Option<u32>,
-    // TODO
-    pub sunshine_encryption: Option<(AesKey, AesIv)>,
+    pub encryption: Option<(ControlEncryptionMethod, AesKey, AesIv)>,
 }
 
 #[derive(Debug)]
@@ -104,12 +132,20 @@ pub enum ControlStreamEvent {
     Packet(ControlPacket),
 }
 
+struct EnetEncrypted {
+    encryption_method: ControlEncryptionMethod,
+    aes_key: AesKey,
+    aes_iv: AesIv,
+    send_sequence_number: u32,
+    encrypt_buffer: Vec<u8>,
+}
+
 enum Transport {
     Enet {
         enet: EnetHost,
         peer: Option<PeerID>,
         connected: bool,
-        encrypted: Option<AesKey>,
+        encryption: Option<EnetEncrypted>,
     },
     Tcp {},
 }
@@ -136,7 +172,7 @@ where
         if config.server_version < ServerVersion::new(5, 0, 0, 0) {
             // TODO: implement control over tcp
 
-            config.sunshine_encryption = None;
+            config.encryption = None;
             warn!(
                 "Tried to enable encryption on server version {:?} which doesn't have encryption support. Not using encryption!",
                 config.server_version
@@ -176,7 +212,18 @@ where
                 peer: Some(peer),
                 connected: false,
                 // TODO: encryption
-                encrypted: config.sunshine_encryption.map(|_x| todo!()),
+                encryption: config
+                    .encryption
+                    .map(|(encryption_method, aes_key, aes_iv)| EnetEncrypted {
+                        encryption_method,
+                        aes_key,
+                        aes_iv,
+                        send_sequence_number: 0,
+                        encrypt_buffer: vec![
+                            0;
+                            EncryptedControlHeader::SIZE + ControlPacket::MAX_SIZE
+                        ],
+                    }),
             },
             allow_packets: false,
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
@@ -236,7 +283,7 @@ where
         let encrypted = matches!(
             self.transport,
             Transport::Enet {
-                encrypted: Some(_),
+                encryption: Some(_),
                 ..
             }
         );
@@ -263,7 +310,7 @@ where
                 enet,
                 peer,
                 connected,
-                encrypted,
+                encryption,
             } => {
                 if !*connected {
                     if !force_packet {
@@ -275,6 +322,31 @@ where
                     self.buffered_packets.push((channel_id, buffer.to_vec()));
                     return Ok(());
                 }
+
+                // Handle encryption
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L703-L740
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L548-L591
+                let buffer = if let Some(EnetEncrypted {
+                    encryption_method,
+                    aes_key,
+                    aes_iv: _,
+                    send_sequence_number,
+                    encrypt_buffer,
+                }) = encryption
+                {
+                    let len = encrypt_client_control_packet_into(
+                        &self.crypto_backend,
+                        *encryption_method,
+                        *aes_key,
+                        *send_sequence_number,
+                        buffer,
+                        encrypt_buffer,
+                    )?;
+
+                    &encrypt_buffer[0..len]
+                } else {
+                    buffer
+                };
 
                 let Some(peer) = peer else {
                     // TODO: maybe error and disconnect?
@@ -291,12 +363,8 @@ where
                     channel_id = 0;
                 }
 
-                if let Some(_encryption) = &encrypted {
-                    todo!()
-                } else {
-                    peer.send(channel_id, &Packet::new(buffer.to_vec(), packet_kind))
-                        .map_err(EnetError::from)?;
-                }
+                peer.send(channel_id, &Packet::new(buffer.to_vec(), packet_kind))
+                    .map_err(EnetError::from)?;
             }
             Transport::Tcp {} => {
                 todo!();
@@ -313,7 +381,7 @@ where
                     enet,
                     peer,
                     connected,
-                    encrypted,
+                    encryption,
                 } => match enet.poll_output()? {
                     EnetOutput::Send { addr, data } => {
                         return Ok(ControlStreamOutput::Send { to: addr, data });
@@ -347,20 +415,44 @@ where
                     EnetOutput::Event(EnetEvent::Receive {
                         peer,
                         channel_id,
-                        data,
+                        mut data,
                     }) => {
                         trace!(peer_id = ?peer, channel_id = ?channel_id, data = ?data, "Received raw packet");
 
-                        if let Some(encryption) = encrypted {
-                            // TODO: implement encryption
-                            todo!();
-                        }
+                        let is_encrypted = encryption.is_some();
+                        // Encryption:
+                        // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1219-L1253
+                        // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L593-L663
+                        let data = if let Some(EnetEncrypted {
+                            encryption_method,
+                            aes_key,
+                            aes_iv: _,
+                            send_sequence_number: _,
+                            encrypt_buffer,
+                        }) = encryption
+                        {
+                            // The encrypt buffer is always bigger than the required decrypt buffer
+                            // -> The buffer is big enough for decrypting
+
+                            // TODO: some errors should drop packets and not error the consumer of this stream
+                            let len = decrypt_server_control_packet_into(
+                                &self.crypto_backend,
+                                *encryption_method,
+                                *aes_key,
+                                &data,
+                                encrypt_buffer,
+                            )?;
+
+                            &encrypt_buffer[0..len]
+                        } else {
+                            &data
+                        };
 
                         let Some(packet) = ControlPacket::deserialize(
                             PacketDirection::ClientBound,
                             self.server_version,
-                            encrypted.is_some(),
-                            &data,
+                            is_encrypted,
+                            data,
                         ) else {
                             warn!("Failed to deserialize control packet!");
 
@@ -466,6 +558,7 @@ where
                 }
                 Err(err) => return Err(err),
             }
+
             trace!(
                 last_ping = ?last_ping,
                 now = ?self.last_now,

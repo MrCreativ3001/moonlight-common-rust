@@ -104,34 +104,42 @@ impl ControlHeaderV2 {
     }
 }
 
+pub const ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH: usize = 16;
+
+/// References:
+/// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1222
+pub const ENCRYPTED_CONTROL_PACKET_TYPE: u16 = 0x0001;
+
 /// Encrypted Control Header:
+///
 /// Encryption requires version APP_VERSION_AT_LEAST(7, 1, 431):
+///
 /// - Version: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L308
 /// - Definition:
 ///   - https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_encrypted_packet_format
 ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L25-L32
+#[derive(Debug, PartialEq)]
 pub struct EncryptedControlHeader {
     /// The type of message, fixed at 0x0001 for this type of packet
     pub ty: u16,
     /// The size of the rest of the message in bytes (Seq + TAG + Payload)
     pub len: u16,
     /// Monotonically increasing sequence number (used as IV for AES-GCM)
-    pub sequence_number: u16,
+    pub sequence_number: u32,
     /// The AES GCM TAG
-    pub tag: [u8; 16],
+    pub tag: [u8; ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH],
 }
 
 impl EncryptedControlHeader {
-    pub const SIZE: usize = 22;
+    pub const SIZE: usize = 24;
 
     pub fn deserialize(buffer: &[u8; Self::SIZE]) -> Self {
-        let ty = u16::from_be_bytes([buffer[0], buffer[1]]);
-        let len = u16::from_be_bytes([buffer[2], buffer[3]]);
-        let sequence_number = u16::from_be_bytes([buffer[4], buffer[5]]);
+        let ty = u16::from_le_bytes([buffer[0], buffer[1]]);
+        let len = u16::from_le_bytes([buffer[2], buffer[3]]);
+        let sequence_number = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
 
-        // TODO: is the tag also little endian
         let mut tag = [0; 16];
-        tag.copy_from_slice(&buffer[6..22]);
+        tag.copy_from_slice(&buffer[8..24]);
 
         Self {
             ty,
@@ -141,17 +149,21 @@ impl EncryptedControlHeader {
         }
     }
 
-    // TODO: error?
     pub fn serialize(&self, buffer: &mut [u8; Self::SIZE]) {
-        if buffer.len() < 2 + 2 + 2 + 16 {
-            todo!()
-        }
-
         buffer[0..2].copy_from_slice(&self.ty.to_le_bytes());
         buffer[2..4].copy_from_slice(&self.len.to_le_bytes());
-        buffer[4..6].copy_from_slice(&self.sequence_number.to_le_bytes());
-        // TODO: is the tag also little endian?
-        buffer[6..22].copy_from_slice(&self.tag);
+        buffer[4..8].copy_from_slice(&self.sequence_number.to_le_bytes());
+        buffer[8..24].copy_from_slice(&self.tag);
+    }
+
+    pub fn len_with_payload_size(payload_size: usize) -> usize {
+        4 + ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH + payload_size
+    }
+    /// The size with the sequence_number and tag removed.
+    /// Will also check bounds.
+    pub fn payload_size(&self) -> Option<u16> {
+        self.len
+            .checked_sub((4 + ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH) as u16)
     }
 }
 
@@ -1073,10 +1085,63 @@ mod test {
         ServerVersion, init_test,
         stream::{
             control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
-            proto::control::packet::{ControlPacket, PacketDirection},
+            proto::control::packet::{
+                ControlPacket, ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH,
+                ENCRYPTED_CONTROL_PACKET_TYPE, EncryptedControlHeader, PacketDirection,
+            },
             video::{Primary, SunshineHdrMetadata},
         },
     };
+
+    #[test]
+    fn test_encrypted_control_header_serialization() {
+        let assert_eq_header =
+            |deserialized: EncryptedControlHeader,
+             serialized: [u8; EncryptedControlHeader::SIZE]| {
+                let mut buffer = [0; EncryptedControlHeader::SIZE];
+                deserialized.serialize(&mut buffer);
+
+                assert_eq!(buffer, serialized);
+                assert_eq!(EncryptedControlHeader::deserialize(&buffer), deserialized);
+            };
+
+        assert_eq_header(
+            EncryptedControlHeader {
+                ty: ENCRYPTED_CONTROL_PACKET_TYPE,
+                len: 0x1234,
+                sequence_number: 0xABCD,
+                tag: [0x11; ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH],
+            },
+            [
+                // ty (LE)
+                0x01, 0x00, // len (LE)
+                0x34, 0x12, // sequence_number (LE, u32!)
+                0xCD, 0xAB, 0x00, 0x00, // tag
+                0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+                0x11, 0x11,
+            ],
+        );
+
+        assert_eq_header(
+            EncryptedControlHeader {
+                ty: ENCRYPTED_CONTROL_PACKET_TYPE,
+                len: 1,
+                sequence_number: 2,
+                tag: [
+                    0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+                    0x77, 0x88, 0x99,
+                ],
+            },
+            [
+                // ty (LE)
+                0x01, 0x00, // len (LE)
+                0x01, 0x00, // sequence_number (LE, u32!)
+                0x02, 0x00, 0x00, 0x00, // tag
+                0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                0x88, 0x99,
+            ],
+        );
+    }
 
     fn test_packet(
         expected_packet_direction: PacketDirection,

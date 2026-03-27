@@ -65,9 +65,17 @@ impl Deref for AesKey {
     }
 }
 
+#[cfg(not(feature = "__tracing_sensitive"))]
 impl Debug for AesKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[RemoteInputAesKey]")
+        write!(f, "[AesKey]")
+    }
+}
+
+#[cfg(feature = "__tracing_sensitive")]
+impl Debug for AesKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "AesKey({:?})", self.0)
     }
 }
 
@@ -91,9 +99,17 @@ impl AesIv {
     }
 }
 
+#[cfg(not(feature = "__tracing_sensitive"))]
 impl Debug for AesIv {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "[RemoteInputAesIv]")
+        write!(f, "[AesIv]")
+    }
+}
+
+#[cfg(feature = "__tracing_sensitive")]
+impl Debug for AesIv {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "AesIv({:?})", self.0)
     }
 }
 

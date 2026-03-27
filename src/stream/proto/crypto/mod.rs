@@ -14,6 +14,8 @@ pub enum CipherAlgorithm {
 pub trait CryptoBackend: Send + Sync {
     type Error;
 
+    // TODO: make seperate encrypt_aes_cbc and encrypt_aes_gcm fns, same with decrypt
+
     /// Encrypt a message using the given crypto context and parameters:
     /// - For CBC, PKCS7 padding is applied automatically.
     /// - For GCM, an authentication tag is written to `tag`.

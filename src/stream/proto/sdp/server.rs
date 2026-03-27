@@ -18,7 +18,6 @@ pub struct ServerSdp {
     pub video_reference_frame_invalidation: Option<bool>,
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1130
     pub sunshine_feature_flags: Option<HostFeatures>,
-    // TODO: what does encryption flag 0x04 mean?
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1135
     pub sunshine_encryption_supported: Option<SunshineEncryptionFlags>,
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1139

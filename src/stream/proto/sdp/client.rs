@@ -35,6 +35,7 @@ bitflags! {
     /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L47
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct SunshineEncryptionFlags: u32 {
+        /// This enables control encryption
         const CONTROL_V2 = 0x01;
         const VIDEO = 0x02;
         const AUDIO = 0x04;
@@ -236,12 +237,14 @@ impl ClientSdp {
     /// Other hints:
     /// - server_address: look in the struct
     /// - audio_surround_quality: look in the struct
+    /// - use_reliable_udp == 0 -> no encryption, == 13 -> encryption
     pub fn new(
         streaming_remotely: StreamingConfig,
         server_version: ServerVersion,
         target_ip: IpAddr,
         moonlight_feature_flags: MoonlightFeatureFlags,
         sunshine_encryption_flags: SunshineEncryptionFlags,
+        use_reliable_udp: usize,
         negotiated_video_format: VideoFormat,
         width: u32,
         height: u32,
@@ -348,11 +351,10 @@ impl ClientSdp {
 
                 sdp.features_flags = Some(nv_feature_flags);
 
-                // TODO: ENABLE ENCRYPTED CONTROL STREAM WHEN POSSIBLE
                 // Ask for the encrypted control protocol to ensure remote input will be encrypted.
                 // This used to be done via separate RI encryption, but now it is all or nothing.
-                // sdp.use_reliable_udp = Some(13);
-                sdp.use_reliable_udp = Some(0);
+                // Only use this if Sunshine Encryption is on
+                sdp.use_reliable_udp = Some(use_reliable_udp);
 
                 // Require at least 2 FEC packets for small frames. If a frame has fewer data shards
                 // than would generate 2 FEC shards, it will increase the FEC percentage for that frame
