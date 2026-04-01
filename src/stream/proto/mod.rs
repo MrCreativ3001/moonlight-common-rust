@@ -22,8 +22,9 @@ use crate::{
         proto::{
             audio::{AudioStream, AudioStreamConfig, AudioStreamError},
             control::{
-                ControlEncryptionMethod, ControlMessage, ControlMessageInner, ControlStream,
-                ControlStreamConfig, ControlStreamError, packet::ControlPacket,
+                ControlMessage, ControlMessageInner, ControlStream, ControlStreamConfig,
+                packet::ControlPacket,
+                peer::{ControlEncryptionMethod, ControlError},
             },
             crypto::CryptoBackend,
             rtsp::{
@@ -95,7 +96,7 @@ pub enum MoonlightStreamProtoError {
     #[error("video stream: {0}")]
     VideoStream(#[from] VideoStreamError),
     #[error("control stream: {0}")]
-    ControlStream(#[from] ControlStreamError),
+    ControlStream(#[from] ControlError),
 }
 
 #[derive(Debug)]
@@ -501,13 +502,11 @@ where
                                 Some((
                                     ControlEncryptionMethod::Sunshine,
                                     self.client_config.remote_input_aes_key,
-                                    self.client_config.remote_input_aes_iv,
                                 ))
                             } else if should_enable_encryption {
                                 Some((
                                     ControlEncryptionMethod::Nvidia,
                                     self.client_config.remote_input_aes_key,
-                                    self.client_config.remote_input_aes_iv,
                                 ))
                             } else {
                                 None
@@ -522,7 +521,7 @@ where
                                     encryption,
                                 },
                                 self.crypto_backend.clone(),
-                            );
+                            )?;
 
                             self.state = State::RtspSetupControlReceive {
                                 response: control_setup,

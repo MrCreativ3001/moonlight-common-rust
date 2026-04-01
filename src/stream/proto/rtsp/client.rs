@@ -225,8 +225,9 @@ where
                     // TODO: host?
 
                     // Send data
-                    let plaintext = request.to_string().into_bytes();
+                    let plaintext = request.to_string();
                     debug!(plaintext = ?plaintext, "sending raw rtsp request");
+                    let plaintext = plaintext.into_bytes();
 
                     let data = if self.target.encrypted {
                         let aes_key = self.aes_key.ok_or(RtspClientError::NoEncryptionKey)?;

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
 use num::FromPrimitive;
 use thiserror::Error;
@@ -22,16 +22,9 @@ pub const PERIODIC_PING_INTERVAL: Duration = Duration::from_millis(100);
 pub const PERIODIC_PING_VERSION: ServerVersion = ServerVersion::new(7, 1, 415, 0);
 
 #[derive(Debug, Error)]
-#[error(
-    "packet type {packet:?} is not supported on server version {server_version} with encryption {encrypted}"
-)]
-pub struct ControlPacketNotSupported {
-    packet: ControlPacketType,
-    server_version: ServerVersion,
-    encrypted: bool,
-}
+#[error("this packet is not supported on this version of moonlight")]
+pub struct ControlPacketNotSupported;
 
-// TODO: maybe implement control over tcp for very old version
 /// Its possible to send control messages via tcp on very old versions: AppVersionQuad[0] < 5
 /// - Create: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1784-L1793
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L825-L832
@@ -178,14 +171,163 @@ pub enum PacketDirection {
     ServerBound,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RawControlPacketType(pub u16);
+
+impl Deref for RawControlPacketType {
+    type Target = u16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// The version of all packets
+// TODO: when / how is this used
+#[derive(Debug)]
+pub enum PacketVersion {
+    V1,
+    V2,
+}
+
 // Packets:
 // - New values: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html
 // - Old Value: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L146-L216
-#[derive(Debug, Clone, Copy)]
-pub enum ControlPacketType {
+#[derive(Debug)]
+pub struct ControlPacketConfig {
+    /// Required because some packets have version depedent data
+    pub server_version: ServerVersion,
+    /// The version of all packets
+    pub version: PacketVersion,
     /// See [ControlPacket::PeriodicPing]
-    PeriodicPing,
+    pub periodic_ping: Option<RawControlPacketType>,
     /// This seems to also equal StartA
+    pub request_idr: RawControlPacketType,
+    pub start_b: RawControlPacketType,
+    pub invalidate_reference_frames: RawControlPacketType,
+    pub loss_stats: RawControlPacketType,
+    pub frame_stats: RawControlPacketType,
+    pub rumble_data: Option<RawControlPacketType>,
+    pub termination: Option<RawControlPacketType>,
+    pub hdr_mode: Option<RawControlPacketType>,
+    /// An input packet.
+    pub input_data: RawControlPacketType,
+    /// Sunshine Extension
+    ///
+    /// References:
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L57
+    pub frame_fec: Option<RawControlPacketType>,
+    /// Sunshine Extension
+    pub rumble_triggers: Option<RawControlPacketType>,
+    /// Sunshine Extension
+    pub set_motion_event: Option<RawControlPacketType>,
+    /// Sunshine Extension
+    pub set_rgb_led: Option<RawControlPacketType>,
+    /// Sunshine Extension
+    pub set_adaptive_triggers: Option<RawControlPacketType>,
+}
+
+impl ControlPacketConfig {
+    /// References:
+    /// - moonlight common c https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L310-L341
+    pub fn new(server_version: ServerVersion, encrypted: bool) -> Option<Self> {
+        match server_version.major {
+            5 => Some(Self {
+                server_version,
+
+                version: PacketVersion::V1,
+
+                periodic_ping: None,
+                request_idr: RawControlPacketType(0x0305),
+                start_b: RawControlPacketType(0x0307),
+                invalidate_reference_frames: RawControlPacketType(0x0301),
+                loss_stats: RawControlPacketType(0x0201),
+                frame_stats: RawControlPacketType(0x0204),
+
+                input_data: RawControlPacketType(0x0207),
+
+                rumble_data: None,
+                termination: None,
+                hdr_mode: None,
+
+                frame_fec: server_version
+                    .is_sunshine_like()
+                    .then_some(RawControlPacketType(0x5502)),
+
+                rumble_triggers: None,
+                set_motion_event: None,
+                set_rgb_led: None,
+                set_adaptive_triggers: None,
+            }),
+
+            7 if encrypted => Some(Self {
+                server_version,
+
+                version: PacketVersion::V1,
+
+                periodic_ping: (server_version >= PERIODIC_PING_VERSION)
+                    .then_some(RawControlPacketType(0x0200)),
+
+                request_idr: RawControlPacketType(0x0302),
+                start_b: RawControlPacketType(0x0307),
+                invalidate_reference_frames: RawControlPacketType(0x0301),
+                loss_stats: RawControlPacketType(0x0201),
+                frame_stats: RawControlPacketType(0x0204),
+
+                input_data: RawControlPacketType(0x0206),
+                rumble_data: Some(RawControlPacketType(0x010b)),
+                termination: Some(RawControlPacketType(0x0109)),
+                hdr_mode: Some(RawControlPacketType(0x010e)),
+
+                frame_fec: server_version
+                    .is_sunshine_like()
+                    .then_some(RawControlPacketType(0x5502)),
+
+                rumble_triggers: Some(RawControlPacketType(0x5500)),
+                set_motion_event: Some(RawControlPacketType(0x5501)),
+                set_rgb_led: Some(RawControlPacketType(0x5502)),
+                set_adaptive_triggers: Some(RawControlPacketType(0x5503)),
+            }),
+            //
+            6 | 7 => Some(Self {
+                server_version,
+
+                version: PacketVersion::V1,
+
+                periodic_ping: (server_version >= PERIODIC_PING_VERSION)
+                    .then_some(RawControlPacketType(0x0200)),
+
+                request_idr: RawControlPacketType(0x0305),
+                start_b: RawControlPacketType(0x0307),
+                invalidate_reference_frames: RawControlPacketType(0x0301),
+                loss_stats: RawControlPacketType(0x0201),
+                frame_stats: RawControlPacketType(0x0204),
+
+                input_data: RawControlPacketType(0x0206),
+                rumble_data: Some(RawControlPacketType(0x010b)),
+                termination: Some(RawControlPacketType(0x0100)),
+                hdr_mode: Some(RawControlPacketType(0x010e)),
+
+                frame_fec: server_version
+                    .is_sunshine_like()
+                    .then_some(RawControlPacketType(0x5502)),
+
+                rumble_triggers: None,
+                set_motion_event: None,
+                set_rgb_led: None,
+                set_adaptive_triggers: None,
+            }),
+
+            // TODO: don't panic
+            _ => None,
+        }
+    }
+}
+
+// When adding new types add a test!
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlPacketType {
+    PeriodicPing,
     RequestIdr,
     StartB,
     InvalidateReferenceFrames,
@@ -194,20 +336,11 @@ pub enum ControlPacketType {
     RumbleData,
     Termination,
     HdrMode,
-    /// An input packet.
     InputData,
-    /// Sunshine Extension
-    ///
-    /// References:
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L57
     FrameFec,
-    /// Sunshine Extension
     RumbleTriggers,
-    /// Sunshine Extension
     SetMotionEvent,
-    /// Sunshine Extension
     SetRgbLed,
-    /// Sunshine Extension
     SetAdaptiveTriggers,
 }
 
@@ -217,207 +350,60 @@ impl ControlPacketType {
             Self::PeriodicPing => PacketDirection::ServerBound,
             Self::RequestIdr => PacketDirection::ServerBound,
             Self::StartB => PacketDirection::ServerBound,
+            Self::InvalidateReferenceFrames => PacketDirection::ServerBound,
+            Self::LossStats => PacketDirection::ServerBound,
+            Self::FrameStats => PacketDirection::ServerBound,
+            Self::RumbleData => PacketDirection::ServerBound,
+            Self::Termination => PacketDirection::ServerBound,
             Self::HdrMode => PacketDirection::ClientBound,
-            Self::FrameFec => PacketDirection::ServerBound,
             Self::InputData => PacketDirection::ServerBound,
-            _ => todo!(),
+            Self::FrameFec => PacketDirection::ServerBound,
+            Self::RumbleTriggers => PacketDirection::ServerBound,
+            Self::SetMotionEvent => PacketDirection::ClientBound,
+            Self::SetRgbLed => PacketDirection::ClientBound,
+            Self::SetAdaptiveTriggers => PacketDirection::ClientBound,
         }
     }
 
-    pub fn serialize(
-        &self,
-        server_version: ServerVersion,
-        encrypted: bool,
-    ) -> Result<u16, ControlPacketNotSupported> {
-        match server_version.major {
-            3 => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L146-L159
-                match self {
-                    Self::RequestIdr => Ok(0x1407),                // Request IDR frame
-                    Self::StartB => Ok(0x1410),                    // Start B
-                    Self::InvalidateReferenceFrames => Ok(0x1404), // Invalidate reference frames
-                    Self::LossStats => Ok(0x140c),                 // Loss Stats
-                    Self::FrameStats => Ok(0x1417),                // Frame Stats (unused)
-                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
-                    _ => Err(ControlPacketNotSupported {
-                        packet: *self,
-                        server_version,
-                        encrypted,
-                    }),
-                }
+    pub fn serialize(&self, config: &ControlPacketConfig) -> Option<RawControlPacketType> {
+        match self {
+            ControlPacketType::PeriodicPing => config.periodic_ping,
+            ControlPacketType::RequestIdr => Some(config.request_idr),
+            ControlPacketType::StartB => Some(config.start_b),
+            ControlPacketType::InvalidateReferenceFrames => {
+                Some(config.invalidate_reference_frames)
             }
-            4 => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L160-L173
-                match self {
-                    Self::RequestIdr => Ok(0x0606),                // Request IDR frame
-                    Self::StartB => Ok(0x0609),                    // Start B
-                    Self::InvalidateReferenceFrames => Ok(0x0604), // Invalidate reference frames
-                    Self::LossStats => Ok(0x060a),                 // Loss Stats
-                    Self::FrameStats => Ok(0x0611),                // Frame Stats (unused)
-                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
-                    _ => Err(ControlPacketNotSupported {
-                        packet: *self,
-                        server_version,
-                        encrypted,
-                    }),
-                }
-            }
-            5 => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L175-L180
-                match self {
-                    Self::RequestIdr => Ok(0x0305),                // Start A
-                    Self::StartB => Ok(0x0307),                    // Start B
-                    Self::InvalidateReferenceFrames => Ok(0x0301), // Invalidate reference frames
-                    Self::LossStats => Ok(0x0201),                 // Loss Stats
-                    Self::FrameStats => Ok(0x0204),                // Frame Stats (unused)
-                    Self::InputData => Ok(0x0207),                 // Input data
-                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
-                    _ => Err(ControlPacketNotSupported {
-                        packet: *self,
-                        server_version,
-                        encrypted,
-                    }),
-                }
-            }
-            7 if encrypted => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L202-L216
-                match self {
-                    Self::PeriodicPing if server_version >= PERIODIC_PING_VERSION => Ok(0x0200),
-                    Self::RequestIdr => Ok(0x0302), // Request IDR frame
-                    Self::StartB => Ok(0x0307),     // Start B
-                    Self::InvalidateReferenceFrames => Ok(0x0301), // Invalidate reference frames
-                    Self::LossStats => Ok(0x0201),  // Loss Stats
-                    Self::FrameStats => Ok(0x0204), // Frame Stats (unused)
-                    Self::InputData => Ok(0x0206),  // Input data
-                    Self::RumbleData => Ok(0x010b), // Rumble data
-                    Self::Termination => Ok(0x0109), // Termination (extended)
-                    Self::HdrMode => Ok(0x010e),    // HDR mode
-                    Self::RumbleTriggers => Ok(0x5500), // Rumble triggers (Sunshine protocol extension)
-                    Self::SetMotionEvent => Ok(0x5501), // Set motion event (Sunshine protocol extension)
-                    Self::SetRgbLed => Ok(0x5502),      // Set RGB LED (Sunshine protocol extension)
-                    Self::SetAdaptiveTriggers => Ok(0x5503), // Set Adaptive Triggers (Sunshine protocol extension)
-                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
-                    _ => Err(ControlPacketNotSupported {
-                        packet: *self,
-                        server_version,
-                        encrypted,
-                    }),
-                }
-            }
-            7 => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L188-L201
-                match self {
-                    Self::PeriodicPing if server_version >= PERIODIC_PING_VERSION => Ok(0x0200),
-                    Self::RequestIdr => Ok(0x0305), // Start A
-                    Self::StartB => Ok(0x0307),     // Start B
-                    Self::InvalidateReferenceFrames => Ok(0x0301), // Invalidate reference frames
-                    Self::LossStats => Ok(0x0201),  // Loss Stats
-                    Self::FrameStats => Ok(0x0204), // Frame Stats (unused)
-                    Self::InputData => Ok(0x0206),  // Input data
-                    Self::RumbleData => Ok(0x010b), // Rumble data
-                    Self::Termination => Ok(0x0100), // Termination
-                    Self::HdrMode => Ok(0x010e),    // HDR mode
-                    Self::FrameFec if server_version.is_sunshine_like() => Ok(0x5502),
-                    _ => Err(ControlPacketNotSupported {
-                        packet: *self,
-                        server_version,
-                        encrypted,
-                    }),
-                }
-            }
-            _ => Err(ControlPacketNotSupported {
-                packet: *self,
-                server_version,
-                encrypted,
-            }),
+            ControlPacketType::LossStats => Some(config.loss_stats),
+            ControlPacketType::FrameStats => Some(config.frame_stats),
+            ControlPacketType::RumbleData => config.rumble_data,
+            ControlPacketType::Termination => config.termination,
+            ControlPacketType::HdrMode => config.hdr_mode,
+            ControlPacketType::InputData => Some(config.input_data),
+            ControlPacketType::FrameFec => config.frame_fec,
+            ControlPacketType::RumbleTriggers => config.rumble_triggers,
+            ControlPacketType::SetMotionEvent => config.set_motion_event,
+            ControlPacketType::SetRgbLed => config.set_rgb_led,
+            ControlPacketType::SetAdaptiveTriggers => config.set_adaptive_triggers,
         }
     }
     pub fn deserialize(
-        ty: u16,
         direction: PacketDirection,
-        server_version: ServerVersion,
-        encrypted: bool,
+        config: &ControlPacketConfig,
+        ty: RawControlPacketType,
     ) -> Option<Self> {
-        match server_version.major {
-            3 => match (direction, ty) {
-                (PacketDirection::ServerBound, 0x0200) => Some(Self::PeriodicPing),
-                (PacketDirection::ServerBound, 0x1407) => Some(Self::RequestIdr),
-                (PacketDirection::ServerBound, 0x1410) => Some(Self::StartB),
-                (PacketDirection::ServerBound, 0x1404) => Some(Self::InvalidateReferenceFrames),
-                (PacketDirection::ServerBound, 0x140c) => Some(Self::LossStats),
-                (PacketDirection::ServerBound, 0x1417) => Some(Self::FrameStats),
-                (PacketDirection::ServerBound, 0x5502) if server_version.is_sunshine_like() => {
-                    Some(Self::FrameFec)
-                }
+        match direction {
+            PacketDirection::ClientBound => match ty {
+                id if Some(id) == config.hdr_mode => Some(Self::HdrMode),
                 _ => None,
             },
-            4 => match (direction, ty) {
-                (PacketDirection::ServerBound, 0x0200) => Some(Self::PeriodicPing),
-                (PacketDirection::ServerBound, 0x0606) => Some(Self::RequestIdr),
-                (PacketDirection::ServerBound, 0x0609) => Some(Self::StartB),
-                (PacketDirection::ServerBound, 0x0604) => Some(Self::InvalidateReferenceFrames),
-                (PacketDirection::ServerBound, 0x060a) => Some(Self::LossStats),
-                (PacketDirection::ServerBound, 0x0611) => Some(Self::FrameStats),
-                (PacketDirection::ServerBound, 0x5502) if server_version.is_sunshine_like() => {
-                    Some(Self::FrameFec)
-                }
+            PacketDirection::ServerBound => match ty {
+                id if Some(id) == config.periodic_ping => Some(Self::PeriodicPing),
+                id if id == config.request_idr => Some(Self::RequestIdr),
+                id if id == config.start_b => Some(Self::StartB),
+                id if Some(id) == config.frame_fec => Some(Self::FrameFec),
+                id if id == config.input_data => Some(Self::InputData),
                 _ => None,
             },
-            5 => match (direction, ty) {
-                (PacketDirection::ServerBound, 0x0200) => Some(Self::PeriodicPing),
-                (PacketDirection::ServerBound, 0x0305) => Some(Self::RequestIdr),
-                (PacketDirection::ServerBound, 0x0307) => Some(Self::StartB),
-                (PacketDirection::ServerBound, 0x0301) => Some(Self::InvalidateReferenceFrames),
-                (PacketDirection::ServerBound, 0x0201) => Some(Self::LossStats),
-                (PacketDirection::ServerBound, 0x0204) => Some(Self::FrameStats),
-                (PacketDirection::ServerBound, 0x0207) => Some(Self::InputData),
-                (PacketDirection::ServerBound, 0x5502) if server_version.is_sunshine_like() => {
-                    Some(Self::FrameFec)
-                }
-                _ => None,
-            },
-            7 if encrypted => match (direction, ty) {
-                (PacketDirection::ServerBound, 0x0200)
-                    if server_version >= PERIODIC_PING_VERSION =>
-                {
-                    Some(Self::PeriodicPing)
-                }
-                (PacketDirection::ServerBound, 0x0302) => Some(Self::RequestIdr),
-                (PacketDirection::ServerBound, 0x0307) => Some(Self::StartB),
-                (PacketDirection::ServerBound, 0x0301) => Some(Self::InvalidateReferenceFrames),
-                (PacketDirection::ServerBound, 0x0201) => Some(Self::LossStats),
-                (PacketDirection::ServerBound, 0x0204) => Some(Self::FrameStats),
-                (PacketDirection::ServerBound, 0x0206) => Some(Self::InputData),
-                (PacketDirection::ClientBound, 0x010b) => Some(Self::RumbleData),
-                (PacketDirection::ServerBound, 0x0109) => Some(Self::Termination),
-                (PacketDirection::ClientBound, 0x010e) => Some(Self::HdrMode),
-                // Sunshine protocol extensions
-                (PacketDirection::ServerBound, 0x5502) => Some(Self::FrameFec),
-                (PacketDirection::ClientBound, 0x5500) => Some(Self::RumbleTriggers),
-                (PacketDirection::ServerBound, 0x5501) => Some(Self::SetMotionEvent),
-                (PacketDirection::ClientBound, 0x5502) => Some(Self::SetRgbLed),
-                (PacketDirection::ClientBound, 0x5503) => Some(Self::SetAdaptiveTriggers),
-                _ => None,
-            },
-            7 => match (direction, ty) {
-                (PacketDirection::ServerBound, 0x0200)
-                    if server_version >= PERIODIC_PING_VERSION =>
-                {
-                    Some(Self::PeriodicPing)
-                }
-                (PacketDirection::ServerBound, 0x0305) => Some(Self::RequestIdr),
-                (PacketDirection::ServerBound, 0x0307) => Some(Self::StartB),
-                (PacketDirection::ServerBound, 0x0301) => Some(Self::InvalidateReferenceFrames),
-                (PacketDirection::ServerBound, 0x0201) => Some(Self::LossStats),
-                (PacketDirection::ServerBound, 0x0204) => Some(Self::FrameStats),
-                (PacketDirection::ServerBound, 0x0206) => Some(Self::InputData),
-                (PacketDirection::ClientBound, 0x010b) => Some(Self::RumbleData),
-                (PacketDirection::ServerBound, 0x0100) => Some(Self::Termination),
-                (PacketDirection::ClientBound, 0x010e) => Some(Self::HdrMode),
-                (PacketDirection::ServerBound, 0x5502) => Some(Self::FrameFec),
-                _ => None,
-            },
-            _ => None,
         }
     }
 }
@@ -542,35 +528,43 @@ impl ControlPacket {
     pub const MAX_SIZE: usize = 32;
 
     pub fn ty(&self) -> ControlPacketType {
-        // TODO
+        // TODO: fully implement
         match self {
             Self::PeriodicPing => ControlPacketType::PeriodicPing,
             Self::RequestIdr => ControlPacketType::RequestIdr,
             Self::StartB => ControlPacketType::StartB,
-            Self::HdrMode { .. } => ControlPacketType::HdrMode,
+            // Self::InvalidateReferenceFrames => ControlPacketType::InvalidateReferenceFrames,
+            // Self::LossStats => ControlPacketType::LossStats,
+            // Self::FrameStats => ControlPacketType::FrameStats,
             Self::FrameFec { .. } => ControlPacketType::FrameFec,
+            Self::RumbleData { .. } => ControlPacketType::RumbleData,
+            // Self::Termination => ControlPacketType::Termination,
+            Self::HdrMode { .. } => ControlPacketType::HdrMode,
+            Self::MouseButton { .. } => ControlPacketType::InputData,
             Self::MouseMoveRelative { .. } => ControlPacketType::InputData,
             Self::MouseMoveAbsolute { .. } => ControlPacketType::InputData,
-            Self::MouseButton { .. } => ControlPacketType::InputData,
-            Self::Keyboard { .. } => ControlPacketType::InputData,
-            _ => todo!(),
+            Self::MouseScroll { .. } => ControlPacketType::InputData,
+            Self::MouseHorizontalScroll { .. } => ControlPacketType::FrameFec,
+            Self::Keyboard { .. } => ControlPacketType::FrameFec,
+            // Self::RumbleTriggers => ControlPacketType::RumbleTriggers,
+            // Self::SetMotionEvent => ControlPacketType::SetMotionEvent,
+            // Self::SetRgbLed => ControlPacketType::SetRgbLed,
+            // Self::SetAdaptiveTriggers => ControlPacketType::SetAdaptiveTriggers,
         }
     }
 
     /// Buffer is:
     /// - If not encrypted: the full payload
     /// - If encrypted: the decrypted payload -> it needs to be encrypted
-    // TODO: make this return a result and handle error
-    #[instrument(level = Level::TRACE)]
+    #[instrument(level = Level::TRACE, skip(config))]
     pub fn serialize(
         &self,
-        server_version: ServerVersion,
-        encrypted: bool,
+        config: &ControlPacketConfig,
         buffer: &mut [u8; Self::MAX_SIZE],
     ) -> Result<usize, ControlPacketNotSupported> {
         match self {
             Self::PeriodicPing => {
-                let ty = ControlPacketType::PeriodicPing.serialize(server_version, encrypted)?;
+                let ty = config.periodic_ping.ok_or(ControlPacketNotSupported)?;
 
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
@@ -584,7 +578,7 @@ impl ControlPacket {
             }
             Self::HdrMode { enabled, sunshine } => {
                 // Ty
-                let ty = ControlPacketType::HdrMode.serialize(server_version, encrypted)?;
+                let ty = config.hdr_mode.ok_or(ControlPacketNotSupported)?;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length later
@@ -627,7 +621,7 @@ impl ControlPacket {
             }
             Self::RequestIdr => {
                 // Ty
-                let ty = ControlPacketType::RequestIdr.serialize(server_version, encrypted)?;
+                let ty = config.request_idr;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length later
@@ -644,13 +638,13 @@ impl ControlPacket {
             }
             Self::StartB => {
                 // Ty
-                let ty = ControlPacketType::StartB.serialize(server_version, encrypted)?;
+                let ty = config.start_b;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length later
 
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L218-L227
-                let contents: &[u8] = match server_version.major {
+                let contents: &[u8] = match config.server_version.major {
                     3 => &[0, 0, 0, 0xa],
                     _ => &[0],
                 };
@@ -676,7 +670,7 @@ impl ControlPacket {
                 multi_fec_block_count,
             } => {
                 // Ty
-                let ty = ControlPacketType::FrameFec.serialize(server_version, encrypted)?;
+                let ty = config.frame_fec.ok_or(ControlPacketNotSupported)?;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length
@@ -701,7 +695,7 @@ impl ControlPacket {
             }
             Self::MouseMoveRelative { delta_x, delta_y } => {
                 // Ty
-                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                let ty = config.input_data;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length
@@ -730,7 +724,7 @@ impl ControlPacket {
                 reference_height,
             } => {
                 // Ty
-                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                let ty = config.input_data;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length
@@ -757,7 +751,7 @@ impl ControlPacket {
             }
             Self::MouseButton { action, button } => {
                 // Ty
-                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                let ty = config.input_data;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length
@@ -788,7 +782,7 @@ impl ControlPacket {
                 zero,
             } => {
                 // Ty
-                let ty = ControlPacketType::InputData.serialize(server_version, encrypted)?;
+                let ty = config.input_data;
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
                 // Length
@@ -826,8 +820,7 @@ impl ControlPacket {
     #[instrument(level = Level::TRACE)]
     pub fn deserialize(
         packet_direction: PacketDirection,
-        server_version: ServerVersion,
-        encrypted: bool,
+        config: &ControlPacketConfig,
         payload: &[u8],
     ) -> Option<Self> {
         if payload.len() < 4 {
@@ -836,11 +829,15 @@ impl ControlPacket {
         }
         let ty = u16::from_le_bytes([payload[0], payload[1]]);
         let len = u16::from_le_bytes([payload[2], payload[3]]);
-        trace!("Raw Ty: {ty:#x}, Len: {len}");
+        trace!("raw ty: {ty:#x}, len: {len}");
 
-        // TODO
-        let ty = ControlPacketType::deserialize(ty, packet_direction, server_version, encrypted)?;
-        trace!("Parsed Ty: {ty:?}");
+        let Some(ty) =
+            ControlPacketType::deserialize(packet_direction, config, RawControlPacketType(ty))
+        else {
+            warn!("failed to deserialize ty: {ty:#x}");
+            return None;
+        };
+        trace!("parsed type: {ty:?}");
 
         if payload.len() < 4 + len as usize - 1 {
             warn!(packet_ty = ?ty, full_len = payload.len(), got_len = payload.len() - 4, expected_len = len, "Received payload that has incorrect length in its length field");
@@ -882,7 +879,7 @@ impl ControlPacket {
                 let enabled = payload[4] != 0;
 
                 let mut sunshine = None;
-                if server_version.is_sunshine_like() {
+                if config.server_version.is_sunshine_like() {
                     if payload.len() < 31 {
                         warn!(
                             "Received HdrMode packet from a sunshine server that doesn't contain the sunshine hdr extension."
@@ -1086,8 +1083,9 @@ mod test {
         stream::{
             control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
             proto::control::packet::{
-                ControlPacket, ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH,
-                ENCRYPTED_CONTROL_PACKET_TYPE, EncryptedControlHeader, PacketDirection,
+                ControlPacket, ControlPacketConfig, ControlPacketType,
+                ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
+                EncryptedControlHeader, PacketDirection,
             },
             video::{Primary, SunshineHdrMetadata},
         },
@@ -1143,29 +1141,58 @@ mod test {
         );
     }
 
+    fn sunshine_gen_7_config() -> ControlPacketConfig {
+        ControlPacketConfig::new(ServerVersion::new(7, 1, 431, -1), false).unwrap()
+    }
+
+    #[test]
+    fn packet_directions() {
+        // Make sure all packet directions for Ty::direction and Ty::deserialize match
+
+        const PACKET_TYPES: &[ControlPacketType] = &[
+            ControlPacketType::PeriodicPing,
+            ControlPacketType::RequestIdr,
+            ControlPacketType::StartB,
+            ControlPacketType::InvalidateReferenceFrames,
+            ControlPacketType::LossStats,
+            ControlPacketType::FrameStats,
+            ControlPacketType::RumbleData,
+            ControlPacketType::Termination,
+            ControlPacketType::HdrMode,
+            ControlPacketType::InputData,
+            ControlPacketType::FrameFec,
+            ControlPacketType::RumbleTriggers,
+            ControlPacketType::SetMotionEvent,
+            ControlPacketType::SetRgbLed,
+            ControlPacketType::SetAdaptiveTriggers,
+        ];
+
+        let config = sunshine_gen_7_config();
+
+        for ty in PACKET_TYPES {
+            assert_eq!(
+                ControlPacketType::deserialize(
+                    ty.direction(),
+                    &config,
+                    ty.serialize(&config).unwrap()
+                ),
+                Some(*ty)
+            );
+        }
+    }
+
     fn test_packet(
-        expected_packet_direction: PacketDirection,
-        server_version: ServerVersion,
-        encrypted: bool,
+        direction: PacketDirection,
+        config: ControlPacketConfig,
         expected_packet: ControlPacket,
         expected_bytes: &[u8],
     ) {
-        let packet_direction = expected_packet.ty().direction();
-        assert_eq!(
-            packet_direction, expected_packet_direction,
-            "Packet: {expected_packet:?}"
-        );
-
         let mut bytes = [0; _];
-        let len = expected_packet
-            .serialize(server_version, encrypted, &mut bytes)
-            .unwrap();
+        let len = expected_packet.serialize(&config, &mut bytes).unwrap();
         let bytes = &bytes[0..len];
         assert_eq!(bytes, expected_bytes, "Serialize: {:?}", expected_packet);
 
-        let packet =
-            ControlPacket::deserialize(expected_packet_direction, server_version, encrypted, bytes)
-                .unwrap();
+        let packet = ControlPacket::deserialize(direction, &config, bytes).unwrap();
         assert_eq!(
             packet, expected_packet,
             "Deserialize: {:?}",
@@ -1173,14 +1200,11 @@ mod test {
         );
     }
 
-    const SUNSHINE_GEN_7: ServerVersion = ServerVersion::new(7, 1, 431, -1);
-
     #[test]
     fn ping() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::PeriodicPing,
             &[0, 2, 4, 0, 0, 0, 0, 0],
         );
@@ -1192,8 +1216,7 @@ mod test {
 
         test_packet(
             PacketDirection::ClientBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::HdrMode {
                 enabled: false,
                 sunshine: None,
@@ -1203,8 +1226,7 @@ mod test {
 
         test_packet(
             PacketDirection::ClientBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::HdrMode {
                 enabled: true,
                 sunshine: None,
@@ -1216,8 +1238,7 @@ mod test {
     fn hdr_mode_sunshine() {
         test_packet(
             PacketDirection::ClientBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::HdrMode {
                 enabled: true,
                 sunshine: Some(SunshineHdrMetadata {
@@ -1262,8 +1283,7 @@ mod test {
     fn request_idr() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::RequestIdr,
             &[5, 3, 2, 0, 0, 0],
         );
@@ -1273,8 +1293,7 @@ mod test {
     fn start_b() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::StartB,
             &[7, 3, 1, 0, 0],
         );
@@ -1284,8 +1303,7 @@ mod test {
     fn frame_fec() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::FrameFec {
                 frame_index: 42,
                 highest_received_sequence_number: 1200,
@@ -1321,8 +1339,7 @@ mod test {
     fn mouse_move_relative() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::MouseMoveRelative {
                 delta_x: 1,
                 delta_y: 0,
@@ -1342,8 +1359,7 @@ mod test {
     fn mouse_move_absolute() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::MouseMoveAbsolute {
                 x: 0,
                 y: 1,
@@ -1369,8 +1385,7 @@ mod test {
     fn mouse_button() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::MouseButton {
                 action: MouseButtonAction::Press,
                 button: MouseButton::Left,
@@ -1386,8 +1401,7 @@ mod test {
 
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::MouseButton {
                 action: MouseButtonAction::Release,
                 button: MouseButton::Left,
@@ -1406,8 +1420,7 @@ mod test {
     fn keyboard() {
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::Keyboard {
                 action: KeyAction::Down,
                 flags: KeyFlags::empty(),
@@ -1429,8 +1442,7 @@ mod test {
 
         test_packet(
             PacketDirection::ServerBound,
-            SUNSHINE_GEN_7,
-            false,
+            sunshine_gen_7_config(),
             ControlPacket::Keyboard {
                 action: KeyAction::Up,
                 flags: KeyFlags::SUNSHINE_NON_NORMALIZED,

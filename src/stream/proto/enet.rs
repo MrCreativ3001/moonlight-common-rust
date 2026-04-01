@@ -17,6 +17,8 @@ pub enum EnetError {
     NoAvailablePeers(#[from] rusty_enet::error::NoAvailablePeers),
     #[error("no available peers: {0}")]
     PeerSendError(#[from] rusty_enet::error::PeerSendError),
+    #[error("the peer was not found")]
+    PeerNotFound,
 }
 
 impl From<rusty_enet::error::HostNewError<ReadWrite<SocketAddr, Infallible>>> for EnetError {
@@ -71,7 +73,7 @@ pub enum EnetEvent {
 
 pub struct EnetHost {
     last_now: Arc<Mutex<Instant>>,
-    enet: Host<ReadWrite<SocketAddr, Infallible>>,
+    pub(crate) enet: Host<ReadWrite<SocketAddr, Infallible>>,
 }
 
 impl EnetHost {
@@ -118,15 +120,36 @@ impl EnetHost {
         channel_count: usize,
         data: u32,
     ) -> Result<PeerID, EnetError> {
-        debug!(remote_addr = ?addr, connect_data = ?data, "Enet starting connect");
+        debug!(remote_addr = ?addr, connect_data = ?data, "enet starting connect");
 
         let peer = self.enet.connect(addr, channel_count, data)?;
 
         Ok(peer.id())
     }
 
+    pub fn disconnect(&mut self, id: PeerID, data: u32) -> Result<(), EnetError> {
+        self.enet
+            .get_peer_mut(id)
+            .ok_or(EnetError::PeerNotFound)?
+            .disconnect(data);
+
+        Ok(())
+    }
+    pub fn disconnect_now(&mut self, id: PeerID, data: u32) -> Result<(), EnetError> {
+        self.enet
+            .get_peer_mut(id)
+            .ok_or(EnetError::PeerNotFound)?
+            .disconnect_now(data);
+
+        Ok(())
+    }
+
     pub fn peer(&mut self, id: PeerID) -> Option<&mut Peer<ReadWrite<SocketAddr, Infallible>>> {
         self.enet.get_peer_mut(id)
+    }
+
+    pub fn peers(&mut self) -> impl Iterator<Item = &mut Peer<ReadWrite<SocketAddr, Infallible>>> {
+        self.enet.peers_mut()
     }
 
     pub fn poll_output(&mut self) -> Result<EnetOutput, EnetError> {
@@ -140,7 +163,7 @@ impl EnetHost {
         if let Some(event) = self.enet.service().unwrap() {
             match event {
                 Event::Connect { peer, data } => {
-                    debug!(peer_id = ?peer, connect_data = ?data, "Enet connected");
+                    debug!(peer_id = ?peer.id(), connect_data = ?data, "enet peer connected");
 
                     return Ok(EnetOutput::Event(EnetEvent::Connect {
                         peer: peer.id(),
@@ -152,7 +175,7 @@ impl EnetHost {
                     channel_id,
                     packet,
                 } => {
-                    trace!(peer_id = ?peer, channel_id = ?channel_id, packet = ?packet, "Enet received");
+                    trace!(peer_id = ?peer.id(), channel_id = ?channel_id, packet = ?packet, "enet received packet");
 
                     return Ok(EnetOutput::Event(EnetEvent::Receive {
                         peer: peer.id(),
@@ -161,7 +184,7 @@ impl EnetHost {
                     }));
                 }
                 Event::Disconnect { peer, data } => {
-                    debug!(peer_id = ?peer, disconnect_data = ?data, "Enet disconnected");
+                    debug!(peer_id = ?peer.id(), disconnect_data = ?data, "enet peer disconnected");
 
                     return Ok(EnetOutput::Event(EnetEvent::Disconnect {
                         peer: peer.id(),

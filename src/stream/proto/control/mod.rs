@@ -1,34 +1,32 @@
 use std::{
     error::Error,
     fmt::{self, Debug, Formatter},
-    mem::swap,
+    mem,
     net::SocketAddr,
     time::Instant,
 };
 
-use rusty_enet::{Packet, PacketKind, PeerID, error::PeerSendError};
-use thiserror::Error;
-use tracing::{Level, debug, instrument, trace, trace_span, warn};
+use rusty_enet::{PacketKind, error::PeerSendError};
+use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
     stream::{
-        AesIv, AesKey,
+        AesKey,
         proto::{
             control::{
-                encryption::{
-                    ControlEncryptionError, decrypt_server_control_packet_into,
-                    encrypt_client_control_packet_into,
-                },
                 packet::{
-                    ControlPacket, ControlPacketNotSupported,
-                    ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
-                    EncryptedControlHeader, PERIODIC_PING_INTERVAL, PERIODIC_PING_VERSION,
-                    PacketDirection,
+                    ControlPacket, ControlPacketConfig, PERIODIC_PING_INTERVAL,
+                    PERIODIC_PING_VERSION,
+                },
+                peer::{
+                    ControlConnectConfig, ControlEncryptionMethod, ControlError, ControlHost,
+                    ControlHostAction, ControlHostConfig, ControlHostEvent, ControlHostInput,
+                    ControlHostOutput, ControlPeerConfig, ControlPeerId, ControlPeerRole,
                 },
             },
-            crypto::{CipherAlgorithm, CryptoBackend},
-            enet::{EnetConfig, EnetError, EnetEvent, EnetHost, EnetInput, EnetOutput},
+            crypto::CryptoBackend,
+            enet::EnetError,
         },
     },
 };
@@ -38,6 +36,7 @@ use crate::{
 pub mod packet;
 
 mod encryption;
+pub mod peer;
 
 #[cfg(test)]
 mod test;
@@ -69,57 +68,28 @@ pub(super) enum ControlMessageInner {
     SendPacket { packet: ControlPacket },
 }
 
-#[derive(Debug, Error)]
-pub enum ControlStreamError {
-    #[error("enet: {0}")]
-    Enet(#[from] EnetError),
-    #[error("the control stream hasn't successfully connected yet")]
-    NotConnected,
-    #[error("packet not supported")]
-    PacketNotSupported(#[from] ControlPacketNotSupported),
-    #[error("encryption: {0}")]
-    Encryption(#[from] ControlEncryptionError),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ControlEncryptionMethod {
-    /// Used for nvidia control encryption.
-    /// Prefer [Sunshine](Self::Sunshine) over this because it's more secure.
-    ///
-    /// Enabled if APP_VERSION_AT_LEAST(7, 1, 431)
-    ///
-    /// References:
-    /// - Server Version: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L309
-    /// - Encryption: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L568-L574
-    Nvidia,
-    /// Enabled if [SunshineEncryptionFlags::CONTROL_V2](super::sdp::client::SunshineEncryptionFlags::CONTROL_V2).
-    Sunshine,
-}
-
 #[derive(Debug)]
 pub struct ControlStreamConfig {
     pub server_version: ServerVersion,
     pub addr: SocketAddr,
     pub sunshine_connect_data: Option<u32>,
-    pub encryption: Option<(ControlEncryptionMethod, AesKey, AesIv)>,
+    pub encryption: Option<(ControlEncryptionMethod, AesKey)>,
 }
 
 #[derive(Debug)]
 pub enum ControlStreamInput<'a> {
-    Timeout(Instant),
+    // TODO: don't use the host input, but put this into the enum or another new enum
+    Host(ControlHostInput<'a>),
     /// A message received from the main [MoonlightStreamProto](super::MoonlightStreamProto) or the [VideoStream](super::video::VideoStream)
-    Message(ControlMessage),
-    Receive {
+    Message {
         now: Instant,
-        addr: SocketAddr,
-        data: &'a [u8],
+        message: ControlMessage,
     },
 }
 
 #[derive(Debug)]
 pub enum ControlStreamOutput {
-    Send { to: SocketAddr, data: Vec<u8> },
-    Timeout(Instant),
+    Action(ControlHostAction),
     Event(ControlStreamEvent),
 }
 
@@ -132,34 +102,15 @@ pub enum ControlStreamEvent {
     Packet(ControlPacket),
 }
 
-struct EnetEncrypted {
-    encryption_method: ControlEncryptionMethod,
-    aes_key: AesKey,
-    aes_iv: AesIv,
-    send_sequence_number: u32,
-    encrypt_buffer: Vec<u8>,
-}
-
-enum Transport {
-    Enet {
-        enet: EnetHost,
-        peer: Option<PeerID>,
-        connected: bool,
-        encryption: Option<EnetEncrypted>,
-    },
-    Tcp {},
-}
-
 pub struct ControlStream<Crypto> {
     server_version: ServerVersion,
-    addr: SocketAddr,
-    crypto_backend: Crypto,
-    last_now: Instant,
-    transport: Transport,
+    peer: ControlPeerId,
+    peer_connected: bool,
     allow_packets: bool,
+    last_now: Instant,
     last_ping: Option<Instant>,
-    // Buffered before the enet peer connected
-    buffered_packets: Vec<(u8, Vec<u8>)>,
+    buffered_packets: Vec<ControlPacket>,
+    host: ControlHost<Crypto>,
 }
 
 impl<Crypto> ControlStream<Crypto>
@@ -168,89 +119,84 @@ where
     Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(now: Instant, mut config: ControlStreamConfig, crypto_backend: Crypto) -> Self {
-        if config.server_version < ServerVersion::new(5, 0, 0, 0) {
-            // TODO: implement control over tcp
-
-            config.encryption = None;
-            warn!(
-                "Tried to enable encryption on server version {:?} which doesn't have encryption support. Not using encryption!",
-                config.server_version
-            );
+    pub fn new(
+        now: Instant,
+        config: ControlStreamConfig,
+        crypto_backend: Crypto,
+    ) -> Result<Self, ControlError> {
+        if config.server_version.major < 5 {
+            // Servers below v5 use tcp and don't have encryption support
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L849-L856
+            return Err(ControlError::VersionNotSupported(config.server_version));
         }
-
-        // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/ControlStream.c#L1713-L1737
-        let mut enet = EnetHost::new(
-            now,
-            EnetConfig {
-                channel_limit: CHANNEL_COUNT,
-                peer_count: 1,
-                incoming_bandwidth: None,
-                outgoing_bandwidth: None,
-            },
-        );
 
         // All values that could lead to an error are controlled by us and won't cause errors
         // -> This cannot fail
         #[allow(clippy::unwrap_used)]
-        let peer = enet
+        let mut host = ControlHost::new(
+            now,
+            ControlHostConfig {
+                peer_count: 1,
+                peer_channel_count: CHANNEL_COUNT,
+            },
+            crypto_backend,
+        )
+        .unwrap();
+
+        let packets = ControlPacketConfig::new(config.server_version, false)
+            .ok_or(ControlError::VersionNotSupported(config.server_version))?;
+
+        // All values that could lead to an error are controlled by us and won't cause errors
+        // -> This cannot fail
+        #[allow(clippy::unwrap_used)]
+        let peer = host
             .connect(
                 config.addr,
-                CHANNEL_COUNT,
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1286-L1293
-                config.sunshine_connect_data.unwrap_or(0),
+                ControlConnectConfig {
+                    channel_count: CHANNEL_COUNT,
+                    sunshine_connect_data: config.sunshine_connect_data,
+                    config: ControlPeerConfig {
+                        role: ControlPeerRole::Client,
+                        encryption: config.encryption,
+                        packets,
+                    },
+                },
             )
             .unwrap();
 
-        Self {
+        Ok(Self {
             server_version: config.server_version,
-            addr: config.addr,
-            crypto_backend,
-            last_now: now,
-            transport: Transport::Enet {
-                enet,
-                peer: Some(peer),
-                connected: false,
-                // TODO: encryption
-                encryption: config
-                    .encryption
-                    .map(|(encryption_method, aes_key, aes_iv)| EnetEncrypted {
-                        encryption_method,
-                        aes_key,
-                        aes_iv,
-                        send_sequence_number: 0,
-                        encrypt_buffer: vec![
-                            0;
-                            EncryptedControlHeader::SIZE + ControlPacket::MAX_SIZE
-                        ],
-                    }),
-            },
+            peer,
+            peer_connected: false,
             allow_packets: false,
+            last_now: now,
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
-            buffered_packets: Vec::new(),
-        }
+            buffered_packets: vec![],
+            host,
+        })
     }
 
-    pub fn send(&mut self, packet: ControlPacket) -> Result<(), ControlStreamError> {
+    pub fn send(&mut self, packet: ControlPacket) -> Result<(), ControlError> {
         self.send_inner(packet, false)
     }
     fn send_inner(
         &mut self,
         packet: ControlPacket,
         force_packet: bool,
-    ) -> Result<(), ControlStreamError> {
+    ) -> Result<(), ControlError> {
         // Avoid spam from ping
         if !matches!(packet, ControlPacket::PeriodicPing) {
-            debug!(packet = ?packet, "Sending Packet");
+            debug!(packet = ?packet, "sending packet");
         }
 
         if !force_packet && !self.allow_packets {
-            return Err(ControlStreamError::NotConnected);
+            return Err(ControlError::NotConnected);
+        } else if force_packet && !self.peer_connected {
+            self.buffered_packets.push(packet);
+            return Ok(());
         }
 
-        let mut buffer = [0; _];
-
-        let packet_kind = if self.server_version.is_sunshine_like() {
+        let kind = if self.server_version.is_sunshine_like() {
             match packet {
                 // TODO: are those reliable?
                 ControlPacket::RequestIdr => PacketKind::Reliable,
@@ -280,210 +226,68 @@ where
             0
         };
 
-        let encrypted = matches!(
-            self.transport,
-            Transport::Enet {
-                encryption: Some(_),
-                ..
-            }
-        );
-
-        let len = packet.serialize(self.server_version, encrypted, &mut buffer)?;
-
         // TODO: what channel?
-        self.send_raw(packet_kind, channel, &buffer[0..len], force_packet)?;
+        self.host.send(self.peer, channel, kind, packet)?;
 
         Ok(())
     }
-    #[instrument(level = Level::TRACE)]
-    fn send_raw(
-        &mut self,
-        packet_kind: PacketKind,
-        mut channel_id: u8,
-        buffer: &[u8],
-        force_packet: bool,
-    ) -> Result<(), ControlStreamError> {
-        // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L822-L835
 
-        match &mut self.transport {
-            Transport::Enet {
-                enet,
-                peer,
-                connected,
-                encryption,
-            } => {
-                if !*connected {
-                    if !force_packet {
-                        return Err(ControlStreamError::NotConnected);
-                    }
-
-                    trace!(channel_id = channel_id, packet_data = ?buffer, "Buffering Packet");
-
-                    self.buffered_packets.push((channel_id, buffer.to_vec()));
-                    return Ok(());
-                }
-
-                // Handle encryption
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L703-L740
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L548-L591
-                let buffer = if let Some(EnetEncrypted {
-                    encryption_method,
-                    aes_key,
-                    aes_iv: _,
-                    send_sequence_number,
-                    encrypt_buffer,
-                }) = encryption
-                {
-                    let len = encrypt_client_control_packet_into(
-                        &self.crypto_backend,
-                        *encryption_method,
-                        *aes_key,
-                        *send_sequence_number,
-                        buffer,
-                        encrypt_buffer,
-                    )?;
-
-                    &encrypt_buffer[0..len]
-                } else {
-                    buffer
-                };
-
-                let Some(peer) = peer else {
-                    // TODO: maybe error and disconnect?
-                    return Ok(());
-                };
-
-                // TODO: encryption?
-
-                let peer = enet.peer(*peer).unwrap();
-
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
-                // if the requested channel exceeds the peer's supported channel count.
-                if channel_id as usize >= peer.channel_count() {
-                    channel_id = 0;
-                }
-
-                peer.send(channel_id, &Packet::new(buffer.to_vec(), packet_kind))
-                    .map_err(EnetError::from)?;
-            }
-            Transport::Tcp {} => {
-                todo!();
-            }
+    pub fn poll_output(&mut self) -> Result<ControlStreamOutput, ControlError> {
+        if self.peer_connected {
+            debug_assert_eq!(self.buffered_packets.len(), 0);
         }
 
-        Ok(())
-    }
-
-    pub fn poll_output(&mut self) -> Result<ControlStreamOutput, ControlStreamError> {
         let mut timeout = loop {
-            match &mut self.transport {
-                Transport::Enet {
-                    enet,
-                    peer,
-                    connected,
-                    encryption,
-                } => match enet.poll_output()? {
-                    EnetOutput::Send { addr, data } => {
-                        return Ok(ControlStreamOutput::Send { to: addr, data });
-                    }
-                    EnetOutput::Event(EnetEvent::Connect {
-                        peer: event_peer,
-                        data: _,
-                    }) => {
-                        if *peer == Some(event_peer) {
-                            *connected = true;
+            let output = self.host.poll_output()?;
 
-                            // Send buffered packets
-                            let span = trace_span!("send_buffered_packets");
-                            let enter = span.enter();
-
-                            let mut packets = Vec::new();
-                            swap(&mut self.buffered_packets, &mut packets);
-
-                            for (channel_id, buffer) in packets.drain(..) {
-                                trace!(channel_id = channel_id, packet_data = ?buffer, "Sending buffered packet");
-                                self.send_raw(PacketKind::Reliable, channel_id, &buffer, true)?;
-                            }
-
-                            debug_assert_eq!(self.buffered_packets.len(), 0);
-                            debug_assert_eq!(packets.len(), 0);
-
-                            drop(enter);
-                        }
+            match output {
+                ControlHostOutput::Action(ControlHostAction::Timeout(timeout)) => {
+                    break timeout;
+                }
+                ControlHostOutput::Action(action) => {
+                    return Ok(ControlStreamOutput::Action(action));
+                }
+                ControlHostOutput::Event(ControlHostEvent::Connected {
+                    id,
+                    sunshine_connect_data: _,
+                }) => {
+                    if id != self.peer {
+                        // Nobody should connect to this peer, but if they do just instantly disconnect them
+                        let _ = self.host.disconnect_now(id, 0);
                         continue;
                     }
-                    EnetOutput::Event(EnetEvent::Receive {
-                        peer,
-                        channel_id,
-                        mut data,
-                    }) => {
-                        trace!(peer_id = ?peer, channel_id = ?channel_id, data = ?data, "Received raw packet");
 
-                        let is_encrypted = encryption.is_some();
-                        // Encryption:
-                        // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1219-L1253
-                        // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L593-L663
-                        let data = if let Some(EnetEncrypted {
-                            encryption_method,
-                            aes_key,
-                            aes_iv: _,
-                            send_sequence_number: _,
-                            encrypt_buffer,
-                        }) = encryption
-                        {
-                            // The encrypt buffer is always bigger than the required decrypt buffer
-                            // -> The buffer is big enough for decrypting
+                    self.peer_connected = true;
 
-                            // TODO: some errors should drop packets and not error the consumer of this stream
-                            let len = decrypt_server_control_packet_into(
-                                &self.crypto_backend,
-                                *encryption_method,
-                                *aes_key,
-                                &data,
-                                encrypt_buffer,
-                            )?;
-
-                            &encrypt_buffer[0..len]
-                        } else {
-                            &data
-                        };
-
-                        let Some(packet) = ControlPacket::deserialize(
-                            PacketDirection::ClientBound,
-                            self.server_version,
-                            is_encrypted,
-                            data,
-                        ) else {
-                            warn!("Failed to deserialize control packet!");
-
-                            trace!(
-                                "Failed to deserialize control packet: Peer: {peer:?}, Channel: {channel_id}, Data: {data:?}"
-                            );
-                            continue;
-                        };
-
-                        debug!(packet = ?packet, "Received Packet");
-
-                        return Ok(ControlStreamOutput::Event(ControlStreamEvent::Packet(
-                            packet,
-                        )));
+                    // Send all buffered packets
+                    for packet in mem::take(&mut self.buffered_packets) {
+                        self.send(packet)?;
                     }
-                    EnetOutput::Event(EnetEvent::Disconnect {
-                        peer: event_peer,
-                        data,
-                    }) => {
-                        if peer.is_some_and(|peer| peer == event_peer) {
-                            *peer = None;
-                        }
-
-                        // TODO: what does the data mean?
-                        todo!();
+                    continue;
+                }
+                ControlHostOutput::Event(ControlHostEvent::Receive {
+                    id,
+                    // TODO: is channel_id important?
+                    channel_id: _,
+                    packet,
+                }) => {
+                    if id != self.peer {
+                        // ignore other peers
                         continue;
                     }
-                    EnetOutput::Timeout(timeout) => break timeout,
-                },
-                Transport::Tcp {} => {
+
+                    return Ok(ControlStreamOutput::Event(ControlStreamEvent::Packet(
+                        packet,
+                    )));
+                }
+                ControlHostOutput::Event(ControlHostEvent::Disconnected { id }) => {
+                    if id != self.peer {
+                        // ignore other peers
+                        continue;
+                    }
+
                     todo!();
+                    continue;
                 }
             }
         };
@@ -493,43 +297,41 @@ where
             timeout = timeout.min(new_timeout);
         }
 
-        Ok(ControlStreamOutput::Timeout(timeout))
+        Ok(ControlStreamOutput::Action(ControlHostAction::Timeout(
+            timeout,
+        )))
     }
 
-    pub fn handle_input(&mut self, input: ControlStreamInput) -> Result<(), ControlStreamError> {
-        match &mut self.transport {
-            Transport::Enet { enet, .. } => match input {
-                ControlStreamInput::Timeout(timeout) => {
-                    self.last_now = timeout;
+    pub fn handle_input(&mut self, input: ControlStreamInput) -> Result<(), ControlError> {
+        match input {
+            ControlStreamInput::Host(input) => {
+                let (ControlHostInput::Timeout(now) | ControlHostInput::Receive { now, .. }) =
+                    &input;
+                self.last_now = *now;
 
-                    enet.handle_input(EnetInput::Timeout(timeout))?;
-                }
-                ControlStreamInput::Receive { now, addr, data } => {
-                    self.last_now = now;
+                self.host.handle_input(input)?;
+            }
+            ControlStreamInput::Message { now, message } => {
+                self.last_now = now;
 
-                    if addr != self.addr {
-                        enet.handle_input(EnetInput::Timeout(now))?;
+                debug!(now = ?now, message = ?message, "received control message from main thread");
 
-                        return Ok(());
-                    }
+                self.host.handle_input(ControlHostInput::Timeout(now))?;
 
-                    enet.handle_input(EnetInput::Receive { now, addr, data })?;
-                }
-                ControlStreamInput::Message(ControlMessage(inner)) => {
-                    debug!(control_message = ?inner, "Received message from main stream");
+                self.handle_control_message(message)?;
+            }
+        }
 
-                    match inner {
-                        ControlMessageInner::SendPacket { packet } => {
-                            self.send_inner(packet, true)?;
-                        }
-                        ControlMessageInner::AllowOtherPackets => {
-                            self.allow_packets = true;
-                        }
-                    }
-                }
-            },
-            Transport::Tcp {} => {
-                todo!();
+        Ok(())
+    }
+
+    fn handle_control_message(&mut self, message: ControlMessage) -> Result<(), ControlError> {
+        match message.0 {
+            ControlMessageInner::SendPacket { packet } => {
+                self.send_inner(packet, true)?;
+            }
+            ControlMessageInner::AllowOtherPackets => {
+                self.allow_packets = true;
             }
         }
 
@@ -537,21 +339,20 @@ where
     }
 
     /// Returns the time when the next ping must be sent
-    fn do_ping(&mut self) -> Result<Option<Instant>, ControlStreamError> {
+    fn do_ping(&mut self) -> Result<Option<Instant>, ControlError> {
         // If this server doesn't support the periodic ping
         let Some(last_ping) = self.last_ping else {
+            trace!("server doesn't support periodic ping, not sending periodic ping");
             return Ok(None);
         };
 
         if self.last_now >= last_ping + PERIODIC_PING_INTERVAL {
             match self.send(ControlPacket::PeriodicPing) {
                 Ok(()) => {}
-                Err(ControlStreamError::Enet(EnetError::PeerSendError(
-                    PeerSendError::NotConnected,
-                )))
-                | Err(ControlStreamError::NotConnected) => {
+                Err(ControlError::Enet(EnetError::PeerSendError(PeerSendError::NotConnected)))
+                | Err(ControlError::NotConnected) => {
                     debug!(
-                        "Not sending periodic ping because the control stream (via enet) is not connected yet."
+                        "not sending periodic ping because the control stream (via enet) is not connected yet."
                     );
                     // We are not connected yet -> we cannot send a ping
                     return Ok(None);
@@ -562,7 +363,7 @@ where
             trace!(
                 last_ping = ?last_ping,
                 now = ?self.last_now,
-                "Sending Periodic Ping"
+                "sending periodic ping"
             );
 
             self.last_ping = Some(self.last_now);

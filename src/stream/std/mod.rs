@@ -26,6 +26,7 @@ use crate::{
             control::{
                 ControlMessage, ControlStream, ControlStreamEvent, ControlStreamInput,
                 ControlStreamOutput,
+                peer::{ControlHostAction, ControlHostInput},
             },
             crypto::CryptoBackend,
             video::{VideoStream, VideoStreamInput, VideoStreamOutput},
@@ -614,16 +615,18 @@ fn control_thread<Crypto>(
                     continue;
                 }
             },
-            ControlStreamOutput::Send { to, data } => {
-                socket.send_to(&data, to).unwrap();
+            ControlStreamOutput::Action(ControlHostAction::SendUdp { addr, data }) => {
+                socket.send_to(&data, addr).unwrap();
                 continue;
             }
-            ControlStreamOutput::Timeout(timeout) => timeout,
+            ControlStreamOutput::Action(ControlHostAction::Timeout(timeout)) => timeout,
         };
 
         let Some(duration) = timeout.checked_duration_since(Instant::now()) else {
             control_stream
-                .handle_input(ControlStreamInput::Timeout(Instant::now()))
+                .handle_input(ControlStreamInput::Host(ControlHostInput::Timeout(
+                    Instant::now(),
+                )))
                 .unwrap();
             continue;
         };
@@ -632,16 +635,19 @@ fn control_thread<Crypto>(
             Ok(input) => match input {
                 Input::ControlMessage { message } => {
                     control_stream
-                        .handle_input(ControlStreamInput::Message(message))
+                        .handle_input(ControlStreamInput::Message {
+                            now: Instant::now(),
+                            message,
+                        })
                         .unwrap();
                 }
                 Input::UdpReceive { now, source, data } => {
                     control_stream
-                        .handle_input(ControlStreamInput::Receive {
+                        .handle_input(ControlStreamInput::Host(ControlHostInput::Receive {
                             now,
                             addr: source,
                             data: &data,
-                        })
+                        }))
                         .unwrap();
                 }
                 Input::TcpReceive { .. } => unreachable!(),
@@ -650,7 +656,9 @@ fn control_thread<Crypto>(
             },
             Err(RecvTimeoutError::Timeout) => {
                 control_stream
-                    .handle_input(ControlStreamInput::Timeout(Instant::now()))
+                    .handle_input(ControlStreamInput::Host(ControlHostInput::Timeout(
+                        Instant::now(),
+                    )))
                     .unwrap();
             }
             // TODO

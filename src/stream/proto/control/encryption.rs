@@ -139,62 +139,7 @@ where
 }
 
 /// The caller must ensure that encrypted_packet is big enough.
-pub fn encrypt_server_control_packet_into<Crypto>(
-    crypto: &Crypto,
-    encryption_method: ControlEncryptionMethod,
-    aes_key: AesKey,
-    sequence_number: u32,
-    unencrypted_packet: &[u8],
-    encrypted_packet: &mut [u8],
-) -> Result<usize, ControlEncryptionError>
-where
-    Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
-{
-    let mut iv = [0; _];
-    let iv_len = generate_iv(encryption_method, false, sequence_number, &mut iv);
-
-    encrypt_control_packet_into(
-        crypto,
-        aes_key,
-        sequence_number,
-        &iv[0..iv_len],
-        unencrypted_packet,
-        encrypted_packet,
-    )
-}
-
-/// The encrypted_payload is the part after the header.
-///
-/// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1219-L1253
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L593-L663
-pub fn decrypt_server_control_packet_into<Crypto>(
-    crypto: &Crypto,
-    encryption_method: ControlEncryptionMethod,
-    aes_key: AesKey,
-    encrypted_packet: &[u8],
-    unencrypted_packet: &mut [u8],
-) -> Result<usize, ControlEncryptionError>
-where
-    Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
-{
-    decrypt_control_packet_into(
-        crypto,
-        aes_key,
-        |sequence_number, iv| generate_iv(encryption_method, false, sequence_number, iv),
-        encrypted_packet,
-        unencrypted_packet,
-    )
-}
-
-/// The caller must ensure that encrypted_packet is big enough.
-///
-/// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L703-L740
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L548-L591
-pub fn encrypt_client_control_packet_into<Crypto>(
+pub fn encrypt_clientbound_control_packet_into<Crypto>(
     crypto: &Crypto,
     encryption_method: ControlEncryptionMethod,
     aes_key: AesKey,
@@ -219,12 +164,12 @@ where
     )
 }
 
-/// The encrypted_payload is the part after the header.
+/// The encrypted_packet is the full encrypted packet.
 ///
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1219-L1253
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L593-L663
-pub fn decrypt_client_control_packet_into<Crypto>(
+pub fn decrypt_clientbound_control_packet_into<Crypto>(
     crypto: &Crypto,
     encryption_method: ControlEncryptionMethod,
     aes_key: AesKey,
@@ -244,13 +189,68 @@ where
     )
 }
 
+/// The caller must ensure that encrypted_packet is big enough.
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L703-L740
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L548-L591
+pub fn encrypt_serverbound_control_packet_into<Crypto>(
+    crypto: &Crypto,
+    encryption_method: ControlEncryptionMethod,
+    aes_key: AesKey,
+    sequence_number: u32,
+    unencrypted_packet: &[u8],
+    encrypted_packet: &mut [u8],
+) -> Result<usize, ControlEncryptionError>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    let mut iv = [0; _];
+    let iv_len = generate_iv(encryption_method, false, sequence_number, &mut iv);
+
+    encrypt_control_packet_into(
+        crypto,
+        aes_key,
+        sequence_number,
+        &iv[0..iv_len],
+        unencrypted_packet,
+        encrypted_packet,
+    )
+}
+
+/// The encrypted_packet is the full encrypted packet.
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1219-L1253
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L593-L663
+pub fn decrypt_serverbound_control_packet_into<Crypto>(
+    crypto: &Crypto,
+    encryption_method: ControlEncryptionMethod,
+    aes_key: AesKey,
+    encrypted_packet: &[u8],
+    unencrypted_packet: &mut [u8],
+) -> Result<usize, ControlEncryptionError>
+where
+    Crypto: CryptoBackend,
+    Crypto::Error: Error + 'static,
+{
+    decrypt_control_packet_into(
+        crypto,
+        aes_key,
+        |sequence_number, iv| generate_iv(encryption_method, false, sequence_number, iv),
+        encrypted_packet,
+        unencrypted_packet,
+    )
+}
+
 /// Returns the iv length
 ///
 /// References:
 /// - Clientoriginated iv: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L617-L637
 fn generate_iv(
     encryption: ControlEncryptionMethod,
-    is_clientoriginated: bool,
+    is_clientbound: bool,
     sequence_number: u32,
     iv: &mut [u8; 16],
 ) -> usize {
@@ -263,7 +263,7 @@ fn generate_iv(
         ControlEncryptionMethod::Sunshine => {
             iv[0..4].copy_from_slice(&sequence_number.to_le_bytes());
 
-            if is_clientoriginated {
+            if !is_clientbound {
                 iv[10] = b'C';
             } else {
                 iv[10] = b'H';
@@ -284,9 +284,10 @@ mod test {
             control::{
                 ControlEncryptionMethod,
                 encryption::{
-                    decrypt_client_control_packet_into, decrypt_server_control_packet_into,
-                    encrypt_client_control_packet_into, encrypt_server_control_packet_into,
-                    generate_iv,
+                    decrypt_clientbound_control_packet_into,
+                    decrypt_serverbound_control_packet_into,
+                    encrypt_clientbound_control_packet_into,
+                    encrypt_serverbound_control_packet_into, generate_iv,
                 },
             },
             crypto::CryptoBackend,
@@ -296,12 +297,12 @@ mod test {
 
     fn test_iv_result(
         method: ControlEncryptionMethod,
-        is_clientoriginated: bool,
+        is_clientbound: bool,
         sequence_number: u32,
         expected_iv: &[u8],
     ) {
         let mut iv = [0; _];
-        let len = generate_iv(method, is_clientoriginated, sequence_number, &mut iv);
+        let len = generate_iv(method, is_clientbound, sequence_number, &mut iv);
         assert_eq!(&iv[0..len], expected_iv);
     }
 
@@ -310,26 +311,26 @@ mod test {
         // Nvidia
         test_iv_result(
             ControlEncryptionMethod::Nvidia,
-            false,
+            true,
             0,
             &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         );
         test_iv_result(
             ControlEncryptionMethod::Nvidia,
-            false,
+            true,
             1,
             &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         );
 
         test_iv_result(
             ControlEncryptionMethod::Nvidia,
-            true,
+            false,
             0,
             &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         );
         test_iv_result(
             ControlEncryptionMethod::Nvidia,
-            true,
+            false,
             1,
             &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         );
@@ -337,26 +338,26 @@ mod test {
         // Sunshine
         test_iv_result(
             ControlEncryptionMethod::Sunshine,
-            false,
+            true,
             0,
             &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 72, 67],
         );
         test_iv_result(
             ControlEncryptionMethod::Sunshine,
-            false,
+            true,
             1,
             &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 72, 67],
         );
 
         test_iv_result(
             ControlEncryptionMethod::Sunshine,
-            true,
+            false,
             0,
             &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 67, 67],
         );
         test_iv_result(
             ControlEncryptionMethod::Sunshine,
-            true,
+            false,
             1,
             &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 67, 67],
         );
@@ -387,7 +388,7 @@ mod test {
 
         // Encrypt test
         let mut encrypted_packet = vec![0; 1000];
-        let encrypted_len = encrypt_server_control_packet_into(
+        let encrypted_len = encrypt_clientbound_control_packet_into(
             &crypto,
             ControlEncryptionMethod::Sunshine,
             aes_key,
@@ -403,7 +404,7 @@ mod test {
 
         // Decrypt test
         let mut decrypted_packet = vec![0; 1000];
-        let decrypted_len = decrypt_server_control_packet_into(
+        let decrypted_len = decrypt_clientbound_control_packet_into(
             &crypto,
             ControlEncryptionMethod::Sunshine,
             aes_key,
@@ -446,7 +447,7 @@ mod test {
 
         // Encrypt test
         let mut encrypted_packet = vec![0; 1000];
-        let encrypted_len = encrypt_client_control_packet_into(
+        let encrypted_len = encrypt_serverbound_control_packet_into(
             &crypto,
             ControlEncryptionMethod::Sunshine,
             aes_key,
@@ -462,7 +463,7 @@ mod test {
 
         // Decrypt test
         let mut decrypted_packet = vec![0; 1000];
-        let decrypted_len = decrypt_client_control_packet_into(
+        let decrypted_len = decrypt_serverbound_control_packet_into(
             &crypto,
             ControlEncryptionMethod::Sunshine,
             aes_key,
