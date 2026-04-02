@@ -614,6 +614,10 @@ fn control_thread<Crypto>(
                     // TODO
                     continue;
                 }
+                ControlStreamEvent::Disconnect => {
+                    // TODO
+                    todo!();
+                }
             },
             ControlStreamOutput::Action(ControlHostAction::SendUdp { addr, data }) => {
                 socket.send_to(&data, addr).unwrap();

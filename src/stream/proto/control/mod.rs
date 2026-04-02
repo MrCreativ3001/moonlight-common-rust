@@ -39,6 +39,7 @@ mod encryption;
 pub mod peer;
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod test;
 
 // TODO: send loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
@@ -100,6 +101,8 @@ pub enum ControlStreamEvent {
     Connect,
     /// The [ControlStream] received a packet.
     Packet(ControlPacket),
+    /// The control stream got disconnected
+    Disconnect,
 }
 
 pub struct ControlStream<Crypto> {
@@ -236,6 +239,11 @@ where
         if self.peer_connected {
             debug_assert_eq!(self.buffered_packets.len(), 0);
         }
+        if self.host.can_discard() {
+            // This only happens when there's no peer in the connection
+            // -> we must've disconnected somehow -> this object is not useable anymore
+            return Err(ControlError::NotConnected);
+        }
 
         let mut timeout = loop {
             let output = self.host.poll_output()?;
@@ -286,8 +294,9 @@ where
                         continue;
                     }
 
-                    todo!();
-                    continue;
+                    self.peer_connected = false;
+
+                    return Ok(ControlStreamOutput::Event(ControlStreamEvent::Disconnect));
                 }
             }
         };

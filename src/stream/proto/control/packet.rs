@@ -205,6 +205,7 @@ pub struct ControlPacketConfig {
     pub request_idr: RawControlPacketType,
     pub start_b: RawControlPacketType,
     pub invalidate_reference_frames: RawControlPacketType,
+    pub long_term_reference_frame_acknowledgement: Option<RawControlPacketType>,
     pub loss_stats: RawControlPacketType,
     pub frame_stats: RawControlPacketType,
     pub rumble_data: Option<RawControlPacketType>,
@@ -241,6 +242,7 @@ impl ControlPacketConfig {
                 request_idr: RawControlPacketType(0x0305),
                 start_b: RawControlPacketType(0x0307),
                 invalidate_reference_frames: RawControlPacketType(0x0301),
+                long_term_reference_frame_acknowledgement: None,
                 loss_stats: RawControlPacketType(0x0201),
                 frame_stats: RawControlPacketType(0x0204),
 
@@ -271,6 +273,7 @@ impl ControlPacketConfig {
                 request_idr: RawControlPacketType(0x0302),
                 start_b: RawControlPacketType(0x0307),
                 invalidate_reference_frames: RawControlPacketType(0x0301),
+                long_term_reference_frame_acknowledgement: Some(RawControlPacketType(0x0350)),
                 loss_stats: RawControlPacketType(0x0201),
                 frame_stats: RawControlPacketType(0x0204),
 
@@ -300,6 +303,7 @@ impl ControlPacketConfig {
                 request_idr: RawControlPacketType(0x0305),
                 start_b: RawControlPacketType(0x0307),
                 invalidate_reference_frames: RawControlPacketType(0x0301),
+                long_term_reference_frame_acknowledgement: Some(RawControlPacketType(0x0350)),
                 loss_stats: RawControlPacketType(0x0201),
                 frame_stats: RawControlPacketType(0x0204),
 
@@ -331,6 +335,7 @@ pub enum ControlPacketType {
     RequestIdr,
     StartB,
     InvalidateReferenceFrames,
+    LongTermReferenceFrameAcknowledgement,
     LossStats,
     FrameStats,
     RumbleData,
@@ -351,6 +356,7 @@ impl ControlPacketType {
             Self::RequestIdr => PacketDirection::ServerBound,
             Self::StartB => PacketDirection::ServerBound,
             Self::InvalidateReferenceFrames => PacketDirection::ServerBound,
+            Self::LongTermReferenceFrameAcknowledgement => PacketDirection::ServerBound,
             Self::LossStats => PacketDirection::ServerBound,
             Self::FrameStats => PacketDirection::ServerBound,
             Self::RumbleData => PacketDirection::ServerBound,
@@ -372,6 +378,9 @@ impl ControlPacketType {
             ControlPacketType::StartB => Some(config.start_b),
             ControlPacketType::InvalidateReferenceFrames => {
                 Some(config.invalidate_reference_frames)
+            }
+            ControlPacketType::LongTermReferenceFrameAcknowledgement => {
+                config.long_term_reference_frame_acknowledgement
             }
             ControlPacketType::LossStats => Some(config.loss_stats),
             ControlPacketType::FrameStats => Some(config.frame_stats),
@@ -401,6 +410,14 @@ impl ControlPacketType {
                 id if id == config.request_idr => Some(Self::RequestIdr),
                 id if id == config.start_b => Some(Self::StartB),
                 id if Some(id) == config.frame_fec => Some(Self::FrameFec),
+                id if id == config.invalidate_reference_frames => {
+                    Some(Self::InvalidateReferenceFrames)
+                }
+                id if Some(id) == config.long_term_reference_frame_acknowledgement => {
+                    Some(Self::LongTermReferenceFrameAcknowledgement)
+                }
+                id if id == config.loss_stats => Some(Self::LossStats),
+                id if id == config.frame_stats => Some(Self::FrameStats),
                 id if id == config.input_data => Some(Self::InputData),
                 _ => None,
             },
@@ -519,6 +536,24 @@ pub enum ControlPacket {
     MouseHorizontalScroll {
         amount: i16,
     },
+    /// Invalidates references frames. Make sure the server supports this using the sdp before requesting this.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Video.h#L79-L86
+    InvalidateReferenceFrames {
+        first_frame_index: u32,
+        reserved1: u32,
+        last_frame_index: u32,
+        reserved2: [u32; 3],
+    },
+    /// Acknowledges a long term reference frame.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Video.h#L72-L77
+    LongTermReferenceFrameAcknowledgement {
+        frame_index: u32,
+        reserved: u32,
+    },
     // TODO: touch, controller, pen
 }
 
@@ -533,7 +568,10 @@ impl ControlPacket {
             Self::PeriodicPing => ControlPacketType::PeriodicPing,
             Self::RequestIdr => ControlPacketType::RequestIdr,
             Self::StartB => ControlPacketType::StartB,
-            // Self::InvalidateReferenceFrames => ControlPacketType::InvalidateReferenceFrames,
+            Self::InvalidateReferenceFrames { .. } => ControlPacketType::InvalidateReferenceFrames,
+            Self::LongTermReferenceFrameAcknowledgement { .. } => {
+                ControlPacketType::LongTermReferenceFrameAcknowledgement
+            }
             // Self::LossStats => ControlPacketType::LossStats,
             // Self::FrameStats => ControlPacketType::FrameStats,
             Self::FrameFec { .. } => ControlPacketType::FrameFec,
@@ -690,6 +728,49 @@ impl ControlPacket {
                 buffer[22..23].copy_from_slice(&fec_percentage.to_be_bytes());
                 buffer[23..24].copy_from_slice(&multi_fec_block_index.to_be_bytes());
                 buffer[24..25].copy_from_slice(&multi_fec_block_count.to_be_bytes());
+
+                Ok(4 + content_len as usize)
+            }
+            Self::InvalidateReferenceFrames {
+                first_frame_index,
+                reserved1,
+                last_frame_index,
+                reserved2,
+            } => {
+                let ty = config.invalidate_reference_frames;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // payload size = 4 * 6 = 24 bytes
+                let content_len: u16 = 24;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                buffer[4..8].copy_from_slice(&first_frame_index.to_le_bytes());
+                buffer[8..12].copy_from_slice(&reserved1.to_le_bytes());
+                buffer[12..16].copy_from_slice(&last_frame_index.to_le_bytes());
+
+                for i in 0..3 {
+                    let start = 16 + i * 4;
+                    buffer[start..start + 4].copy_from_slice(&reserved2[i].to_le_bytes());
+                }
+
+                Ok(4 + content_len as usize)
+            }
+            Self::LongTermReferenceFrameAcknowledgement {
+                frame_index,
+                reserved,
+            } => {
+                let ty = config
+                    .long_term_reference_frame_acknowledgement
+                    .ok_or(ControlPacketNotSupported)?;
+
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // payload = 8 bytes
+                let content_len: u16 = 8;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                buffer[4..8].copy_from_slice(&frame_index.to_le_bytes());
+                buffer[8..12].copy_from_slice(&reserved.to_le_bytes());
 
                 Ok(4 + content_len as usize)
             }
@@ -968,6 +1049,53 @@ impl ControlPacket {
                     multi_fec_block_count,
                 })
             }
+            ControlPacketType::LongTermReferenceFrameAcknowledgement => {
+                if payload.len() < 4 + 8 {
+                    warn!("LTR ACK packet too small");
+                    return None;
+                }
+
+                let frame_index =
+                    u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                let reserved =
+                    u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+
+                Some(ControlPacket::LongTermReferenceFrameAcknowledgement {
+                    frame_index,
+                    reserved,
+                })
+            }
+            ControlPacketType::InvalidateReferenceFrames => {
+                if payload.len() < 4 + 24 {
+                    warn!("InvalidateReferenceFrames packet too small");
+                    return None;
+                }
+
+                let first_frame_index =
+                    u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                let reserved1 =
+                    u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+                let last_frame_index =
+                    u32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]]);
+
+                let mut reserved2 = [0u32; 3];
+                for i in 0..3 {
+                    let start = 16 + i * 4;
+                    reserved2[i] = u32::from_le_bytes([
+                        payload[start],
+                        payload[start + 1],
+                        payload[start + 2],
+                        payload[start + 3],
+                    ]);
+                }
+
+                Some(ControlPacket::InvalidateReferenceFrames {
+                    first_frame_index,
+                    reserved1,
+                    last_frame_index,
+                    reserved2,
+                })
+            }
             ControlPacketType::InputData => {
                 if payload.len() < 4 + 8 {
                     warn!("InputData packet too small");
@@ -1154,6 +1282,7 @@ mod test {
             ControlPacketType::RequestIdr,
             ControlPacketType::StartB,
             ControlPacketType::InvalidateReferenceFrames,
+            ControlPacketType::LongTermReferenceFrameAcknowledgement,
             ControlPacketType::LossStats,
             ControlPacketType::FrameStats,
             ControlPacketType::RumbleData,
@@ -1331,6 +1460,47 @@ mod test {
                 0x0A, // fec_percentage = 10
                 0x00, // multi_fec_block_index = 0
                 0x01, // multi_fec_block_count = 1
+            ],
+        );
+    }
+
+    #[test]
+    fn invalidate_reference_frames() {
+        test_packet(
+            PacketDirection::ServerBound,
+            sunshine_gen_7_config(),
+            ControlPacket::InvalidateReferenceFrames {
+                first_frame_index: 1,
+                reserved1: 0,
+                last_frame_index: 2,
+                reserved2: [0, 0, 0],
+            },
+            &[
+                0x01, 0x03, // Ty (0x0301 LE)
+                24, 0x00, // Len
+                1, 0, 0, 0, // first
+                0, 0, 0, 0, // reserved1
+                2, 0, 0, 0, // last
+                0, 0, 0, 0, // reserved2[0]
+                0, 0, 0, 0, // reserved2[1]
+                0, 0, 0, 0, // reserved2[2]
+            ],
+        );
+    }
+
+    #[test]
+    fn long_term_reference_frame_acknowledgement() {
+        test_packet(
+            PacketDirection::ServerBound,
+            sunshine_gen_7_config(),
+            ControlPacket::LongTermReferenceFrameAcknowledgement {
+                frame_index: 42,
+                reserved: 0,
+            },
+            &[
+                0x50, 0x03, // Ty (0x0350 LE)
+                8, 0x00, // Len
+                42, 0, 0, 0, 0, 0, 0, 0,
             ],
         );
     }

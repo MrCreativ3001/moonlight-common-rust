@@ -29,8 +29,8 @@ mod nal;
 mod packet;
 pub mod payloader;
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod test;
 
 const PING_RETRY: Duration = Duration::from_millis(500);
@@ -50,8 +50,6 @@ pub enum VideoStreamInput<'a> {
 #[derive(Debug)]
 pub enum VideoStreamOutput {
     SendUdp { to: SocketAddr, data: Vec<u8> },
-    ConnectTcp { to: SocketAddr },
-    DisconnectTcp,
     VideoFrame(VideoFrame),
     Timeout(Instant),
 }
@@ -72,12 +70,6 @@ enum State {
     },
     ReceiveVideo,
 }
-enum FirstFrame {
-    ConnectTcp,
-    WaitTcp,
-    DisconnectTcp,
-    Finished,
-}
 
 pub struct VideoStream<Crypto> {
     addr: SocketAddr,
@@ -86,12 +78,12 @@ pub struct VideoStream<Crypto> {
     last_now: Instant,
     state: State,
     queue: VideoDepayloader,
-    /// Only on gfe v3
-    /// I don't know who made this, but you just need to connect to a specific port via tcp and then instantly close the connection
-    /// Interesting...
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L362-L364
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L266-L275
-    first_frame_connect: FirstFrame,
+    // Only on gfe v3
+    // I don't know who made this, but you just need to connect to a specific port via tcp and then instantly close the connection
+    // Interesting...
+    // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L362-L364
+    // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L266-L275
+    // first_frame_connect: FirstFrame,
 }
 
 impl<Crypto> VideoStream<Crypto>
@@ -114,11 +106,6 @@ where
             },
             last_now: now,
             queue: VideoDepayloader::new(config.queue),
-            first_frame_connect: if config.server_version.major == 3 {
-                FirstFrame::ConnectTcp
-            } else {
-                FirstFrame::Finished
-            },
         }
     }
 
@@ -146,7 +133,7 @@ where
                     vec![0x50, 0x49, 0x4E, 0x47]
                 };
 
-                debug!(packet = ?packet, "Sending initial video ping");
+                debug!(packet = ?packet, "sending initial video ping");
 
                 last_send.replace(self.last_now);
 
@@ -166,8 +153,6 @@ where
                 ))
             }
         }
-
-        // TODO: also implement tcp first frame
     }
 
     pub fn handle_input(&mut self, input: VideoStreamInput) -> Result<(), VideoStreamError> {

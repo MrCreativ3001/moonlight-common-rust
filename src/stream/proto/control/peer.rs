@@ -87,7 +87,7 @@ impl ControlPeerRole {
             Self::Server => PacketDirection::ServerBound,
         }
     }
-    pub fn outgoing_directionn(&self) -> PacketDirection {
+    pub fn outgoing_direction(&self) -> PacketDirection {
         match self {
             Self::Client => PacketDirection::ServerBound,
             Self::Server => PacketDirection::ClientBound,
@@ -238,7 +238,13 @@ where
             .get_mut(&id)
             .ok_or(ControlError::NotConfigured)?;
 
-        if packet.ty().direction() != data.config.role.outgoing_directionn() {
+        if packet.ty().direction() != data.config.role.outgoing_direction() {
+            warn!(
+                expected_direction = ?data.config.role.outgoing_direction(),
+                got_direction = ?packet.ty().direction(),
+                packet = ?packet,
+                "tried sending a packet into the wrong direction"
+            );
             return Err(ControlError::PacketNotSupported(ControlPacketNotSupported));
         }
 
@@ -409,7 +415,7 @@ where
 
     /// If this object can be discarded
     /// - Checks if there's still any connection that is currently happening
-    pub fn can_discard(&self) -> bool {
-        todo!()
+    pub fn can_discard(&mut self) -> bool {
+        self.host.enet.peers().count() == 0
     }
 }
