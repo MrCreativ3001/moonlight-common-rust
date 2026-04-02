@@ -2,26 +2,41 @@
 // Sunshine payloading: https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L1268-L1590
 // Wolf payloading: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp
 
-use std::{array, collections::VecDeque};
+use std::{array, collections::VecDeque, time::Duration};
 
 use thiserror::Error;
+use tracing::{Level, instrument};
 
-use crate::stream::proto::video::{
-    depayloader::create_video_reed_solomon,
-    packet::{
-        FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION,
-        VideoFecInfo, VideoFrameHeader, VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks,
-        fec_percentage_from, fec_percentage_to_parity_shards,
+use crate::{
+    ServerVersion,
+    stream::proto::video::{
+        depayloader::create_video_reed_solomon,
+        packet::{
+            FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION,
+            VideoFecInfo, VideoFrameHeader, VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks,
+            fec_percentage_from, fec_percentage_to_parity_shards,
+        },
     },
 };
 
+#[derive(Debug)]
 pub struct VideoPayloaderFecConfig {
     pub min_required_fec_packets: usize,
     pub fec_percentage: usize,
 }
 
+#[derive(Debug)]
 pub struct VideoPayloaderConfig {
-    // TODO: look at depayloader config packet_size and adjust accordingly to match that
+    // TODO: the depayloader has different version, implement those here
+    pub server_version: ServerVersion,
+    /// This is the size of each packet minus the RTP_HEADER_SIZE (16 bytes).
+    /// Each packet will have size [Self::packet_size] + 16.
+    ///
+    /// The actual packet consists of RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
+    /// This means PAYLOAD_SIZE = PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = PACKET_SIZE - 32.
+    ///
+    /// References:
+    /// - Games on Whales docs: https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
     pub packet_size: usize,
     pub fec: Option<VideoPayloaderFecConfig>,
 }
@@ -49,14 +64,22 @@ fn header_size() -> usize {
 }
 
 impl VideoPayloader {
+    #[instrument(level = Level::DEBUG)]
     pub fn new(config: VideoPayloaderConfig) -> Self {
+        // TODO: don't panic, but use errors instead
         assert!(
-            config.packet_size > header_size(),
+            config.packet_size > VideoHeader::SIZE,
             "The packet size must be larger than the size of the headers!"
         );
 
+        let payload_len = config.packet_size - VideoHeader::SIZE;
+        assert!(
+            payload_len >= 8,
+            "The packet must've at least 8 bytes of payload for the VideoFrameHeader"
+        );
+
         Self {
-            payload_len: config.packet_size - header_size(),
+            payload_len,
             fec_config: config.fec,
             sequence_number: 0,
             frame_index: 0,
@@ -75,6 +98,7 @@ impl VideoPayloader {
     pub fn push_frame(
         &mut self,
         timestamp: u32,
+        host_processing_latency: Option<Duration>,
         frame_type: FrameType,
         frame: &[u8],
     ) -> Result<(), VideoPayloaderError> {
@@ -88,9 +112,11 @@ impl VideoPayloader {
         let frame_header = VideoFrameHeader {
             header_type: 0x01,
             frame_type,
-            unknown: [0; _],
+            host_processing_latency: host_processing_latency
+                .map(|host_processing_latency| (host_processing_latency.as_micros() / 100) as u16)
+                .unwrap_or(0),
             last_payload_len: last_payload_len as u16,
-            unknown2: [0; _],
+            reserved: [0; _],
         };
 
         // TODO: multi fec blocks?

@@ -1,18 +1,21 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
 use tracing::{debug, debug_span, trace, warn};
 
-use crate::stream::{
-    proto::video::{
-        nal::{h264, h265},
-        packet::{
-            MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoHeader,
-            VideoHeaderFlags, fec_percentage_to_parity_shards,
+use crate::{
+    ServerVersion,
+    stream::{
+        proto::video::{
+            nal::{h264, h265},
+            packet::{
+                FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION,
+                VideoFrameHeader, VideoHeader, VideoHeaderFlags, fec_percentage_to_parity_shards,
+            },
         },
+        video::{BufferType, SupportedVideoFormats, VideoFormat, VideoFrameBuffer},
     },
-    video::{BufferType, SupportedVideoFormats, VideoFormat, VideoFrameBuffer},
 };
 
 // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
@@ -29,10 +32,15 @@ pub struct VideoDepayloaderConfig {
     /// This is the size of each packet minus the RTP_HEADER_SIZE (16 bytes).
     /// Each packet will have size [Self::packet_size] + 16.
     ///
+    /// The actual packet consists of RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
+    /// This means PAYLOAD_SIZE = PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = PACKET_SIZE - 32.
+    ///
     /// References:
     /// - Games on Whales docs: https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
     pub packet_size: usize,
     pub format: VideoFormat,
+    /// The version of the server.
+    pub server_version: ServerVersion,
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,6 +52,11 @@ pub struct VideoFrame {
     /// References:
     /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
     pub timestamp: u32,
+    /// The processing latency of the host
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L151-L155
+    pub host_processing_latency: Option<Duration>,
     /// The buffers this frame consists of.
     ///
     /// Different codecs split buffers differently:
@@ -347,7 +360,83 @@ impl VideoDepayloader {
     /// Interprets the [Self::current_frame_buffer] and returns a VideoFrame
     ///
     /// Mostly the functionality of https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L743-L1156
-    fn interpret_current_frame(&self, frame_number: u32, timestamp: u32) -> VideoFrame {
+    fn interpret_current_frame(&mut self, frame_number: u32, timestamp: u32) -> VideoFrame {
+        // parse the frame header
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L855-L972
+
+        if self.current_frame_buffer.len() < 8 {
+            // TODO: what now?
+            todo!();
+        }
+        #[allow(clippy::unwrap_used)]
+        let frame_header =
+            VideoFrameHeader::deserialize(self.current_frame_buffer[0..8].try_into().unwrap());
+
+        // Truncate the buffer to the len if we're not using H264 / H265.
+        // This is required for non H264 / H265.
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L905-L912
+        if !self
+            .config
+            .format
+            .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
+        {
+            self.current_frame_buffer
+                .truncate(frame_header.last_payload_len as usize);
+        }
+
+        // Skip the rest of the header
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L914-L972
+        let frame_header_len;
+        if self.config.server_version >= ServerVersion::new(7, 1, 450, 0) {
+            // >= 7.1.450 uses 2 different header lengths based on the first byte:
+            // 0x01 indicates an 8 byte header
+            // 0x81 indicates a 44 byte header
+            if frame_header.header_type == 0x01 {
+                frame_header_len = 8;
+            } else {
+                debug_assert_eq!(frame_header.header_type, 0x81);
+                frame_header_len = 44;
+            }
+        } else if self.config.server_version >= ServerVersion::new(7, 1, 446, 0) {
+            // [7.1.446, 7.1.450) uses 2 different header lengths based on the first byte:
+            // 0x01 indicates an 8 byte header
+            // 0x81 indicates a 41 byte header
+            if frame_header.header_type == 0x01 {
+                frame_header_len = 8;
+            } else {
+                debug_assert_eq!(frame_header.header_type, 0x81);
+                frame_header_len = 41;
+            }
+        } else if self.config.server_version >= ServerVersion::new(7, 1, 415, 0) {
+            // [7.1.415, 7.1.446) uses 2 different header lengths based on the first byte:
+            // 0x01 indicates an 8 byte header
+            // 0x81 indicates a 24 byte header
+            if frame_header.header_type == 0x01 {
+                frame_header_len = 8;
+            } else {
+                debug_assert_eq!(frame_header.header_type, 0x81);
+                frame_header_len = 24;
+            }
+        } else if self.config.server_version >= ServerVersion::new(7, 1, 350, 0) {
+            // [7.1.350, 7.1.415) should use the 8 byte header again
+            frame_header_len = 8;
+        } else if self.config.server_version >= ServerVersion::new(7, 1, 320, 0) {
+            // [7.1.320, 7.1.350) should use the 12 byte frame header
+            frame_header_len = 12;
+        } else if self.config.server_version >= ServerVersion::new(5, 0, 0, 0) {
+            // [5.x, 7.1.320) should use the 8 byte header
+            frame_header_len = 8;
+        } else {
+            // Other versions don't have a frame header at all
+            frame_header_len = 0;
+        }
+
+        let host_processing_latency = (frame_header.host_processing_latency != 0).then_some(
+            Duration::from_micros(frame_header.host_processing_latency as u64 * 100),
+        );
+
+        debug_assert!(self.current_frame_buffer.len() > frame_header_len);
+
         // only h264 and h265 bitstreams are parsed
         if !self
             .config
@@ -368,6 +457,7 @@ impl VideoDepayloader {
             return VideoFrame {
                 frame_number,
                 timestamp,
+                host_processing_latency,
                 buffers: buffers.collect(),
             };
         }
@@ -420,7 +510,7 @@ impl VideoDepayloader {
         };
 
         // Find annex b start codes
-        for i in 0..self.current_frame_buffer.len() {
+        for i in frame_header_len..self.current_frame_buffer.len() {
             start_code_window.rotate_left(1);
             start_code_window[3] = self.current_frame_buffer[i];
 
@@ -457,6 +547,7 @@ impl VideoDepayloader {
         VideoFrame {
             frame_number,
             timestamp,
+            host_processing_latency,
             buffers,
         }
     }

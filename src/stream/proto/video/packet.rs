@@ -208,7 +208,7 @@ impl VideoHeader {
     }
 }
 
-/// TODO: this always seems to be zero in the video queue, why?
+// TODO: this always seems to be zero in the video queue, why?
 ///
 /// References:
 /// - Sunshine: https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L1435
@@ -324,14 +324,31 @@ pub fn fec_percentage_from(data_shards: usize, parity_shards: usize) -> usize {
 ///
 /// References:
 /// - https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L19-L34
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L855-L895
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VideoFrameHeader {
-    /// Always 0x01 for short headers
+    /// Always 0x01 for short headers (8 byte in length).
+    ///
+    /// There are different header lengths based on the ServerVersion and the header.
+    /// See: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L914-L972
     ///
     /// References:
-    /// - https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L20C24-L20C56
+    /// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L20C24-L20C56
     pub header_type: u8,
-    pub unknown: [u8; 2],
+    /// Sunshine Extension
+    ///
+    /// Optional host processing latency of the frame, in 1/10 ms units.
+    /// Zero when the host doesn't provide the latency data
+    /// or frame processing latency is not applicable to the current frame
+    /// (happens when the frame is repeated).
+    ///
+    /// Note: little endian
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L897-L903
+    pub host_processing_latency: u16,
+    /// APP_VERSION_AT_LEAST(7, 1, 350)
+    ///
     /// See [FrameType]
     pub frame_type: FrameType,
     /// Length of the final packet payload for codecs that cannot handle
@@ -340,9 +357,10 @@ pub struct VideoFrameHeader {
     /// Note: little endian
     ///
     /// References:
-    /// - https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L31
+    /// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L31
+    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L905-L912
     pub last_payload_len: u16,
-    pub unknown2: [u8; 2],
+    pub reserved: [u8; 2],
 }
 
 impl VideoFrameHeader {
@@ -350,26 +368,26 @@ impl VideoFrameHeader {
 
     pub fn deserialize(buffer: &[u8; Self::SIZE]) -> VideoFrameHeader {
         let header_type = buffer[0];
-        let unknown = [buffer[1], buffer[2]];
+        let host_processing_latency = u16::from_le_bytes([buffer[1], buffer[2]]);
         let frame_type = FrameType::deserialize(buffer[3]);
         let last_payload_len = u16::from_le_bytes([buffer[4], buffer[5]]);
-        let unknown2 = [buffer[6], buffer[7]];
+        let reserved = [buffer[6], buffer[7]];
 
         VideoFrameHeader {
             header_type,
-            unknown,
+            host_processing_latency,
             frame_type,
             last_payload_len,
-            unknown2,
+            reserved,
         }
     }
 
     pub fn serialize(&self, buffer: &mut [u8; Self::SIZE]) {
         buffer[0] = self.header_type;
-        buffer[1..3].copy_from_slice(&self.unknown);
+        buffer[1..3].copy_from_slice(&self.host_processing_latency.to_le_bytes());
         buffer[3] = self.frame_type.serialize();
         buffer[4..6].copy_from_slice(&self.last_payload_len.to_le_bytes());
-        buffer[6..8].copy_from_slice(&self.unknown2);
+        buffer[6..8].copy_from_slice(&self.reserved);
     }
 }
 
@@ -380,7 +398,8 @@ impl VideoFrameHeader {
 /// - 5 = P-frame after reference frame invalidation
 ///
 /// References:
-/// - https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L22-L27
+/// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L22-L27
+/// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L858-L886
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameType {
     /// Normal P-frame
@@ -399,6 +418,10 @@ pub enum FrameType {
     ///
     /// Note: 5
     PFrameReferenceInvalidation,
+    /// This might sunshine hardcoded header
+    ///
+    /// References:
+    /// - Sunshine hardcoded header: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L880-L881
     #[doc(hidden)]
     Other(u8),
 }

@@ -58,7 +58,6 @@ pub enum VideoStreamOutput {
 
 #[derive(Debug, Clone)]
 pub struct VideoStreamConfig {
-    pub server_version: ServerVersion,
     pub addr: SocketAddr,
     pub queue: VideoDepayloaderConfig,
     pub sunshine_ping: Option<SunshinePing>,

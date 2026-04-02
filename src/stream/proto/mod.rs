@@ -443,9 +443,9 @@ where
                             let video_stream = VideoStream::new(
                                 self.last_now,
                                 VideoStreamConfig {
-                                    server_version: self.server_version,
                                     addr,
                                     queue: VideoDepayloaderConfig {
+                                        server_version: self.server_version,
                                         // Packet size will always exist
                                         #[allow(clippy::unwrap_used)]
                                         packet_size: sdp.client_sdp.packet_size.unwrap() as usize,

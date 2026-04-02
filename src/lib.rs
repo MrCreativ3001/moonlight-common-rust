@@ -98,7 +98,7 @@ pub struct ServerVersion {
     pub major: i32,
     pub minor: i32,
     pub patch: i32,
-    pub mini_patch: i32,
+    pub sunshine_identifier: i32,
     /// This type is more a guess, but gives a hint into the version
     pub server_type: ServerType,
 }
@@ -114,7 +114,7 @@ impl ServerVersion {
             major,
             minor,
             patch,
-            mini_patch,
+            sunshine_identifier: mini_patch,
             server_type,
         }
     }
@@ -127,7 +127,8 @@ impl ServerVersion {
     /// This includes Sunshine, Apollo, Wolf and likely any other version that isn't Nvidia's Gamestream and supports newer protocols
     pub fn is_sunshine_like(&self) -> bool {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L85
-        self.mini_patch < 0 || matches!(self.server_type, ServerType::Sunshine | ServerType::Apollo)
+        self.sunshine_identifier < 0
+            || matches!(self.server_type, ServerType::Sunshine | ServerType::Apollo)
     }
 
     /// Any server that supports Apollo protocol
@@ -138,10 +139,7 @@ impl ServerVersion {
 
 impl PartialEq for ServerVersion {
     fn eq(&self, other: &Self) -> bool {
-        self.major == other.major
-            && self.minor == other.minor
-            && self.patch == other.patch
-            && self.mini_patch == other.mini_patch
+        self.major == other.major && self.minor == other.minor && self.patch == other.patch
     }
 }
 impl Eq for ServerVersion {}
@@ -172,7 +170,7 @@ impl Display for ServerVersion {
         write!(
             f,
             "{}.{}.{}.{}",
-            self.major, self.minor, self.patch, self.mini_patch
+            self.major, self.minor, self.patch, self.sunshine_identifier
         )
     }
 }
