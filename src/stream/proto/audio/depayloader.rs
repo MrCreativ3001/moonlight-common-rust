@@ -41,9 +41,9 @@ pub enum AudioDepayloaderError {
     Crypto(Box<dyn Error>),
 }
 
-// TODO: this should also handle decryption
 // TODO: make a cap for the amount of fec packets and the amount of packets that can be buffered
 // TODO: maybe warn if this happens? https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/RtpAudioQueue.c#L269-L271
+// TODO: rename poll_sample and other fns into poll_frame
 
 #[derive(Debug)]
 pub struct AudioDepayloaderConfig {

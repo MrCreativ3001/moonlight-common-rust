@@ -54,6 +54,34 @@ pub struct VideoFrame {
     pub buffers: Vec<VideoFrameBuffer<Vec<u8>>>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum VideoDepayloaderOutput {
+    /// The video depayloader cannot produce data in it's current state.
+    /// Submit new data and poll again.
+    None,
+    /// The video depayloader produced a frame.
+    /// This also contains other information regarding the frame.
+    Frame {
+        frame: VideoFrame,
+        report: VideoDepayloaderFecReport,
+    },
+}
+
+#[derive(Debug, PartialEq)]
+pub struct VideoDepayloaderFecReport {
+    pub frame_index: u32,
+    pub highest_received_sequence_number: u16,
+    pub next_contiguous_sequence_number: u16,
+    pub missing_packets_before_highest_received: u16,
+    pub total_data_packets: u16,
+    pub total_parity_packets: u16,
+    pub received_data_packets: u16,
+    pub received_parity_packets: u16,
+    pub fec_percentage: u8,
+    pub multi_fec_block_index: u8,
+    pub multi_fec_block_count: u8,
+}
+
 struct Packet {
     frame_index: u32,
     timestamp: u32,
@@ -93,32 +121,21 @@ impl VideoDepayloader {
     }
 
     /// This will skip to the next constructable frame that can be produced.
-    pub fn skip_frames(&mut self) -> Result<Option<VideoFrame>, VideoQueueError> {
-        let mut possible_frames = self
-            .packets
-            .values()
-            .filter(|packet| packet.frame_index >= self.current_frame_index)
-            .map(|packet| packet.frame_index)
-            .collect::<Vec<_>>();
-        possible_frames.sort();
-
-        for frame_index in possible_frames {
-            if let Some(output_frame) = self.try_construct_fec_block(frame_index)? {
-                self.current_frame_index = frame_index;
-
-                return Ok(Some(output_frame));
-            }
-        }
-
-        Ok(None)
+    pub fn try_skip_frames(&mut self) -> Result<(), VideoQueueError> {
+        todo!()
     }
 
-    pub fn poll_frame(&mut self) -> Result<Option<VideoFrame>, VideoQueueError> {
-        let mut output_frame = None;
+    pub fn status(&self) {
+        // TODO: maybe allow to get some status from the depayloader, because of dropping frames and requesting idrs
+        todo!()
+    }
+
+    pub fn poll_output(&mut self) -> Result<VideoDepayloaderOutput, VideoQueueError> {
+        let mut output = VideoDepayloaderOutput::None;
 
         // Check if we can construct a frame
-        if let Some(frame) = self.try_construct_fec_block(self.current_frame_index)? {
-            output_frame = Some(frame);
+        if let Some((frame, report)) = self.try_construct_fec_block(self.current_frame_index)? {
+            output = VideoDepayloaderOutput::Frame { frame, report };
 
             // TODO: increase current_frame_index and current_sequence_number
             self.current_frame_index += 1;
@@ -128,13 +145,13 @@ impl VideoDepayloader {
         self.packets
             .retain(|_, packet| packet.frame_index >= self.current_frame_index);
 
-        Ok(output_frame)
+        Ok(output)
     }
 
     fn try_construct_fec_block(
         &mut self,
         frame_index: u32,
-    ) -> Result<Option<VideoFrame>, VideoQueueError> {
+    ) -> Result<Option<(VideoFrame, VideoDepayloaderFecReport)>, VideoQueueError> {
         // TODO: handle one frame in multiple fec blocks?
 
         let packets = self
@@ -243,7 +260,88 @@ impl VideoDepayloader {
 
         drop(parse_frame_span);
 
-        Ok(Some(frame))
+        // -- Create fec report
+
+        let frame_packets: Vec<(&u16, &Packet)> = self
+            .packets
+            .iter()
+            .filter(|(_, p)| p.frame_index == self.current_frame_index)
+            .collect();
+
+        let highest_received_sequence_number = *frame_packets.last().unwrap().0;
+
+        let mut next_contiguous_sequence_number = 0u16;
+        let mut missing_packets_before_highest_received = 0u16;
+
+        let mut expected = *frame_packets.first().unwrap().0;
+        let mut found_gap = false;
+
+        for (seq, _) in &frame_packets {
+            if **seq != expected {
+                if !found_gap {
+                    next_contiguous_sequence_number = expected;
+                    found_gap = true;
+                }
+
+                missing_packets_before_highest_received += seq.wrapping_sub(expected);
+                expected = **seq;
+            }
+
+            expected = expected.wrapping_add(1);
+        }
+
+        if !found_gap {
+            next_contiguous_sequence_number = expected;
+        }
+
+        // shard stats
+
+        let mut total_data_packets = 0u16;
+        let mut total_parity_packets = 0u16;
+        let mut received_data_packets = 0u16;
+        let mut received_parity_packets = 0u16;
+        let mut fec_percentage = 0u8;
+
+        if let Some((_, first_packet)) = frame_packets.first() {
+            let data_shards = first_packet.fec_total_data_shards as u16;
+            let parity_shards = fec_percentage_to_parity_shards(
+                data_shards as usize,
+                first_packet.fec_percentage as usize,
+            ) as u16;
+
+            total_data_packets = data_shards;
+            total_parity_packets = parity_shards;
+            fec_percentage = first_packet.fec_percentage as u8;
+
+            for (_, p) in &frame_packets {
+                if p.fec_shard_index < p.fec_total_data_shards {
+                    received_data_packets += 1;
+                } else {
+                    received_parity_packets += 1;
+                }
+            }
+        }
+
+        // multi block (not implemented yet)
+
+        let multi_fec_block_index = 0;
+        let multi_fec_block_count = 1;
+
+        let report = VideoDepayloaderFecReport {
+            frame_index,
+            highest_received_sequence_number,
+            next_contiguous_sequence_number,
+            missing_packets_before_highest_received,
+            total_data_packets,
+            total_parity_packets,
+            received_data_packets,
+            received_parity_packets,
+            fec_percentage,
+            multi_fec_block_index,
+            multi_fec_block_count,
+        };
+
+        Ok(Some((frame, report)))
     }
 
     /// Interprets the [Self::current_frame_buffer] and returns a VideoFrame

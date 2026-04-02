@@ -17,7 +17,9 @@ use crate::{
             packet::SunshinePingPacket,
             rtsp::moonlight::SunshinePing,
             video::{
-                depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoFrame},
+                depayloader::{
+                    VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput, VideoFrame,
+                },
                 packet::EncryptedVideoHeader,
             },
         },
@@ -143,7 +145,10 @@ where
                 })
             }
             State::ReceiveVideo => {
-                if let Some(frame) = self.queue.poll_frame().unwrap() {
+                if let VideoDepayloaderOutput::Frame { frame, .. } =
+                    self.queue.poll_output().unwrap()
+                {
+                    // TODO: send report to control channel
                     return Ok(VideoStreamOutput::VideoFrame(frame));
                 }
 

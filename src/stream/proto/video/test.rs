@@ -3,7 +3,8 @@ use std::array;
 use crate::stream::{
     proto::video::{
         depayloader::{
-            VideoDepayloader, VideoDepayloaderConfig, VideoFrame, create_video_reed_solomon,
+            VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderFecReport,
+            VideoDepayloaderOutput, VideoFrame, create_video_reed_solomon,
         },
         nal::h264,
         packet::{
@@ -761,7 +762,7 @@ fn depayloader_simple_noparse() {
             &expected1,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -794,7 +795,7 @@ fn depayloader_simple_noparse() {
             &expected2,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -828,28 +829,43 @@ fn depayloader_simple_noparse() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_frame(),
+        depayloader.poll_output(),
         // All data should be aligned to packets
-        Ok(Some(VideoFrame {
-            frame_number: 1,
-            timestamp: 0,
-            buffers: vec![
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected1.clone(),
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected2.clone()
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected3.clone()
-                }
-            ],
-        }))
+        Ok(VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_number: 1,
+                timestamp: 0,
+                buffers: vec![
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected1.clone(),
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected2.clone()
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected3.clone()
+                    }
+                ],
+            },
+            report: VideoDepayloaderFecReport {
+                frame_index: 1,
+                highest_received_sequence_number: 2,
+                next_contiguous_sequence_number: 3,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1,
+            },
+        })
     );
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 }
 
 #[test]
@@ -895,7 +911,7 @@ fn depayloader_simple_noparse_multiframe() {
             &expected1,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -928,7 +944,7 @@ fn depayloader_simple_noparse_multiframe() {
             &expected2,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -962,28 +978,43 @@ fn depayloader_simple_noparse_multiframe() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_frame(),
+        depayloader.poll_output(),
         // All data should be aligned to packets
-        Ok(Some(VideoFrame {
-            frame_number: 1,
-            timestamp: 0,
-            buffers: vec![
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected1.clone(),
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected2.clone()
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected3.clone()
-                }
-            ],
-        }))
+        Ok(VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_number: 1,
+                timestamp: 0,
+                buffers: vec![
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected1.clone(),
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected2.clone()
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected3.clone()
+                    }
+                ],
+            },
+            report: VideoDepayloaderFecReport {
+                frame_index: 1,
+                highest_received_sequence_number: 2,
+                next_contiguous_sequence_number: 3,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1,
+            }
+        })
     );
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     // -- Frame 2
     depayloader
@@ -1017,7 +1048,7 @@ fn depayloader_simple_noparse_multiframe() {
             &expected1,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -1050,7 +1081,7 @@ fn depayloader_simple_noparse_multiframe() {
             &expected2,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -1084,28 +1115,43 @@ fn depayloader_simple_noparse_multiframe() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_frame(),
+        depayloader.poll_output(),
         // All data should be aligned to packets
-        Ok(Some(VideoFrame {
-            frame_number: 2,
-            timestamp: 100,
-            buffers: vec![
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected1.clone(),
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected2.clone()
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected3.clone()
-                }
-            ],
-        }))
+        Ok(VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_number: 2,
+                timestamp: 100,
+                buffers: vec![
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected1.clone(),
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected2.clone()
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected3.clone()
+                    }
+                ],
+            },
+            report: VideoDepayloaderFecReport {
+                frame_index: 2,
+                highest_received_sequence_number: 5,
+                next_contiguous_sequence_number: 6,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1,
+            }
+        })
     );
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 }
 
 #[test]
@@ -1230,7 +1276,7 @@ fn depayloader_simple_h264() {
             &expected1,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -1263,7 +1309,7 @@ fn depayloader_simple_h264() {
             &expected2,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -1297,27 +1343,42 @@ fn depayloader_simple_h264() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_frame(),
-        Ok(Some(VideoFrame {
-            frame_number: 1,
-            timestamp: 0,
-            buffers: vec![
-                VideoFrameBuffer {
-                    buffer_type: BufferType::Sps,
-                    data: expected1.clone(),
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::Pps,
-                    data: expected2.clone()
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected3.clone()
-                }
-            ],
-        }))
+        depayloader.poll_output(),
+        Ok(VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_number: 1,
+                timestamp: 0,
+                buffers: vec![
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::Sps,
+                        data: expected1.clone(),
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::Pps,
+                        data: expected2.clone()
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected3.clone()
+                    }
+                ],
+            },
+            report: VideoDepayloaderFecReport {
+                frame_index: 1,
+                highest_received_sequence_number: 2,
+                next_contiguous_sequence_number: 3,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1,
+            }
+        })
     );
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 }
 
 #[test]
@@ -1410,7 +1471,7 @@ fn depayloader_complex_h264() {
             &data1,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -1443,7 +1504,7 @@ fn depayloader_complex_h264() {
             &data2,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 
     depayloader
         .handle_packet(&construct_packet(
@@ -1477,25 +1538,40 @@ fn depayloader_complex_h264() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_frame(),
-        Ok(Some(VideoFrame {
-            frame_number: 1,
-            timestamp: 0,
-            buffers: vec![
-                VideoFrameBuffer {
-                    buffer_type: BufferType::Sps,
-                    data: expected1.clone(),
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::Pps,
-                    data: expected2.clone()
-                },
-                VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected3.clone()
-                }
-            ],
-        }))
+        depayloader.poll_output(),
+        Ok(VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_number: 1,
+                timestamp: 0,
+                buffers: vec![
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::Sps,
+                        data: expected1.clone(),
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::Pps,
+                        data: expected2.clone()
+                    },
+                    VideoFrameBuffer {
+                        buffer_type: BufferType::PicData,
+                        data: expected3.clone()
+                    }
+                ],
+            },
+            report: VideoDepayloaderFecReport {
+                frame_index: 1,
+                highest_received_sequence_number: 2,
+                next_contiguous_sequence_number: 3,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1,
+            }
+        })
     );
-    assert_eq!(depayloader.poll_frame(), Ok(None));
+    assert_eq!(depayloader.poll_output(), Ok(VideoDepayloaderOutput::None));
 }
