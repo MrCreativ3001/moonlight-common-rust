@@ -4,7 +4,10 @@ use crate::stream::{
     AudioConfig, SupportedVideoFormats,
     audio::{AudioDecoder, AudioSample, OpusMultistreamConfig},
     connection::ConnectionListener,
-    video::{DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder, VideoSetup},
+    video::{
+        DecodeResult, SunshineHdrMetadata, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
+        VideoSetup,
+    },
 };
 
 pub struct NullListener;
@@ -55,8 +58,8 @@ impl AudioDecoder for NullListener {
 }
 
 impl ConnectionListener for NullListener {
-    fn set_hdr_mode(&mut self, hdr_enabled: bool) {
-        let _ = hdr_enabled;
+    fn set_hdr_mode(&mut self, enabled: bool, sunshine: Option<SunshineHdrMetadata>) {
+        let _ = (enabled, sunshine);
     }
 
     fn controller_rumble(
@@ -109,8 +112,8 @@ impl ConnectionListener for NullListener {
 pub struct DebugListener;
 
 impl ConnectionListener for DebugListener {
-    fn set_hdr_mode(&mut self, hdr_enabled: bool) {
-        info!(target: "moonlight", "HDR mode: {hdr_enabled}");
+    fn set_hdr_mode(&mut self, enabled: bool, sunshine: Option<SunshineHdrMetadata>) {
+        info!(target: "moonlight", "HDR enabled: {enabled}, Sunshine Metadata: {sunshine:?}");
     }
 
     fn controller_rumble(

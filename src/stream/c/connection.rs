@@ -1,16 +1,20 @@
 use std::{
+    mem::MaybeUninit,
     os::raw::{c_int, c_uchar, c_ushort},
     sync::Mutex,
 };
 
 use moonlight_common_sys::{
-    LogMessageCallback, limelight::_CONNECTION_LISTENER_CALLBACKS, log_message_wrapper,
+    LogMessageCallback,
+    limelight::{_CONNECTION_LISTENER_CALLBACKS, LiGetHdrMetadata, SS_HDR_METADATA},
+    log_message_wrapper,
 };
 use num::FromPrimitive;
 
 use crate::stream::{
     c::bindings::{ConnectionStatus, Stage},
     connection::ConnectionListener,
+    video::{Primary, SunshineHdrMetadata},
 };
 
 static GLOBAL_CONNECTION_LISTENER: Mutex<
@@ -91,9 +95,45 @@ impl LogMessageCallback for LogMessage {
     }
 }
 
-unsafe extern "C" fn set_hdr_mode(hdr_enabled: bool) {
+unsafe extern "C" fn set_hdr_mode(enabled: bool) {
     global_listener(|(listener, _)| {
-        listener.set_hdr_mode(hdr_enabled);
+        let sunshine = unsafe {
+            let mut sunshine = MaybeUninit::<SS_HDR_METADATA>::zeroed();
+
+            let sunshine_enabled = LiGetHdrMetadata(sunshine.as_mut_ptr());
+
+            sunshine_enabled.then(|| {
+                let sunshine = sunshine.assume_init();
+
+                SunshineHdrMetadata {
+                    display_primaries: [
+                        Primary {
+                            x: sunshine.displayPrimaries[0].x,
+                            y: sunshine.displayPrimaries[0].y,
+                        },
+                        Primary {
+                            x: sunshine.displayPrimaries[1].x,
+                            y: sunshine.displayPrimaries[1].y,
+                        },
+                        Primary {
+                            x: sunshine.displayPrimaries[2].x,
+                            y: sunshine.displayPrimaries[2].y,
+                        },
+                    ],
+                    white_point: Primary {
+                        x: sunshine.whitePoint.x,
+                        y: sunshine.whitePoint.y,
+                    },
+                    max_display_luminance: sunshine.maxDisplayLuminance,
+                    min_display_luminance: sunshine.minDisplayLuminance,
+                    max_content_light_level: sunshine.maxContentLightLevel,
+                    max_frame_average_light_level: sunshine.maxFrameAverageLightLevel,
+                    max_full_frame_luminance: sunshine.maxFullFrameLuminance,
+                }
+            })
+        };
+
+        listener.set_hdr_mode(enabled, sunshine);
     })
 }
 

@@ -26,6 +26,7 @@ use crate::{
             control::{
                 ControlMessage, ControlStream, ControlStreamEvent, ControlStreamInput,
                 ControlStreamOutput,
+                packet::ControlPacket,
                 peer::{ControlHostAction, ControlHostInput},
             },
             crypto::CryptoBackend,
@@ -611,7 +612,12 @@ fn control_thread<Crypto>(
                     continue;
                 }
                 ControlStreamEvent::Packet(packet) => {
-                    // TODO
+                    match packet {
+                        ControlPacket::HdrMode { enabled, sunshine } => {
+                            connection_listener.set_hdr_mode(enabled, sunshine);
+                        }
+                        _ => {}
+                    }
                     continue;
                 }
                 ControlStreamEvent::Disconnect => {

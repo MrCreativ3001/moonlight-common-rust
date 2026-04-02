@@ -1,9 +1,14 @@
+use crate::stream::video::SunshineHdrMetadata;
+
 pub trait ConnectionListener {
     /// This callback is invoked to notify the client of a change in HDR mode on
     /// the host. The client will probably want to update the local display mode
     /// to match the state of HDR on the host. This callback may be invoked even
     /// if the stream is not using an HDR-capable codec.
-    fn set_hdr_mode(&mut self, hdr_enabled: bool);
+    ///
+    /// See also:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L963-L988
+    fn set_hdr_mode(&mut self, enabled: bool, sunshine: Option<SunshineHdrMetadata>);
 
     /// This callback is invoked to rumble a gamepad. The rumble effect values
     /// set in this callback are expected to persist until a future call sets a

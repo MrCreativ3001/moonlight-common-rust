@@ -145,7 +145,6 @@ pub struct VideoSetup {
     pub redraw_rate: u32,
 }
 
-///
 /// Sunshine Extension
 ///
 /// References:
