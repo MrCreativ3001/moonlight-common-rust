@@ -18,8 +18,9 @@ use crate::{
         },
         video::{BufferType, VideoFormat, VideoFrameBuffer},
     },
+    test::init_test,
 };
-use tracing::info;
+use tracing::{info, trace};
 
 // TODO: test encrypted header serialization
 
@@ -208,6 +209,38 @@ fn fec_percentage() {
     assert_eq!(fec_percentage_to_parity_shards(20, 50), 10);
 }
 
+fn sunshine_gen_7_431() -> ServerVersion {
+    ServerVersion::new(7, 1, 431, -1)
+}
+
+#[test]
+fn payloader_nofec_empty() {
+    // make sure this doesn't crash
+    let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
+        server_version: sunshine_gen_7_431(),
+        packet_size: 1024,
+        fec: None,
+    });
+
+    payloader.push_frame(0, None, FrameType::PFrame, &[]);
+
+    while payloader.poll_packet().unwrap().is_some() {}
+}
+
+#[test]
+fn payloader_nofec_frame_length_1() {
+    // make sure this doesn't crash
+    let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
+        server_version: sunshine_gen_7_431(),
+        packet_size: 1024,
+        fec: None,
+    });
+
+    payloader.push_frame(0, None, FrameType::PFrame, &[0]);
+
+    while payloader.poll_packet().unwrap().is_some() {}
+}
+
 #[test]
 fn payloader_nofec() {
     let mut data: [u8; 128 + 512] = array::from_fn(|i| (i % u8::MAX as usize) as u8);
@@ -255,7 +288,7 @@ fn payloader_nofec() {
                 },
                 VideoHeader {
                     stream_packet_index: 0u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -290,7 +323,7 @@ fn payloader_nofec() {
                 },
                 VideoHeader {
                     stream_packet_index: 1u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -325,7 +358,7 @@ fn payloader_nofec() {
                 },
                 VideoHeader {
                     stream_packet_index: 2u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -360,7 +393,7 @@ fn payloader_nofec() {
                 },
                 VideoHeader {
                     stream_packet_index: 3u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -395,7 +428,7 @@ fn payloader_nofec() {
                 },
                 VideoHeader {
                     stream_packet_index: 4u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -422,14 +455,14 @@ fn payloader_nofec() {
 fn generate_frame_payload(
     frame: &[u8],
     host_processing_latency: u16,
-    packet_size: usize,
+    payload_size: usize,
 ) -> Vec<u8> {
     let full_payload_len = VideoFrameHeader::SIZE + frame.len();
-    let padded_len = full_payload_len.div_ceil(packet_size) * packet_size;
+    let padded_len = full_payload_len.div_ceil(payload_size) * payload_size;
     let mut data = vec![0; padded_len];
 
     let last_payload_len = if full_payload_len.is_multiple_of(frame.len()) {
-        frame.len()
+        payload_size
     } else {
         full_payload_len % frame.len()
     };
@@ -453,28 +486,19 @@ fn generate_frame_payload(
     data
 }
 
-fn sunshine_gen_7_431() -> ServerVersion {
-    ServerVersion::new(7, 1, 431, -1)
-}
-
 #[test]
 fn payloader_fec() {
-    let packet_size = 128 + RtpVideoHeader::SIZE + VideoHeader::SIZE;
-    let host_processing_latency = Duration::from_millis(10);
+    let payload_size = 128;
 
     let frame: [u8; 512] = array::from_fn(|i| (i % u8::MAX as usize) as u8);
-    let full_payload = generate_frame_payload(
-        &frame,
-        (host_processing_latency.as_micros() / 100) as u16,
-        packet_size,
-    );
+    let full_payload = generate_frame_payload(&frame, 0, payload_size);
 
     let data_shards_total = 5u32;
     let parity_shard_count = 2;
     let fec_percentage = fec_percentage_from(data_shards_total as usize, parity_shard_count) as u32;
 
-    let data_shards = full_payload.chunks(128).collect::<Vec<_>>();
-    let mut fec_data = vec![vec![0; 128]; 2];
+    let data_shards = full_payload.chunks(payload_size).collect::<Vec<_>>();
+    let mut fec_data = vec![vec![0; payload_size]; 2];
 
     let reed_solomon = create_video_reed_solomon(data_shards_total as usize, parity_shard_count);
     reed_solomon
@@ -487,11 +511,11 @@ fn payloader_fec() {
             fec_percentage: 0,
             min_required_fec_packets: parity_shard_count,
         }),
-        packet_size,
+        packet_size: payload_size + VideoHeader::SIZE,
     });
 
     payloader
-        .push_frame(0, Some(host_processing_latency), FrameType::PFrame, &frame)
+        .push_frame(0, None, FrameType::PFrame, &frame)
         .unwrap();
 
     assert_eq!(
@@ -743,7 +767,7 @@ fn payloader_fec() {
 }
 
 #[test]
-fn payloading_nofec_packet_size_8() {
+fn payloader_nofec_packet_size_8() {
     let payload_size = 8;
     let data_shards_total = 2;
     let fec_percentage = 0;
@@ -844,7 +868,7 @@ fn payloading_nofec_packet_size_8() {
 }
 
 #[test]
-fn payloading_nofec_packet_size_9() {
+fn payloader_nofec_packet_size_9() {
     let payload_size = 9;
     let data_shards_total = 2;
     let fec_percentage = 0;
@@ -946,7 +970,7 @@ fn payloading_nofec_packet_size_9() {
 }
 
 #[test]
-fn payloading_nofec_packet_size_10() {
+fn payloader_nofec_packet_size_10() {
     let payload_size = 10;
     let data_shards_total = 2;
     let fec_percentage = 0;
@@ -1050,35 +1074,34 @@ fn payloading_nofec_packet_size_10() {
 
 #[test]
 fn depayloader_nofec_noparse() {
-    let server_version = sunshine_gen_7_431();
-    let packet_size = RtpVideoHeader::SIZE + VideoHeader::SIZE + 10;
+    init_test();
 
-    let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
-        server_version,
-        packet_size,
-        fec: None,
-    });
+    let server_version = sunshine_gen_7_431();
+    let payload_size = 10;
+    let expected_host_processing_latency = Duration::from_millis(10);
 
     let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
-        packet_size,
+        packet_size: payload_size + VideoHeader::SIZE,
         // av1 doesn't get parsed
         format: VideoFormat::Av1Main8,
         server_version: sunshine_gen_7_431(),
     });
 
     let expected_frame = vec![
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 9, 7, 8, 6, 5,
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1,
     ];
-    assert_eq!(expected_frame.len(), 30);
+    assert_eq!(expected_frame.len(), 30 - VideoFrameHeader::SIZE);
 
-    payloader.push_frame(0, None, FrameType::Idr, &[]);
-
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
+    let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
+        server_version,
+        packet_size: payload_size + VideoHeader::SIZE,
+        fec: None,
+    });
+    payloader.push_frame(
+        0,
+        Some(expected_host_processing_latency),
+        FrameType::Idr,
+        &expected_frame,
     );
 
     depayloader
@@ -1094,29 +1117,55 @@ fn depayloader_nofec_noparse() {
         .unwrap();
     assert_eq!(
         depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::Frame {
-            frame: VideoFrame {
-                frame_number: 1,
-                timestamp: 0,
-                host_processing_latency: None,
-                buffers: vec![VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: expected_frame.clone(),
-                }],
+        VideoDepayloaderOutput::None
+    );
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    trace!("{:#?}", depayloader);
+    let VideoDepayloaderOutput::Frame {
+        frame:
+            VideoFrame {
+                frame_index,
+                timestamp,
+                host_processing_latency,
+                buffers,
             },
-            report: VideoDepayloaderFecReport {
-                frame_index: 1,
-                highest_received_sequence_number: 2,
-                next_contiguous_sequence_number: 3,
-                missing_packets_before_highest_received: 0,
-                total_data_packets: 3,
-                total_parity_packets: 0,
-                received_data_packets: 3,
-                received_parity_packets: 0,
-                fec_percentage: 0,
-                multi_fec_block_index: 0,
-                multi_fec_block_count: 1
-            }
+        fec_report,
+    } = depayloader.poll_output().unwrap()
+    else {
+        panic!("expected Frame");
+    };
+
+    assert_eq!(frame_index, 0);
+    assert_eq!(timestamp, 0);
+    assert_eq!(
+        host_processing_latency,
+        Some(expected_host_processing_latency)
+    );
+
+    let mut buffer = Vec::new();
+    for VideoFrameBuffer { buffer_type, data } in buffers {
+        assert_eq!(buffer_type, BufferType::PicData);
+        buffer.extend_from_slice(&data);
+    }
+    assert_eq!(buffer.as_slice(), expected_frame.as_slice());
+
+    assert_eq!(
+        fec_report,
+        VideoDepayloaderFecReport {
+            frame_index: 0,
+            highest_received_sequence_number: 2,
+            next_contiguous_sequence_number: 3,
+            missing_packets_before_highest_received: 0,
+            total_data_packets: 3,
+            total_parity_packets: 0,
+            received_data_packets: 3,
+            received_parity_packets: 0,
+            fec_percentage: 0,
+            multi_fec_block_index: 0,
+            multi_fec_block_count: 1
         }
     );
 }

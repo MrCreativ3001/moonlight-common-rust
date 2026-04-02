@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{debug, debug_span, trace, warn};
+use tracing::{Level, debug, debug_span, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -45,7 +45,7 @@ pub struct VideoDepayloaderConfig {
 
 #[derive(Debug, PartialEq)]
 pub struct VideoFrame {
-    pub frame_number: u32,
+    pub frame_index: u32,
     /// The timestamp that the server sent.
     /// 90kHz clock time representation.
     ///
@@ -76,7 +76,7 @@ pub enum VideoDepayloaderOutput {
     /// This also contains other information regarding the frame.
     Frame {
         frame: VideoFrame,
-        report: VideoDepayloaderFecReport,
+        fec_report: VideoDepayloaderFecReport,
     },
 }
 
@@ -95,6 +95,7 @@ pub struct VideoDepayloaderFecReport {
     pub multi_fec_block_count: u8,
 }
 
+#[derive(Debug)]
 struct Packet {
     frame_index: u32,
     timestamp: u32,
@@ -104,6 +105,7 @@ struct Packet {
     data: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub struct VideoDepayloader {
     config: VideoDepayloaderConfig,
     // TODO: try to avoid copying data by directly putting the packets into the correct position in this buffer
@@ -121,14 +123,14 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
 // TODO: this should also handle decryption
 
 // TODO: how to handle fec? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L455-L469
+// TODO: encryption? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
 
 impl VideoDepayloader {
     pub fn new(config: VideoDepayloaderConfig) -> Self {
         Self {
             config,
             current_frame_buffer: vec![],
-            // Frame index starts at 1
-            current_frame_index: 1,
+            current_frame_index: 0,
             packets: Default::default(),
         }
     }
@@ -148,7 +150,10 @@ impl VideoDepayloader {
 
         // Check if we can construct a frame
         if let Some((frame, report)) = self.try_construct_fec_block(self.current_frame_index)? {
-            output = VideoDepayloaderOutput::Frame { frame, report };
+            output = VideoDepayloaderOutput::Frame {
+                frame,
+                fec_report: report,
+            };
 
             // TODO: increase current_frame_index and current_sequence_number
             self.current_frame_index += 1;
@@ -269,7 +274,8 @@ impl VideoDepayloader {
         // -- Interpret frame
         let parse_frame_span = debug_span!("parse_frame");
 
-        let frame = self.interpret_current_frame(frame_index, timestamp);
+        let frame =
+            self.interpret_current_frame(frame_index, timestamp, total_data_shards * payload_size);
 
         drop(parse_frame_span);
 
@@ -360,7 +366,13 @@ impl VideoDepayloader {
     /// Interprets the [Self::current_frame_buffer] and returns a VideoFrame
     ///
     /// Mostly the functionality of https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L743-L1156
-    fn interpret_current_frame(&mut self, frame_number: u32, timestamp: u32) -> VideoFrame {
+    #[instrument(level = Level::TRACE, skip(self), fields(buffer_len = self.current_frame_buffer.len()))]
+    fn interpret_current_frame(
+        &mut self,
+        frame_number: u32,
+        timestamp: u32,
+        last_payload_start: usize,
+    ) -> VideoFrame {
         // parse the frame header
         // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L855-L972
 
@@ -381,7 +393,7 @@ impl VideoDepayloader {
             .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
         {
             self.current_frame_buffer
-                .truncate(frame_header.last_payload_len as usize);
+                .truncate(last_payload_start + frame_header.last_payload_len as usize);
         }
 
         // Skip the rest of the header
@@ -431,31 +443,33 @@ impl VideoDepayloader {
             frame_header_len = 0;
         }
 
+        trace!(frame_header = ?frame_header, frame_header_len = frame_header_len, "frame header");
+
         let host_processing_latency = (frame_header.host_processing_latency != 0).then_some(
             Duration::from_micros(frame_header.host_processing_latency as u64 * 100),
         );
 
         debug_assert!(self.current_frame_buffer.len() > frame_header_len);
 
+        // Make sure to skip headers
+        let frame_data = &self.current_frame_buffer[frame_header_len..];
+
         // only h264 and h265 bitstreams are parsed
         if !self
             .config
             .format
-            .contained_in(SupportedVideoFormats::H264 | SupportedVideoFormats::H265)
+            .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
         {
             // TODO: encryption may change size
             let payload_size = self.config.packet_size - VideoHeader::SIZE;
 
-            let buffers =
-                self.current_frame_buffer
-                    .chunks(payload_size)
-                    .map(|x| VideoFrameBuffer {
-                        buffer_type: BufferType::PicData,
-                        data: x.to_owned(),
-                    });
+            let buffers = frame_data.chunks(payload_size).map(|x| VideoFrameBuffer {
+                buffer_type: BufferType::PicData,
+                data: x.to_owned(),
+            });
 
             return VideoFrame {
-                frame_number,
+                frame_index: frame_number,
                 timestamp,
                 host_processing_latency,
                 buffers: buffers.collect(),
@@ -510,9 +524,9 @@ impl VideoDepayloader {
         };
 
         // Find annex b start codes
-        for i in frame_header_len..self.current_frame_buffer.len() {
+        for i in 0..frame_data.len() {
             start_code_window.rotate_left(1);
-            start_code_window[3] = self.current_frame_buffer[i];
+            start_code_window[3] = frame_data[i];
 
             let mut buffer = None;
 
@@ -545,7 +559,7 @@ impl VideoDepayloader {
         }
 
         VideoFrame {
-            frame_number,
+            frame_index: frame_number,
             timestamp,
             host_processing_latency,
             buffers,

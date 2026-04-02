@@ -551,7 +551,7 @@ fn video_thread<Crypto>(
                 // TODO
 
                 video_decoder.submit_decode_unit(VideoDecodeUnit {
-                    frame_number: frame.frame_number as i32,
+                    frame_number: frame.frame_index as i32,
                     // TODO: frame type
                     frame_type: FrameType::PFrame,
                     frame_processing_latency: None,

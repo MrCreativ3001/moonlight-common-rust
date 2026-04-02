@@ -238,9 +238,13 @@ impl VideoPayloader {
                         .unwrap(),
                 );
 
-                let frame_end = self.payload_len.min(block_data.len()) - VideoFrameHeader::SIZE;
+                let frame_end = self
+                    .payload_len
+                    .min(block_data.len())
+                    .saturating_sub(VideoFrameHeader::SIZE);
 
-                packet[(header_size + VideoFrameHeader::SIZE)..packet_size]
+                packet[(header_size + VideoFrameHeader::SIZE)
+                    ..(header_size + VideoFrameHeader::SIZE + frame_end)]
                     .copy_from_slice(&block_data[0..frame_end]);
 
                 block_position += VideoFrameHeader::SIZE + frame_end;
