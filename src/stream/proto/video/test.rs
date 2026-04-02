@@ -532,7 +532,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 0u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -567,7 +567,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 1u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -602,7 +602,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 2u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -637,7 +637,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 3u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -672,7 +672,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 4u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE,
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -707,7 +707,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 5u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::empty(),
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -742,7 +742,7 @@ fn payloader_fec() {
                 },
                 VideoHeader {
                     stream_packet_index: 6u32 << 8,
-                    frame_index: 0,
+                    frame_index: 1,
                     flags: VideoHeaderFlags::empty(),
                     reserved: 0,
                     multi_fec_flags: 0x10,
@@ -795,7 +795,7 @@ fn payloader_nofec_packet_size_8() {
         },
         VideoHeader {
             stream_packet_index: 0u32 << 8,
-            frame_index: 0,
+            frame_index: 1,
             flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE,
             reserved: 0,
             multi_fec_flags: 0x10,
@@ -824,7 +824,7 @@ fn payloader_nofec_packet_size_8() {
         },
         VideoHeader {
             stream_packet_index: 1u32 << 8,
-            frame_index: 0,
+            frame_index: 1,
             flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE,
             reserved: 0,
             multi_fec_flags: 0x10,
@@ -897,7 +897,7 @@ fn payloader_nofec_packet_size_9() {
         },
         VideoHeader {
             stream_packet_index: 0u32 << 8,
-            frame_index: 0,
+            frame_index: 1,
             flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE,
             reserved: 0,
             multi_fec_flags: 0x10,
@@ -926,7 +926,7 @@ fn payloader_nofec_packet_size_9() {
         },
         VideoHeader {
             stream_packet_index: 1u32 << 8,
-            frame_index: 0,
+            frame_index: 1,
             flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE,
             reserved: 0,
             multi_fec_flags: 0x10,
@@ -1000,7 +1000,7 @@ fn payloader_nofec_packet_size_10() {
         },
         VideoHeader {
             stream_packet_index: 0u32 << 8,
-            frame_index: 0,
+            frame_index: 1,
             flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE,
             reserved: 0,
             multi_fec_flags: 0x10,
@@ -1029,7 +1029,7 @@ fn payloader_nofec_packet_size_10() {
         },
         VideoHeader {
             stream_packet_index: 1u32 << 8,
-            frame_index: 0,
+            frame_index: 1,
             flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE,
             reserved: 0,
             multi_fec_flags: 0x10,
@@ -1087,7 +1087,7 @@ fn depayloader_nofec_noparse() {
         server_version: sunshine_gen_7_431(),
     });
 
-    let expected_frame = vec![
+    let expected_frame = [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1,
     ];
     assert_eq!(expected_frame.len(), 30 - VideoFrameHeader::SIZE);
@@ -1128,6 +1128,7 @@ fn depayloader_nofec_noparse() {
         frame:
             VideoFrame {
                 frame_index,
+                frame_type,
                 timestamp,
                 host_processing_latency,
                 buffers,
@@ -1138,7 +1139,8 @@ fn depayloader_nofec_noparse() {
         panic!("expected Frame");
     };
 
-    assert_eq!(frame_index, 0);
+    assert_eq!(frame_index, 1);
+    assert_eq!(frame_type, FrameType::Idr);
     assert_eq!(timestamp, 0);
     assert_eq!(
         host_processing_latency,
@@ -1155,7 +1157,7 @@ fn depayloader_nofec_noparse() {
     assert_eq!(
         fec_report,
         VideoDepayloaderFecReport {
-            frame_index: 0,
+            frame_index: 1,
             highest_received_sequence_number: 2,
             next_contiguous_sequence_number: 3,
             missing_packets_before_highest_received: 0,
@@ -1166,6 +1168,188 @@ fn depayloader_nofec_noparse() {
             fec_percentage: 0,
             multi_fec_block_index: 0,
             multi_fec_block_count: 1
+        }
+    );
+}
+
+#[test]
+fn depayloader_nofec_h264() {
+    init_test();
+
+    let server_version = sunshine_gen_7_431();
+    let payload_size = 10;
+
+    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+        packet_size: payload_size + VideoHeader::SIZE,
+        format: VideoFormat::H264,
+        server_version: sunshine_gen_7_431(),
+    });
+
+    let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
+        VideoFrameBuffer {
+            buffer_type: BufferType::Sps,
+            data: vec![0, 0, 1, 0x67, 3, 4],
+        },
+        VideoFrameBuffer {
+            buffer_type: BufferType::Pps,
+            data: vec![0, 0, 1, 0x68, 9, 9, 8, 7, 6, 5],
+        },
+        VideoFrameBuffer {
+            // idr
+            buffer_type: BufferType::PicData,
+            data: vec![0, 0, 1, 0x65, 0, 1],
+        },
+    ];
+    let expected_frame = expected_buffers
+        .iter()
+        .flat_map(|buf| &buf.data)
+        .copied()
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected_frame.len(), 30 - VideoFrameHeader::SIZE);
+
+    let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
+        server_version,
+        packet_size: payload_size + VideoHeader::SIZE,
+        fec: None,
+    });
+    payloader.push_frame(0, None, FrameType::Idr, &expected_frame);
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        depayloader.poll_output().unwrap(),
+        VideoDepayloaderOutput::None
+    );
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        depayloader.poll_output().unwrap(),
+        VideoDepayloaderOutput::None
+    );
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        depayloader.poll_output().unwrap(),
+        VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_type: FrameType::Idr,
+                frame_index: 1,
+                timestamp: 0,
+                host_processing_latency: None,
+                buffers: expected_buffers,
+            },
+            fec_report: VideoDepayloaderFecReport {
+                frame_index: 1,
+                highest_received_sequence_number: 2,
+                next_contiguous_sequence_number: 3,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1
+            }
+        }
+    );
+}
+
+#[test]
+fn depayloader_nofec_h265() {
+    init_test();
+
+    let server_version = sunshine_gen_7_431();
+    let payload_size = 15;
+
+    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+        packet_size: payload_size + VideoHeader::SIZE,
+        format: VideoFormat::H265,
+        server_version: sunshine_gen_7_431(),
+    });
+
+    let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
+        VideoFrameBuffer {
+            buffer_type: BufferType::Vps,
+            data: vec![0, 0, 1, 1, 40, 4, 1, 2, 3, 58, 67],
+        },
+        VideoFrameBuffer {
+            buffer_type: BufferType::Sps,
+            data: vec![0, 0, 1, 1, 42, 4, 5, 56],
+        },
+        VideoFrameBuffer {
+            buffer_type: BufferType::Pps,
+            data: vec![0, 0, 1, 1, 44, 6, 7, 33],
+        },
+        VideoFrameBuffer {
+            // idr
+            buffer_type: BufferType::PicData,
+            data: vec![0, 0, 1, 1, 20, 1, 8, 5, 38, 120],
+        },
+    ];
+    let expected_frame = expected_buffers
+        .iter()
+        .flat_map(|buf| &buf.data)
+        .copied()
+        .collect::<Vec<_>>();
+
+    assert_eq!(expected_frame.len(), 45 - VideoFrameHeader::SIZE);
+
+    let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
+        server_version,
+        packet_size: payload_size + VideoHeader::SIZE,
+        fec: None,
+    });
+    payloader.push_frame(0, None, FrameType::Idr, &expected_frame);
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        depayloader.poll_output().unwrap(),
+        VideoDepayloaderOutput::None
+    );
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        depayloader.poll_output().unwrap(),
+        VideoDepayloaderOutput::None
+    );
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(
+        depayloader.poll_output().unwrap(),
+        VideoDepayloaderOutput::Frame {
+            frame: VideoFrame {
+                frame_type: FrameType::Idr,
+                frame_index: 1,
+                timestamp: 0,
+                host_processing_latency: None,
+                buffers: expected_buffers,
+            },
+            fec_report: VideoDepayloaderFecReport {
+                frame_index: 1,
+                highest_received_sequence_number: 2,
+                next_contiguous_sequence_number: 3,
+                missing_packets_before_highest_received: 0,
+                total_data_packets: 3,
+                total_parity_packets: 0,
+                received_data_packets: 3,
+                received_parity_packets: 0,
+                fec_percentage: 0,
+                multi_fec_block_index: 0,
+                multi_fec_block_count: 1
+            }
         }
     );
 }

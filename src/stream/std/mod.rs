@@ -214,7 +214,14 @@ fn tcp_receive_thread(stream: Arc<TcpStream>, mut sender: Sender<Input>) {
     loop {
         let len = match stream.read(&mut buffer) {
             Ok(len) => len,
-            Err(err) if err.kind() == IoError::ConnectionReset => 0,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    IoError::ConnectionReset | IoError::ConnectionAborted
+                ) =>
+            {
+                0
+            }
             Err(err) => todo!("{}", err),
         };
 

@@ -82,7 +82,8 @@ impl VideoPayloader {
             payload_len,
             fec_config: config.fec,
             sequence_number: 0,
-            frame_index: 0,
+            // Frame Index Starts at 1!
+            frame_index: 1,
             packet_queue_used_front: false,
             unused: Vec::default(),
             packet_queue: VecDeque::default(),

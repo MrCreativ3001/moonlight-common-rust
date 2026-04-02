@@ -46,6 +46,10 @@ pub struct VideoDepayloaderConfig {
 #[derive(Debug, PartialEq)]
 pub struct VideoFrame {
     pub frame_index: u32,
+    /// Type of this frame.
+    /// - For H264 and H265 this will be parsed using the nalus from the bitstream.
+    /// - For other codecs (Av1) this will be the value from the server
+    pub frame_type: FrameType,
     /// The timestamp that the server sent.
     /// 90kHz clock time representation.
     ///
@@ -130,7 +134,8 @@ impl VideoDepayloader {
         Self {
             config,
             current_frame_buffer: vec![],
-            current_frame_index: 0,
+            // Frame Index Starts at 1!
+            current_frame_index: 1,
             packets: Default::default(),
         }
     }
@@ -451,8 +456,11 @@ impl VideoDepayloader {
 
         debug_assert!(self.current_frame_buffer.len() > frame_header_len);
 
-        // Make sure to skip headers
+        // Make sure to skip frame header
         let frame_data = &self.current_frame_buffer[frame_header_len..];
+
+        // TODO: what about the other frame types?
+        let mut frame_type = frame_header.frame_type;
 
         // only h264 and h265 bitstreams are parsed
         if !self
@@ -460,20 +468,21 @@ impl VideoDepayloader {
             .format
             .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
         {
-            // TODO: encryption may change size
-            let payload_size = self.config.packet_size - VideoHeader::SIZE;
-
-            let buffers = frame_data.chunks(payload_size).map(|x| VideoFrameBuffer {
-                buffer_type: BufferType::PicData,
-                data: x.to_owned(),
-            });
-
             return VideoFrame {
                 frame_index: frame_number,
+                // Trust the server frame type
+                frame_type,
                 timestamp,
                 host_processing_latency,
-                buffers: buffers.collect(),
+                buffers: vec![VideoFrameBuffer {
+                    buffer_type: BufferType::PicData,
+                    data: frame_data.to_vec(),
+                }],
             };
+        } else {
+            // parse the frame type ourselves
+            // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L311-L339
+            frame_type = FrameType::PFrame;
         }
 
         // -- H264 and H265
@@ -487,28 +496,54 @@ impl VideoDepayloader {
         // Add a buffer to the video frame buffer and finds out the buffer type
         let mut add_buffer = |nalu_start: usize, buffer: &[u8]| {
             let buffer_type = {
-                if self.config.format.contained_in(SupportedVideoFormats::H264) {
+                if self
+                    .config
+                    .format
+                    .contained_in(SupportedVideoFormats::MASK_H264)
+                {
                     if buffer.len() < nalu_start + 1 {
                         warn!("Couldn't read nal header because nalu is too short!");
-                        trace!(frame = ?self.current_frame_buffer, buffer = ?buffer, nalu_start = nalu_start, "data");
+                        trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
 
                         BufferType::PicData
                     } else {
                         // H264 specific filtering
                         let nal_header = h264::NalHeader::parse([buffer[nalu_start]]);
 
+                        // See frame type definition for info
+                        if matches!(nal_header.nal_unit_type, h264::NalUnitType::CodedSliceIDR) {
+                            frame_type = FrameType::Idr;
+                        }
+
                         nal_header.nal_unit_type.to_buffer_type()
                     }
-                } else if self.config.format.contained_in(SupportedVideoFormats::H265) {
+                } else if self
+                    .config
+                    .format
+                    .contained_in(SupportedVideoFormats::MASK_H265)
+                {
                     if buffer.len() < nalu_start + 2 {
                         warn!("Couldn't read nal header because nalu is too short!");
-                        trace!(frame = ?self.current_frame_buffer, buffer = ?buffer, nalu_start = nalu_start, "data");
+                        trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
 
                         BufferType::PicData
                     } else {
                         // H265 specific filtering
                         let nal_header =
                             h265::NalHeader::parse([buffer[nalu_start], buffer[nalu_start + 1]]);
+
+                        // See frame type definition for info
+                        if matches!(
+                            nal_header.nal_unit_type,
+                            h265::NalUnitType::BlaWLp
+                                | h265::NalUnitType::BlaWRadl
+                                | h265::NalUnitType::BlaNLp
+                                | h265::NalUnitType::IdrWRadl
+                                | h265::NalUnitType::IdrNLp
+                                | h265::NalUnitType::CraNut
+                        ) {
+                            frame_type = FrameType::Idr;
+                        }
 
                         nal_header.nal_unit_type.to_buffer_type()
                     }
@@ -537,9 +572,7 @@ impl VideoDepayloader {
                 let new_start_code_begin = i - (new_start_code_len - 1);
                 if let Some((last_start_code_begin, last_start_code_len)) = last_start_code {
                     nalu_offset = last_start_code_len;
-                    buffer = Some(
-                        &self.current_frame_buffer[last_start_code_begin..new_start_code_begin],
-                    );
+                    buffer = Some(&frame_data[last_start_code_begin..new_start_code_begin]);
                 }
                 last_start_code = Some((new_start_code_begin, new_start_code_len));
             }
@@ -552,14 +585,12 @@ impl VideoDepayloader {
         }
 
         if let Some((start_code_begin, start_code_len)) = last_start_code {
-            add_buffer(
-                start_code_len,
-                &self.current_frame_buffer[start_code_begin..],
-            );
+            add_buffer(start_code_len, &frame_data[start_code_begin..]);
         }
 
         VideoFrame {
             frame_index: frame_number,
+            frame_type,
             timestamp,
             host_processing_latency,
             buffers,
