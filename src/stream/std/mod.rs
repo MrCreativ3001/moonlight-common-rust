@@ -310,12 +310,14 @@ fn proto_thread<Crypto>(
                     udp.connect(addr).unwrap();
 
                     let span = Span::current();
+
+                    let send_control_message = send_control_message.clone();
                     spawn(move || {
                         let _enter = span.enter();
 
                         info!("Starting Video Thread");
 
-                        video_thread(video_stream, udp, video_decoder);
+                        video_thread(video_stream, udp, video_decoder, send_control_message);
                     });
                     continue;
                 }
@@ -503,6 +505,7 @@ fn video_thread<Crypto>(
     mut video_stream: VideoStream<Crypto>,
     socket: Arc<UdpSocket>,
     mut video_decoder: Box<dyn VideoDecoder + Send + 'static>,
+    send_control_message: Sender<Input>,
     // TODO: get the video information
 ) where
     Crypto: CryptoBackend,
@@ -572,9 +575,13 @@ fn video_thread<Crypto>(
                 // TODO: stop video decoder
                 continue;
             }
+            VideoStreamOutput::SendControlMessage { message } => {
+                send_control_message
+                    .send(Input::ControlMessage { message })
+                    .unwrap();
+                continue;
+            }
             VideoStreamOutput::Timeout(timeout) => timeout,
-            // TODO
-            _ => todo!(),
         };
 
         let Some(duration) = timeout.checked_duration_since(Instant::now()) else {

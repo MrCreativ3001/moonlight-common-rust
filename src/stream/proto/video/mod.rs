@@ -13,12 +13,15 @@ use crate::{
     stream::{
         AesKey,
         proto::{
+            ControlMessageInner,
+            control::{ControlMessage, packet::ControlPacket},
             crypto::{CipherAlgorithm, CryptoBackend},
             packet::SunshinePingPacket,
             rtsp::moonlight::SunshinePing,
             video::{
                 depayloader::{
-                    VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput, VideoFrame,
+                    VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
+                    VideoDepayloaderReport, VideoFrame,
                 },
                 packet::EncryptedVideoHeader,
             },
@@ -51,8 +54,15 @@ pub enum VideoStreamInput<'a> {
 
 #[derive(Debug)]
 pub enum VideoStreamOutput {
-    SendUdp { to: SocketAddr, data: Vec<u8> },
+    SendUdp {
+        to: SocketAddr,
+        data: Vec<u8>,
+    },
     VideoFrame(VideoFrame),
+    /// Send a control message to the [ControlStream](super::control::ControlStream).
+    SendControlMessage {
+        message: ControlMessage,
+    },
     Timeout(Instant),
 }
 
@@ -70,6 +80,9 @@ enum State {
         sunshine_ping: Option<SunshinePingPacket>,
     },
     ReceiveVideo,
+    SendFecReport {
+        fec_report: VideoDepayloaderReport,
+    },
 }
 
 pub struct VideoStream<Crypto> {
@@ -144,10 +157,13 @@ where
                 })
             }
             State::ReceiveVideo => {
-                if let VideoDepayloaderOutput::Frame { frame, .. } =
-                    self.queue.poll_output().unwrap()
+                if let VideoDepayloaderOutput::Frame {
+                    frame,
+                    report: fec_report,
+                } = self.queue.poll_output().unwrap()
                 {
-                    // TODO: send report to control channel
+                    self.state = State::SendFecReport { fec_report };
+
                     return Ok(VideoStreamOutput::VideoFrame(frame));
                 }
 
@@ -155,6 +171,32 @@ where
                     // TODO: set video timeout and then do exit
                     self.last_now + Duration::from_secs(1),
                 ))
+            }
+            State::SendFecReport { fec_report } => {
+                let message = ControlMessageInner::SendPacket {
+                    force: false,
+                    packet: ControlPacket::FrameFec {
+                        frame_index: fec_report.frame_index,
+                        highest_received_sequence_number: fec_report
+                            .highest_received_sequence_number,
+                        next_contiguous_sequence_number: fec_report.next_contiguous_sequence_number,
+                        missing_packets_before_highest_received: fec_report
+                            .missing_packets_before_highest_received,
+                        total_data_packets: fec_report.total_data_packets,
+                        total_parity_packets: fec_report.total_parity_packets,
+                        received_data_packets: fec_report.received_data_packets,
+                        received_parity_packets: fec_report.received_parity_packets,
+                        fec_percentage: fec_report.fec_percentage,
+                        multi_fec_block_index: fec_report.multi_fec_block_index,
+                        multi_fec_block_count: fec_report.multi_fec_block_count,
+                    },
+                };
+
+                self.state = State::ReceiveVideo;
+
+                Ok(VideoStreamOutput::SendControlMessage {
+                    message: ControlMessage(message),
+                })
             }
         }
     }

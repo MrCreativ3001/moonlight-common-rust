@@ -199,32 +199,75 @@ pub struct ControlPacketConfig {
     pub server_version: ServerVersion,
     /// The version of all packets
     pub version: PacketVersion,
-    /// See [ControlPacket::PeriodicPing]
+    /// See also:
+    /// - [ControlPacket::PeriodicPing]
     pub periodic_ping: Option<RawControlPacketType>,
     /// This seems to also equal StartA
+    ///
+    /// See also:
+    /// - [ControlPacket::RequestIdr]
     pub request_idr: RawControlPacketType,
+    ///
+    /// See also:
+    /// - [ControlPacket::StartB]
     pub start_b: RawControlPacketType,
+    ///
+    /// See also:
+    /// - [ControlPacket::InvalidateReferenceFrames]
     pub invalidate_reference_frames: RawControlPacketType,
+    ///
+    /// See also:
+    /// - [ControlPacket::LongTermReferenceFrameAcknowledgement]
     pub long_term_reference_frame_acknowledgement: Option<RawControlPacketType>,
+    ///
+    /// See also:
+    /// - [ControlPacket::LossStats]
     pub loss_stats: RawControlPacketType,
+    ///
+    /// See also:
+    /// - [ControlPacket::FrameStats]
     pub frame_stats: RawControlPacketType,
+    ///
+    /// See also:
+    /// - [ControlPacket::RumbleData]
     pub rumble_data: Option<RawControlPacketType>,
+    ///
+    /// See also:
+    /// - [ControlPacket::Termination]
     pub termination: Option<RawControlPacketType>,
+    ///
+    /// See also:
+    /// - [ControlPacket::HdrMode]
     pub hdr_mode: Option<RawControlPacketType>,
     /// An input packet.
+    ///
+    /// All input related packets share this.
+    /// e.g.: [ControlPacket::MouseMoveRelative] or [ControlPacket::Keyboard]
     pub input_data: RawControlPacketType,
     /// Sunshine Extension
     ///
-    /// References:
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L57
+    /// See also:
+    /// - [ControlPacket::FrameFec]
     pub frame_fec: Option<RawControlPacketType>,
     /// Sunshine Extension
+    ///
+    /// See also:
+    /// - [ControlPacket::RumbleTriggers]
     pub rumble_triggers: Option<RawControlPacketType>,
     /// Sunshine Extension
+    ///
+    /// See also:
+    /// - [ControlPacket::SetMotionEvent]
     pub set_motion_event: Option<RawControlPacketType>,
     /// Sunshine Extension
+    ///
+    /// See also:
+    /// - [ControlPacket::SetRgbLed]
     pub set_rgb_led: Option<RawControlPacketType>,
     /// Sunshine Extension
+    ///
+    /// See also:
+    /// - [ControlPacket::SetAdaptiveTriggers]
     pub set_adaptive_triggers: Option<RawControlPacketType>,
 }
 
@@ -457,11 +500,41 @@ pub enum ControlPacket {
         /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
         sunshine: Option<SunshineHdrMetadata>,
     },
+    /// Send the video loss statistics.
+    /// This is used very regularly to update the server on the packet loss.
+    ///
+    /// References:
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1451-L1484
+    /// - Sunshine: https://github.com/LizardByte/Sunshine/blob/5fba591e6e856a3455d4c8a1cf2f62b68e699d02/src/stream.cpp#L935-L949
+    LossStats {
+        /// This is 0.
+        unknown1: u32,
+        /// The interval this packet gets sent in milliseconds.
+        loss_report_interval_ms: u32,
+        /// This is 1000
+        unknown2: u32,
+        /// The frame index from the depayloader of the last "good" frame.
+        /// Good just means that we could fully receive it.
+        last_good_frame: u64,
+        /// This is 0.
+        unknown3: u32,
+        /// This is 0.
+        unknown4: u32,
+        /// This is 0x14.
+        unknown5: u32,
+    },
+    FrameStats {},
+    /// Sunshine Extension
+    ///
+    /// This doesn't actually seem to get used by Sunshine.
+    /// Not sure why it exists then, but just use the [Self::LossStats] instead.
+    ///
     /// Reports the video fec status to the server so it can adjust the amount of fec packets it sends.
     ///
     /// References:
     /// - moonlight sending: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1406-L1421
     /// - moonlight definition: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L56-L70
+    /// - Sunshine not used: https://github.com/LizardByte/Sunshine/blob/5fba591e6e856a3455d4c8a1cf2f62b68e699d02/src/stream.cpp#L922-L1174
     FrameFec {
         frame_index: u32,
         highest_received_sequence_number: u16,
@@ -560,7 +633,7 @@ pub enum ControlPacket {
 impl ControlPacket {
     // TODO: what is the max size
     /// This is the maximum size a packet can have
-    pub const MAX_SIZE: usize = 32;
+    pub const MAX_SIZE: usize = 36;
 
     pub fn ty(&self) -> ControlPacketType {
         // TODO: fully implement
@@ -572,8 +645,8 @@ impl ControlPacket {
             Self::LongTermReferenceFrameAcknowledgement { .. } => {
                 ControlPacketType::LongTermReferenceFrameAcknowledgement
             }
-            // Self::LossStats => ControlPacketType::LossStats,
-            // Self::FrameStats => ControlPacketType::FrameStats,
+            Self::LossStats { .. } => ControlPacketType::LossStats,
+            Self::FrameStats { .. } => ControlPacketType::FrameStats,
             Self::FrameFec { .. } => ControlPacketType::FrameFec,
             Self::RumbleData { .. } => ControlPacketType::RumbleData,
             // Self::Termination => ControlPacketType::Termination,
@@ -693,6 +766,34 @@ impl ControlPacket {
                 buffer[2..4].copy_from_slice(&(contents.len() as u16).to_le_bytes());
 
                 Ok(4 + contents.len())
+            }
+            Self::LossStats {
+                unknown1,
+                loss_report_interval_ms,
+                unknown2,
+                last_good_frame,
+                unknown3,
+                unknown4,
+                unknown5,
+            } => {
+                // Ty
+                let ty = config.loss_stats;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let content_len: u16 = 32;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Data
+                buffer[4..8].copy_from_slice(&unknown1.to_le_bytes());
+                buffer[8..12].copy_from_slice(&loss_report_interval_ms.to_le_bytes());
+                buffer[12..16].copy_from_slice(&unknown2.to_le_bytes());
+                buffer[16..24].copy_from_slice(&last_good_frame.to_le_bytes());
+                buffer[24..28].copy_from_slice(&unknown3.to_le_bytes());
+                buffer[28..32].copy_from_slice(&unknown4.to_le_bytes());
+                buffer[32..36].copy_from_slice(&unknown5.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
             Self::FrameFec {
                 frame_index,
@@ -1003,6 +1104,44 @@ impl ControlPacket {
                 }
 
                 Some(Self::HdrMode { enabled, sunshine })
+            }
+            ControlPacketType::LossStats => {
+                if payload.len() < 4 + 32 {
+                    warn!("LossStats packet too small");
+                    return None;
+                }
+
+                let unknown1 = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                let loss_report_interval_ms =
+                    u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+                let unknown2 =
+                    u32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]]);
+                let last_good_frame = u64::from_le_bytes([
+                    payload[16],
+                    payload[17],
+                    payload[18],
+                    payload[19],
+                    payload[20],
+                    payload[21],
+                    payload[22],
+                    payload[23],
+                ]);
+                let unknown3 =
+                    u32::from_le_bytes([payload[24], payload[25], payload[26], payload[27]]);
+                let unknown4 =
+                    u32::from_le_bytes([payload[28], payload[29], payload[30], payload[31]]);
+                let unknown5 =
+                    u32::from_le_bytes([payload[32], payload[33], payload[34], payload[35]]);
+
+                Some(ControlPacket::LossStats {
+                    unknown1,
+                    loss_report_interval_ms,
+                    unknown2,
+                    last_good_frame,
+                    unknown3,
+                    unknown4,
+                    unknown5,
+                })
             }
             ControlPacketType::FrameFec => {
                 if payload.len() < 4 + 21 {
@@ -1425,6 +1564,29 @@ mod test {
             sunshine_gen_7_config(),
             ControlPacket::StartB,
             &[7, 3, 1, 0, 0],
+        );
+    }
+
+    #[test]
+    fn loss_stats() {
+        test_packet(
+            PacketDirection::ServerBound,
+            sunshine_gen_7_config(),
+            ControlPacket::LossStats {
+                unknown1: 0,
+                loss_report_interval_ms: 500,
+                unknown2: 1000,
+                last_good_frame: 1,
+                unknown3: 0,
+                unknown4: 0,
+                unknown5: 0x14,
+            },
+            &[
+                1, 2, // Type
+                32, 0, // Length = 32
+                0, 0, 0, 0, 244, 1, 0, 0, 232, 3, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 20, 0, 0, 0,
+            ],
         );
     }
 

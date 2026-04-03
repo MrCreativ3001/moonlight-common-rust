@@ -2,7 +2,7 @@ use std::{collections::HashMap, error::Error, net::SocketAddr, time::Instant};
 
 use rusty_enet::{Packet, PacketKind, PeerID};
 use thiserror::Error;
-use tracing::{Level, instrument, trace, warn};
+use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -233,6 +233,16 @@ where
         kind: PacketKind,
         packet: ControlPacket,
     ) -> Result<(), ControlError> {
+        // Avoid spam from some packets
+        if matches!(
+            packet,
+            ControlPacket::PeriodicPing | ControlPacket::FrameFec { .. }
+        ) {
+            trace!(packet = ?packet, "sending packet");
+        } else {
+            debug!(packet = ?packet, "sending packet");
+        }
+
         let data = self
             .peer_data
             .get_mut(&id)

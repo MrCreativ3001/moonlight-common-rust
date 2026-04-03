@@ -627,6 +627,7 @@ where
                     return Ok(MoonlightStreamOutput::Action(
                         MoonlightStreamAction::SendControlMessage {
                             message: ControlMessage(ControlMessageInner::SendPacket {
+                                force: true,
                                 packet: ControlPacket::RequestIdr,
                             }),
                         },
@@ -638,6 +639,7 @@ where
                     return Ok(MoonlightStreamOutput::Action(
                         MoonlightStreamAction::SendControlMessage {
                             message: ControlMessage(ControlMessageInner::SendPacket {
+                                force: true,
                                 packet: ControlPacket::StartB,
                             }),
                         },

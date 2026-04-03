@@ -96,14 +96,17 @@ pub enum VideoDepayloaderOutput {
     None,
     /// The video depayloader produced a frame.
     /// This also contains other information regarding the frame.
+    ///
+    /// See also:
+    /// - moonlight loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
     Frame {
         frame: VideoFrame,
-        fec_report: VideoDepayloaderFecReport,
+        report: VideoDepayloaderReport,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub struct VideoDepayloaderFecReport {
+pub struct VideoDepayloaderReport {
     pub frame_index: u32,
     pub highest_received_sequence_number: u16,
     pub next_contiguous_sequence_number: u16,
@@ -199,10 +202,7 @@ impl VideoDepayloader {
 
         // Check if we can construct a frame
         if let Some((frame, report)) = self.try_construct_fec_block(self.current_frame_index)? {
-            output = VideoDepayloaderOutput::Frame {
-                frame,
-                fec_report: report,
-            };
+            output = VideoDepayloaderOutput::Frame { frame, report };
 
             self.current_frame_index += 1;
         }
@@ -217,7 +217,7 @@ impl VideoDepayloader {
     fn try_construct_fec_block(
         &mut self,
         frame_index: u32,
-    ) -> Result<Option<(VideoFrame, VideoDepayloaderFecReport)>, VideoQueueError> {
+    ) -> Result<Option<(VideoFrame, VideoDepayloaderReport)>, VideoQueueError> {
         // TODO: handle one frame in multiple fec blocks?
 
         let packets = self
@@ -394,7 +394,7 @@ impl VideoDepayloader {
         let multi_fec_block_index = 0;
         let multi_fec_block_count = 1;
 
-        let report = VideoDepayloaderFecReport {
+        let report = VideoDepayloaderReport {
             frame_index,
             highest_received_sequence_number,
             next_contiguous_sequence_number,

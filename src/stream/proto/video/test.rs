@@ -5,8 +5,8 @@ use crate::{
     stream::{
         proto::video::{
             depayloader::{
-                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderFecReport,
-                VideoDepayloaderOutput, VideoDepayloaderStatus, VideoFrame,
+                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
+                VideoDepayloaderReport, VideoDepayloaderStatus, VideoFrame,
                 create_video_reed_solomon,
             },
             nal::{h264, h265},
@@ -1179,7 +1179,7 @@ fn depayloader_nofec_noparse() {
                 host_processing_latency,
                 buffers,
             },
-        fec_report,
+        report: fec_report,
     } = depayloader.poll_output().unwrap()
     else {
         panic!("expected Frame");
@@ -1202,7 +1202,7 @@ fn depayloader_nofec_noparse() {
 
     assert_eq!(
         fec_report,
-        VideoDepayloaderFecReport {
+        VideoDepayloaderReport {
             frame_index: 1,
             highest_received_sequence_number: 2,
             next_contiguous_sequence_number: 3,
@@ -1290,7 +1290,7 @@ fn depayloader_nofec_h264() {
                 host_processing_latency: None,
                 buffers: expected_buffers,
             },
-            fec_report: VideoDepayloaderFecReport {
+            report: VideoDepayloaderReport {
                 frame_index: 1,
                 highest_received_sequence_number: 2,
                 next_contiguous_sequence_number: 3,
@@ -1383,7 +1383,7 @@ fn depayloader_nofec_h265() {
                 host_processing_latency: None,
                 buffers: expected_buffers,
             },
-            fec_report: VideoDepayloaderFecReport {
+            report: VideoDepayloaderReport {
                 frame_index: 1,
                 highest_received_sequence_number: 2,
                 next_contiguous_sequence_number: 3,

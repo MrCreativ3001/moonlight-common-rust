@@ -66,7 +66,7 @@ pub(super) enum ControlMessageInner {
     /// Only allow other packets (e.g. ping, actions) after the starting process from the main stream is done
     AllowOtherPackets,
     /// Sends a packet regardless of the [Self::AllowOtherPackets] option
-    SendPacket { packet: ControlPacket },
+    SendPacket { packet: ControlPacket, force: bool },
 }
 
 #[derive(Debug)]
@@ -187,11 +187,6 @@ where
         packet: ControlPacket,
         force_packet: bool,
     ) -> Result<(), ControlError> {
-        // Avoid spam from ping
-        if !matches!(packet, ControlPacket::PeriodicPing) {
-            debug!(packet = ?packet, "sending packet");
-        }
-
         if !force_packet && !self.allow_packets {
             return Err(ControlError::NotConnected);
         } else if force_packet && !self.peer_connected {
@@ -323,8 +318,6 @@ where
             ControlStreamInput::Message { now, message } => {
                 self.last_now = now;
 
-                debug!(now = ?now, message = ?message, "received control message from main thread");
-
                 self.host.handle_input(ControlHostInput::Timeout(now))?;
 
                 self.handle_control_message(message)?;
@@ -336,10 +329,20 @@ where
 
     fn handle_control_message(&mut self, message: ControlMessage) -> Result<(), ControlError> {
         match message.0 {
-            ControlMessageInner::SendPacket { packet } => {
-                self.send_inner(packet, true)?;
+            ControlMessageInner::SendPacket { packet, force } => {
+                trace!(now = ?self.last_now, packet = ?packet, "received control message with packet");
+
+                if force {
+                    self.send_inner(packet, true)?;
+                } else {
+                    if let Err(err) = self.send(packet) {
+                        trace!(error = ?err, "failed to send packet from control message");
+                    }
+                }
             }
             ControlMessageInner::AllowOtherPackets => {
+                debug!(now = ?self.last_now, message = ?message, "received control message");
+
                 self.allow_packets = true;
             }
         }
