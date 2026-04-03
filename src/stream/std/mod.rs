@@ -622,7 +622,6 @@ fn control_thread<Crypto>(
         let timeout = match control_stream.poll_output().unwrap() {
             ControlStreamOutput::Event(event) => match event {
                 ControlStreamEvent::Connect => {
-                    // TODO
                     continue;
                 }
                 ControlStreamEvent::Packet(packet) => {

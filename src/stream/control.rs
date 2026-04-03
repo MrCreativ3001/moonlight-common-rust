@@ -73,7 +73,7 @@ pub enum MouseButton {
 // --------------- Touch ---------------
 
 #[repr(u32)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TouchEventType {
     Hover = LI_TOUCH_EVENT_HOVER,
     Down = LI_TOUCH_EVENT_DOWN,
@@ -88,7 +88,7 @@ pub enum TouchEventType {
 // --------------- Controller ---------------
 
 bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct ControllerButtons: u32 {
         const A        = A_FLAG;
         const B        = B_FLAG;
@@ -123,7 +123,7 @@ bitflags! {
     }
 }
 bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct ActiveGamepads: u16 {
         const GAMEPAD_1  = 0b0000_0000_0000_0001;
         const GAMEPAD_2  = 0b0000_0000_0000_0010;
@@ -171,7 +171,7 @@ impl ActiveGamepads {
 /// This is used to inform the host of what type of controller has arrived,
 /// which can help the host decide how to emulate it and what features to expose.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ControllerType {
     /// Unknown controller type.
     Unknown = LI_CTYPE_UNKNOWN as u8,
@@ -188,7 +188,7 @@ bitflags! {
     ///
     /// This is typically sent along with controller arrival information so the host
     /// knows which features the controller supports.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct ControllerCapabilities: u16 {
         /// Reports values between `0x00` and `0xFF` for trigger axes.
         const ANALOG_TRIGGERS  = LI_CCAP_ANALOG_TRIGGERS as u16;
@@ -211,7 +211,7 @@ bitflags! {
 
 bitflags! {
     /// Motion sensor types for [`LiSendControllerMotionEvent`].
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct MotionType: u8 {
         /// Accelerometer data in m/s² (inclusive of gravitational acceleration).
         const ACCEL = LI_MOTION_TYPE_ACCEL as u8;
@@ -231,7 +231,7 @@ bitflags! {
 
 bitflags! {
     /// Battery states for [`LiSendControllerBatteryEvent`].
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct BatteryState: u8 {
         /// Unknown battery state.
         const UNKNOWN       = LI_BATTERY_STATE_UNKNOWN as u8;

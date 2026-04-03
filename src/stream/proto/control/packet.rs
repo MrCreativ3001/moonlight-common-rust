@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::{ops::Deref, time::Duration};
 
 use num::FromPrimitive;
 use thiserror::Error;
@@ -10,8 +7,11 @@ use tracing::{Level, instrument, trace, warn};
 use crate::{
     ServerVersion,
     stream::{
-        bindings::{ML_ERROR_FRAME_CONVERSION, ML_ERROR_GRACEFUL_TERMINATION},
-        control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
+        control::{
+            ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
+            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
+            MouseButtonAction, TouchEventType,
+        },
         video::{Primary, SunshineHdrMetadata},
     },
 };
@@ -407,7 +407,7 @@ impl ControlPacketType {
             Self::LossStats => PacketDirection::ServerBound,
             Self::FrameStats => PacketDirection::ServerBound,
             Self::RumbleData => PacketDirection::ServerBound,
-            Self::Termination => PacketDirection::ServerBound,
+            Self::Termination => PacketDirection::ClientBound,
             Self::HdrMode => PacketDirection::ClientBound,
             Self::InputData => PacketDirection::ServerBound,
             Self::FrameFec => PacketDirection::ServerBound,
@@ -496,6 +496,117 @@ impl TerminationReason {
     pub const NVST_DISCONN_SERVER_VFP_PROTECTED_CONTENT: TerminationReason =
         TerminationReason::Long(0x800e9302);
 }
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L33
+pub const UTF8_TEXT_MAX_COUNT: usize = 32;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L22
+pub const KEY_DOWN_EVENT_MAGIC: u32 = 0x00000003;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L23
+pub const KEY_UP_EVENT_MAGIC: u32 = 0x00000004;
+
+/// This is for version ServerVersion::major < 4.
+/// Those are not supported by this implementation
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L39
+pub const MOUSE_MOVE_REL_MAGIC: u32 = 0x00000006;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L39
+pub const MOUSE_MOVE_REL_MAGIC_GEN5: u32 = 0x00000007;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L47
+pub const MOUSE_MOVE_ABS_MAGIC: u32 = 0x00000005;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L62
+pub const MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5: u32 = 0x00000008;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L63
+pub const MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5: u32 = 0x00000009;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L69
+pub const CONTROLLER_MAGIC: u32 = 0x0000000A;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L70
+pub const C_HEADER_B: u32 = 0x1400;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L71
+pub const C_TAIL_A: u32 = 0x0000009C;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72
+pub const C_TAIL_B: u32 = 0x0055;
+
+/// This is for version ServerVersion::major < 4.
+/// Those are not supported by this implementation
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L87
+pub const MULTI_CONTROLLER_MAGIC: u32 = 0x0000000D;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L88
+pub const MULTI_CONTROLLER_MAGIC_GEN5: u32 = 0x0000000C;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L89
+pub const MC_HEADER_B: u32 = 0x001A;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72
+pub const MC_MID_B: u32 = 0x0014;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L91
+pub const MC_TAIL_A: u32 = 0x009C;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L92
+pub const MC_TAIL_B: u32 = 0x0055;
+
+/// This is for version ServerVersion::major < 4.
+/// Those are not supported by this implementation
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L111
+pub const SCROLL_MAGIC: u32 = 0x00000009;
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L112
+pub const SCROLL_MAGIC_GEN5: u32 = 0x0000000A;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L120
+pub const SS_HSCROLL_MAGIC: u32 = 0x55000001;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L126
+pub const SS_TOUCH_MAGIC: u32 = 0x55000002;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L140
+pub const SS_PEN_MAGIC: u32 = 0x55000003;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L157
+pub const SS_CONTROLLER_ARRIVAL_MAGIC: u32 = 0x55000004;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L166
+pub const SS_CONTROLLER_TOUCH_MAGIC: u32 = 0x55000005;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L178
+pub const SS_CONTROLLER_MOTION_MAGIC: u32 = 0x55000006;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L189
+pub const SS_CONTROLLER_BATTERY_MAGIC: u32 = 0x55000007;
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32
+pub const UTF8_TEXT_EVENT_MAGIC: u32 = 0x00000017;
 
 #[derive(Debug, PartialEq)]
 pub enum ControlPacket {
@@ -589,6 +700,7 @@ pub enum ControlPacket {
     /// References:
     /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_relative_move
     /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L130-L133
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L41-L45
     MouseMoveRelative {
         delta_x: i16,
         delta_y: i16,
@@ -597,9 +709,11 @@ pub enum ControlPacket {
     ///
     /// References:
     /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L135-L141
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L48-L60
     MouseMoveAbsolute {
         x: i16,
         y: i16,
+        // This is 0.
         unused: i16,
         reference_width: i16,
         reference_height: i16,
@@ -607,11 +721,15 @@ pub enum ControlPacket {
     /// References:
     /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_button
     /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L143-L145
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L64-L67
     MouseButton {
         action: MouseButtonAction,
         button: MouseButton,
     },
     /// Sends a keyboard event to the host.
+    ///
+    /// Weird side effects:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L902-L943
     ///
     /// References:
     /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_keyboard
@@ -623,6 +741,16 @@ pub enum ControlPacket {
         modifier: KeyModifiers,
         zero: i16,
     },
+    /// Sends utf8 encoded text to the host.
+    ///
+    /// References:
+    /// - Moonlight layout: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32-L37
+    /// - Moonlight construction: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L983-L985
+    Text {
+        text: [u8; UTF8_TEXT_MAX_COUNT],
+        /// Must be smaller or equal to 32
+        text_len: usize,
+    },
     /// Vertical Scrolling.
     ///
     /// Only use scroll_amount_1.
@@ -630,6 +758,7 @@ pub enum ControlPacket {
     /// References:
     /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_scroll
     /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L147-L151
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L113-L118
     MouseScroll {
         scroll_amount_1: i16,
         /// This is unused
@@ -641,8 +770,120 @@ pub enum ControlPacket {
     ///
     /// References:
     /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_horizontal_scroll
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L121-L124
     MouseHorizontalScroll {
-        amount: i16,
+        scroll_amount: i16,
+    },
+    /// Sunshine Extension
+    ///
+    /// Send some touch event to the host.
+    ///
+    /// See also:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L615-L650
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L127-L138
+    Touch {
+        event_type: TouchEventType,
+        /// This is 0.
+        reserved: u8,
+        rotation: u16,
+        pointer_id: u32,
+        x: f32,
+        y: f32,
+        pressure_or_distance: f32,
+        contact_area_minor: f32,
+        contact_area_major: f32,
+    },
+    /// Sunshine Extension
+    ///
+    /// Sends pen related events to the host.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L141-L155
+    Pen {
+        // TODO
+    },
+    /// Send the inputs of the first controller to the host.
+    /// This packet should be avoided and was replaced by [Self::ControllerMulti].
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L73-L85
+    /// - how to use correctly: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162
+    Controller {
+        header_b: u16,
+        button_flags: ControllerButtons,
+        left_trigger: u8,
+        right_trigger: u8,
+        left_stick_x: i16,
+        left_stick_y: i16,
+        right_stick_x: i16,
+        right_stick_y: i16,
+        tail_a: i32,
+        tail_b: i16,
+    },
+    /// Send controller inputs to the host.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L93-L109
+    /// - how to use correctly: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162
+    ControllerMulti {
+        header_b: u16,
+        controller_number: u8,
+        active_gamepad_mask: ActiveGamepads,
+        mid_b: i16,
+        button_flags: ControllerButtons,
+        left_trigger: u8,
+        right_trigger: u8,
+        left_stick_x: i16,
+        left_stick_y: i16,
+        right_stick_x: i16,
+        right_stick_y: i16,
+        tail_a: i32,
+        /// Sunshine Extension
+        ///
+        /// For GFE always 0.
+        ///
+        /// References:
+        /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L107
+        button_flags_2: i16,
+        tail_b: i16,
+    },
+    /// Sunshine Extension
+    ///
+    /// Send the arrival of a controller to the host.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L158-L164
+    ControllerArrival {
+        controller_number: u8,
+        ty: ControllerType,
+        capabilities: ControllerCapabilities,
+        supported_buttons: ControllerButtons,
+    },
+    /// Sunshine Extension
+    ///
+    /// Send controller motion to the host.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L179-L187
+    ControllerMotion {
+        controller_number: u8,
+        motion_type: MotionType,
+        reserved: [u8; 2],
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L190-L196
+    ControllerBattery {
+        // TODO: what does this do exactly?
+        controller_number: u8,
+        battery_state: BatteryState,
+        battery_percentage: u8,
+        /// This is 0.
+        reserved: u8,
     },
     /// Invalidates references frames. Make sure the server supports this using the sdp before requesting this.
     ///
@@ -679,9 +920,22 @@ pub enum ControlPacket {
 }
 
 impl ControlPacket {
+    pub fn text(text: &str) -> Option<Self> {
+        let mut text_array = [0; _];
+        if text.len() > text_array.len() {
+            return None;
+        }
+        text_array[0..text.len()].copy_from_slice(text.as_bytes());
+
+        Some(Self::Text {
+            text: text_array,
+            text_len: text.len(),
+        })
+    }
+
     // TODO: what is the max size
     /// This is the maximum size a packet can have
-    pub const MAX_SIZE: usize = 36;
+    pub const MAX_SIZE: usize = 44;
 
     pub fn ty(&self) -> ControlPacketType {
         // TODO: fully implement
@@ -705,10 +959,14 @@ impl ControlPacket {
             Self::MouseScroll { .. } => ControlPacketType::InputData,
             Self::MouseHorizontalScroll { .. } => ControlPacketType::InputData,
             Self::Keyboard { .. } => ControlPacketType::InputData,
-            // Self::RumbleTriggers => ControlPacketType::RumbleTriggers,
-            // Self::SetMotionEvent => ControlPacketType::SetMotionEvent,
-            // Self::SetRgbLed => ControlPacketType::SetRgbLed,
-            // Self::SetAdaptiveTriggers => ControlPacketType::SetAdaptiveTriggers,
+            Self::Text { .. } => ControlPacketType::InputData,
+            Self::Touch { .. } => ControlPacketType::InputData,
+            Self::Pen { .. } => ControlPacketType::InputData,
+            Self::Controller { .. } => ControlPacketType::InputData,
+            Self::ControllerMulti { .. } => ControlPacketType::InputData,
+            Self::ControllerArrival { .. } => ControlPacketType::InputData,
+            Self::ControllerMotion { .. } => ControlPacketType::InputData,
+            Self::ControllerBattery { .. } => ControlPacketType::InputData,
         }
     }
 
@@ -951,7 +1209,11 @@ impl ControlPacket {
                 buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
 
                 // Input Ty
-                let ty: u32 = 0x00000007;
+                let ty: u32 = if config.server_version.major >= 5 {
+                    MOUSE_MOVE_REL_MAGIC_GEN5
+                } else {
+                    MOUSE_MOVE_REL_MAGIC
+                };
                 buffer[8..12].copy_from_slice(&ty.to_le_bytes());
 
                 // Data
@@ -980,7 +1242,7 @@ impl ControlPacket {
                 buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
 
                 // Input Ty
-                let ty: u32 = 0x00000005;
+                let ty: u32 = MOUSE_MOVE_ABS_MAGIC;
                 buffer[8..12].copy_from_slice(&ty.to_le_bytes());
 
                 // Data
@@ -1008,8 +1270,8 @@ impl ControlPacket {
 
                 // Input Ty
                 let ty: u32 = match action {
-                    MouseButtonAction::Press => 0x00000008,
-                    MouseButtonAction::Release => 0x00000009,
+                    MouseButtonAction::Press => MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5,
+                    MouseButtonAction::Release => MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5,
                 };
                 buffer[8..12].copy_from_slice(&ty.to_le_bytes());
 
@@ -1023,10 +1285,51 @@ impl ControlPacket {
                 scroll_amount_2,
                 zero,
             } => {
-                todo!();
+                // https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_scroll
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 4 + 6;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SCROLL_MAGIC_GEN5;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..14].copy_from_slice(&scroll_amount_1.to_le_bytes());
+                buffer[14..16].copy_from_slice(&scroll_amount_2.to_le_bytes());
+                buffer[16..18].copy_from_slice(&zero.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
-            Self::MouseHorizontalScroll { amount } => {
-                todo!();
+            Self::MouseHorizontalScroll { scroll_amount } => {
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 4 + 2;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SS_HSCROLL_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..14].copy_from_slice(&scroll_amount.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
             Self::Keyboard {
                 action,
@@ -1049,8 +1352,8 @@ impl ControlPacket {
 
                 // Input Ty
                 let ty: u32 = match action {
-                    KeyAction::Up => 0x00000004,
-                    KeyAction::Down => 0x00000003,
+                    KeyAction::Up => KEY_UP_EVENT_MAGIC,
+                    KeyAction::Down => KEY_DOWN_EVENT_MAGIC,
                 };
                 buffer[8..12].copy_from_slice(&ty.to_le_bytes());
 
@@ -1062,12 +1365,114 @@ impl ControlPacket {
 
                 Ok(4 + content_len as usize)
             }
+            Self::Text { text, text_len } => {
+                debug_assert!(*text_len <= text.len());
+                if *text_len > text.len() {
+                    return Err(ControlPacketNotSupported);
+                }
+
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                // 4 = Input Ty
+                let input_len: u32 = 4 + *text_len as u32;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = UTF8_TEXT_EVENT_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..(12 + *text_len)].copy_from_slice(&text[0..*text_len]);
+
+                Ok(4 + content_len as usize)
+            }
+            Self::ControllerArrival {
+                controller_number,
+                ty,
+                capabilities,
+                supported_buttons,
+            } => {
+                todo!();
+            }
+            Self::Controller {
+                header_b,
+                button_flags,
+                left_trigger,
+                right_trigger,
+                left_stick_x,
+                left_stick_y,
+                right_stick_x,
+                right_stick_y,
+                tail_a,
+                tail_b,
+            } => {
+                todo!();
+            }
+            Self::ControllerMulti {
+                header_b,
+                controller_number,
+                active_gamepad_mask,
+                mid_b,
+                button_flags,
+                left_trigger,
+                right_trigger,
+                left_stick_x,
+                left_stick_y,
+                right_stick_x,
+                right_stick_y,
+                tail_a,
+                button_flags_2,
+                tail_b,
+            } => {
+                todo!();
+            }
+            Self::ControllerBattery {
+                controller_number,
+                battery_state,
+                battery_percentage,
+                reserved,
+            } => {
+                todo!();
+            }
+            Self::ControllerMotion {
+                controller_number,
+                motion_type,
+                reserved,
+                x,
+                y,
+                z,
+            } => {
+                todo!();
+            }
             Self::RumbleData {
                 unused,
                 controller_id,
                 low_frequency,
                 high_frequency,
             } => {
+                todo!();
+            }
+            Self::Touch {
+                event_type,
+                reserved,
+                rotation,
+                pointer_id,
+                x,
+                y,
+                pressure_or_distance,
+                contact_area_minor,
+                contact_area_major,
+            } => {
+                todo!();
+            }
+            Self::Pen {} => {
                 todo!();
             }
             Self::ServerTermination { reason } => {
@@ -1375,7 +1780,7 @@ impl ControlPacket {
                 }
 
                 match input_ty {
-                    0x00000007 => {
+                    MOUSE_MOVE_REL_MAGIC_GEN5 => {
                         if input_len < 8 {
                             warn!(input_len = ?input_len, "MouseMoveRelative packet too small!");
                             None
@@ -1386,7 +1791,7 @@ impl ControlPacket {
                             Some(ControlPacket::MouseMoveRelative { delta_x, delta_y })
                         }
                     }
-                    0x00000005 => {
+                    MOUSE_MOVE_ABS_MAGIC => {
                         if input_len < 14 {
                             warn!(input_len = ?input_len, "MouseMoveAbsolute packet too small!");
                             None
@@ -1406,14 +1811,14 @@ impl ControlPacket {
                             })
                         }
                     }
-                    0x00000008 | 0x00000009 => {
+                    MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5 | MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5 => {
                         if input_len < 5 {
                             warn!(input_len = ?input_len, "MouseButton packet too small!");
                             None
                         } else {
                             let action = match input_ty {
-                                0x00000008 => MouseButtonAction::Press,
-                                0x00000009 => MouseButtonAction::Release,
+                                MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5 => MouseButtonAction::Press,
+                                MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5 => MouseButtonAction::Release,
                                 _ => unreachable!(),
                             };
 
@@ -1426,14 +1831,40 @@ impl ControlPacket {
                             Some(ControlPacket::MouseButton { action, button })
                         }
                     }
-                    0x00000003 | 0x00000004 => {
+                    SCROLL_MAGIC_GEN5 => {
+                        if input_len < 4 + 6 {
+                            warn!(input_len = ?input_len, "MouseScroll packet too small!");
+                            None
+                        } else {
+                            let scroll_amount_1 = i16::from_le_bytes([payload[12], payload[13]]);
+                            let scroll_amount_2 = i16::from_le_bytes([payload[14], payload[15]]);
+                            let zero = i16::from_le_bytes([payload[16], payload[17]]);
+
+                            Some(ControlPacket::MouseScroll {
+                                scroll_amount_1,
+                                scroll_amount_2,
+                                zero,
+                            })
+                        }
+                    }
+                    SS_HSCROLL_MAGIC => {
+                        if input_len < 4 + 2 {
+                            warn!(input_len = ?input_len, "MouseHorizontalScroll packet too small!");
+                            None
+                        } else {
+                            let scroll_amount = i16::from_le_bytes([payload[12], payload[13]]);
+
+                            Some(ControlPacket::MouseHorizontalScroll { scroll_amount })
+                        }
+                    }
+                    KEY_DOWN_EVENT_MAGIC | KEY_UP_EVENT_MAGIC => {
                         if input_len < 10 {
                             warn!(input_len = ?input_len, "Key packet too small!");
                             None
                         } else {
                             let action = match input_ty {
-                                0x00000003 => KeyAction::Down,
-                                0x00000004 => KeyAction::Up,
+                                KEY_DOWN_EVENT_MAGIC => KeyAction::Down,
+                                KEY_UP_EVENT_MAGIC => KeyAction::Up,
                                 _ => unreachable!(),
                             };
 
@@ -1451,6 +1882,24 @@ impl ControlPacket {
                             })
                         }
                     }
+                    UTF8_TEXT_EVENT_MAGIC => {
+                        let mut text = [0; _];
+
+                        let mut text_len = input_len as usize - 4;
+                        let text_ref = &payload[12..(12 + text_len)];
+                        if text_len >= text.len() {
+                            warn!(
+                                got_len = text_len,
+                                max_len = text.len(),
+                                "UTF8 Text packet was too large, shortening to {}",
+                                text.len()
+                            );
+                            text_len = text.len();
+                        }
+                        text[0..text_len].copy_from_slice(text_ref);
+
+                        Some(ControlPacket::Text { text, text_len })
+                    }
                     _ => {
                         warn!("InputData packet contains not known input type: {input_ty:#}");
                         None
@@ -1459,502 +1908,5 @@ impl ControlPacket {
             }
             _ => todo!(),
         }
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod test {
-    // TODO: test that all ControlPacketType types serialize and deserialize to their correct types
-
-    use crate::{
-        ServerVersion, init_test,
-        stream::{
-            control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
-            proto::control::packet::{
-                ControlPacket, ControlPacketConfig, ControlPacketType,
-                ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
-                EncryptedControlHeader, PacketDirection, TerminationReason,
-            },
-            video::{Primary, SunshineHdrMetadata},
-        },
-        test::init_test,
-    };
-
-    #[test]
-    fn test_encrypted_control_header_serialization() {
-        let assert_eq_header =
-            |deserialized: EncryptedControlHeader,
-             serialized: [u8; EncryptedControlHeader::SIZE]| {
-                let mut buffer = [0; EncryptedControlHeader::SIZE];
-                deserialized.serialize(&mut buffer);
-
-                assert_eq!(buffer, serialized);
-                assert_eq!(EncryptedControlHeader::deserialize(&buffer), deserialized);
-            };
-
-        assert_eq_header(
-            EncryptedControlHeader {
-                ty: ENCRYPTED_CONTROL_PACKET_TYPE,
-                len: 0x1234,
-                sequence_number: 0xABCD,
-                tag: [0x11; ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH],
-            },
-            [
-                // ty (LE)
-                0x01, 0x00, // len (LE)
-                0x34, 0x12, // sequence_number (LE, u32!)
-                0xCD, 0xAB, 0x00, 0x00, // tag
-                0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-                0x11, 0x11,
-            ],
-        );
-
-        assert_eq_header(
-            EncryptedControlHeader {
-                ty: ENCRYPTED_CONTROL_PACKET_TYPE,
-                len: 1,
-                sequence_number: 2,
-                tag: [
-                    0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
-                    0x77, 0x88, 0x99,
-                ],
-            },
-            [
-                // ty (LE)
-                0x01, 0x00, // len (LE)
-                0x01, 0x00, // sequence_number (LE, u32!)
-                0x02, 0x00, 0x00, 0x00, // tag
-                0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
-                0x88, 0x99,
-            ],
-        );
-    }
-
-    fn sunshine_gen_7_config() -> ControlPacketConfig {
-        ControlPacketConfig::new(ServerVersion::new(7, 1, 431, -1), false).unwrap()
-    }
-
-    #[test]
-    fn packet_directions() {
-        // Make sure all packet directions for Ty::direction and Ty::deserialize match
-
-        const PACKET_TYPES: &[ControlPacketType] = &[
-            ControlPacketType::PeriodicPing,
-            ControlPacketType::RequestIdr,
-            ControlPacketType::StartB,
-            ControlPacketType::InvalidateReferenceFrames,
-            ControlPacketType::LongTermReferenceFrameAcknowledgement,
-            ControlPacketType::LossStats,
-            ControlPacketType::FrameStats,
-            ControlPacketType::RumbleData,
-            ControlPacketType::Termination,
-            ControlPacketType::HdrMode,
-            ControlPacketType::InputData,
-            ControlPacketType::FrameFec,
-            ControlPacketType::RumbleTriggers,
-            ControlPacketType::SetMotionEvent,
-            ControlPacketType::SetRgbLed,
-            ControlPacketType::SetAdaptiveTriggers,
-        ];
-
-        let config = sunshine_gen_7_config();
-
-        for ty in PACKET_TYPES {
-            assert_eq!(
-                ControlPacketType::deserialize(
-                    ty.direction(),
-                    &config,
-                    ty.serialize(&config).unwrap()
-                ),
-                Some(*ty)
-            );
-        }
-    }
-
-    fn test_packet(
-        direction: PacketDirection,
-        config: ControlPacketConfig,
-        expected_packet: ControlPacket,
-        expected_bytes: &[u8],
-    ) {
-        let mut bytes = [0; _];
-        let len = expected_packet.serialize(&config, &mut bytes).unwrap();
-        let bytes = &bytes[0..len];
-        assert_eq!(bytes, expected_bytes, "Serialize: {:?}", expected_packet);
-
-        let packet = ControlPacket::deserialize(direction, &config, bytes).unwrap();
-        assert_eq!(
-            packet, expected_packet,
-            "Deserialize: {:?}",
-            expected_packet
-        );
-    }
-
-    #[test]
-    fn ping() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::PeriodicPing,
-            &[0, 2, 4, 0, 0, 0, 0, 0],
-        );
-    }
-
-    #[test]
-    fn hdr_mode() {
-        init_test!();
-
-        test_packet(
-            PacketDirection::ClientBound,
-            sunshine_gen_7_config(),
-            ControlPacket::HdrMode {
-                enabled: false,
-                sunshine: None,
-            },
-            &[14, 1, 1, 0, 0],
-        );
-
-        test_packet(
-            PacketDirection::ClientBound,
-            sunshine_gen_7_config(),
-            ControlPacket::HdrMode {
-                enabled: true,
-                sunshine: None,
-            },
-            &[14, 1, 1, 0, 1],
-        );
-    }
-    #[test]
-    fn hdr_mode_sunshine() {
-        test_packet(
-            PacketDirection::ClientBound,
-            sunshine_gen_7_config(),
-            ControlPacket::HdrMode {
-                enabled: true,
-                sunshine: Some(SunshineHdrMetadata {
-                    display_primaries: [
-                        Primary { x: 34000, y: 16000 }, // Red
-                        Primary { x: 13250, y: 34500 }, // Green
-                        Primary { x: 7500, y: 3000 },   // Blue
-                    ],
-                    white_point: Primary { x: 15635, y: 16450 },
-                    max_display_luminance: 1000,
-                    min_display_luminance: 50,
-                    max_content_light_level: 1000,
-                    max_frame_average_light_level: 400,
-                    max_full_frame_luminance: 600,
-                }),
-            },
-            &[
-                14, 1, // Ty
-                27, 0,    // Len
-                0x01, // HDR enabled
-                // Display Primaries
-                0xD0, 0x84, // R.x = 34000
-                0x80, 0x3E, // R.y = 16000
-                0xC2, 0x33, // G.x = 13250
-                0xC4, 0x86, // G.y = 34500
-                0x4C, 0x1D, // B.x = 7500
-                0xB8, 0x0B, // B.y = 3000
-                // White point
-                0x13, 0x3D, // x = 15635
-                0x42, 0x40, // y = 16450
-                // Luminance values
-                0xE8, 0x03, // maxDisplayLuminance = 1000
-                0x32, 0x00, // minDisplayLuminance = 50
-                0xE8, 0x03, // maxContentLightLevel = 1000
-                0x90, 0x01, // maxFrameAverageLightLevel = 400
-                0x58, 0x02, // maxFullFrameLuminance = 600
-            ],
-        );
-    }
-
-    #[test]
-    fn request_idr() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::RequestIdr,
-            &[5, 3, 2, 0, 0, 0],
-        );
-    }
-
-    #[test]
-    fn start_b() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::StartB,
-            &[7, 3, 1, 0, 0],
-        );
-    }
-
-    #[test]
-    fn loss_stats() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::LossStats {
-                unknown1: 0,
-                loss_report_interval_ms: 500,
-                unknown2: 1000,
-                last_good_frame: 1,
-                unknown3: 0,
-                unknown4: 0,
-                unknown5: 0x14,
-            },
-            &[
-                1, 2, // Type
-                32, 0, // Length = 32
-                0, 0, 0, 0, 244, 1, 0, 0, 232, 3, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 20, 0, 0, 0,
-            ],
-        );
-    }
-
-    #[test]
-    fn frame_stats() {
-        init_test();
-
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::FrameStats {},
-            &[
-                4, 2, // Type
-                0, 0, // Length
-            ],
-        );
-    }
-
-    #[test]
-    fn frame_fec() {
-        init_test();
-
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::FrameFec {
-                frame_index: 42,
-                highest_received_sequence_number: 1200,
-                next_contiguous_sequence_number: 1180,
-                missing_packets_before_highest_received: 20,
-                total_data_packets: 100,
-                total_parity_packets: 10,
-                received_data_packets: 95,
-                received_parity_packets: 8,
-                fec_percentage: 10,
-                multi_fec_block_index: 0,
-                multi_fec_block_count: 1,
-            },
-            &[
-                2, 85, // Type
-                21, 0x00, // Length = 21 (LE)
-                0x00, 0x00, 0x00, 0x2A, // frame_index = 42 (BE)
-                0x04, 0xB0, // highest_received_sequence_number = 1200
-                0x04, 0x9C, // next_contiguous_sequence_number = 1180
-                0x00, 0x14, // missing_packets_before_highest_received = 20
-                0x00, 0x64, // total_data_packets = 100
-                0x00, 0x0A, // total_parity_packets = 10
-                0x00, 0x5F, // received_data_packets = 95
-                0x00, 0x08, // received_parity_packets = 8
-                0x0A, // fec_percentage = 10
-                0x00, // multi_fec_block_index = 0
-                0x01, // multi_fec_block_count = 1
-            ],
-        );
-    }
-
-    #[test]
-    fn invalidate_reference_frames() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::InvalidateReferenceFrames {
-                first_frame_index: 1,
-                reserved1: 0,
-                last_frame_index: 2,
-                reserved2: [0, 0, 0],
-            },
-            &[
-                0x01, 0x03, // Ty (0x0301 LE)
-                24, 0x00, // Len
-                1, 0, 0, 0, // first
-                0, 0, 0, 0, // reserved1
-                2, 0, 0, 0, // last
-                0, 0, 0, 0, // reserved2[0]
-                0, 0, 0, 0, // reserved2[1]
-                0, 0, 0, 0, // reserved2[2]
-            ],
-        );
-    }
-
-    #[test]
-    fn long_term_reference_frame_acknowledgement() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::LongTermReferenceFrameAcknowledgement {
-                frame_index: 42,
-                reserved: 0,
-            },
-            &[
-                0x50, 0x03, // Ty (0x0350 LE)
-                8, 0x00, // Len
-                42, 0, 0, 0, 0, 0, 0, 0,
-            ],
-        );
-    }
-
-    #[test]
-    fn mouse_move_relative() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::MouseMoveRelative {
-                delta_x: 1,
-                delta_y: 0,
-            },
-            &[
-                0x06, 0x02, // Ty
-                0x0c, 0x00, // Len
-                0x00, 0x00, 0x00, 0x08, // Input Len
-                0x07, 0x00, 0x00, 0x00, // Input Ty
-                0x00, 0x01, // Delta X
-                0x00, 0x00, // Delta Y
-            ],
-        );
-    }
-
-    #[test]
-    fn mouse_move_absolute() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::MouseMoveAbsolute {
-                x: 0,
-                y: 1,
-                unused: 0,
-                reference_width: 1000,
-                reference_height: 1000,
-            },
-            &[
-                0x06, 0x02, // Ty
-                0x12, 0x00, // Len
-                0x00, 0x00, 0x00, 0x0e, // Input Len
-                0x05, 0x00, 0x00, 0x00, // Input Ty
-                0x00, 0x00, // X
-                0x00, 0x01, // Y
-                0x00, 0x00, // Unused
-                3, 232, // Reference Width
-                3, 232, // Reference Height
-            ],
-        );
-    }
-
-    #[test]
-    fn mouse_button() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::MouseButton {
-                action: MouseButtonAction::Press,
-                button: MouseButton::Left,
-            },
-            &[
-                0x06, 0x02, // Ty
-                0x09, 0x00, // Len
-                0x00, 0x00, 0x00, 0x05, // Input Len
-                0x08, 0x00, 0x00, 0x00, // Mouse Action
-                0x01, // Mouse Button
-            ],
-        );
-
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::MouseButton {
-                action: MouseButtonAction::Release,
-                button: MouseButton::Left,
-            },
-            &[
-                0x06, 0x02, // Ty
-                0x09, 0x00, // Len
-                0x00, 0x00, 0x00, 0x05, // Input Len
-                0x09, 0x00, 0x00, 0x00, // Mouse Action
-                0x01, // Mouse Button
-            ],
-        );
-    }
-
-    #[test]
-    fn keyboard() {
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::Keyboard {
-                action: KeyAction::Down,
-                flags: KeyFlags::empty(),
-                key_code: KeyCode(0x41),
-                modifier: KeyModifiers::CTRL,
-                zero: 0,
-            },
-            &[
-                0x06, 0x02, // Ty
-                0x0e, 0x00, // Len
-                0x00, 0x00, 0x00, 0x0a, // Input Len
-                0x03, 0x00, 0x00, 0x00, // Key Action
-                0x00, // Flags
-                0x41, 0x00, // Key Code
-                0x02, // Modifiers
-                0x00, 0x00, // Zero
-            ],
-        );
-
-        test_packet(
-            PacketDirection::ServerBound,
-            sunshine_gen_7_config(),
-            ControlPacket::Keyboard {
-                action: KeyAction::Up,
-                flags: KeyFlags::SUNSHINE_NON_NORMALIZED,
-                key_code: KeyCode(0x41),
-                modifier: KeyModifiers::SHIFT,
-                zero: 0,
-            },
-            &[
-                0x06, 0x02, // Ty
-                0x0e, 0x00, // Len
-                0x00, 0x00, 0x00, 0x0a, // Input Len
-                0x04, 0x00, 0x00, 0x00, // Key Action
-                0x01, // Flags
-                0x41, 0x00, // Key Code
-                0x01, // Modifiers
-                0x00, 0x00, // Zero
-            ],
-        );
-    }
-
-    #[test]
-    fn termination_long() {
-        test_packet(
-            PacketDirection::ClientBound,
-            sunshine_gen_7_config(),
-            ControlPacket::ServerTermination {
-                reason: TerminationReason::GRACEFUL,
-            },
-            &[0, 1, 4, 0, 128, 3, 0, 35],
-        );
-    }
-    #[test]
-    fn termination_short() {
-        test_packet(
-            PacketDirection::ClientBound,
-            sunshine_gen_7_config(),
-            ControlPacket::ServerTermination {
-                reason: TerminationReason::Short(2),
-            },
-            &[0, 1, 2, 0, 0, 2],
-        );
     }
 }

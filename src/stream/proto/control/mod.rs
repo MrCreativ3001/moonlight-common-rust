@@ -31,8 +31,6 @@ use crate::{
     },
 };
 
-// TODO: make this possible to use on the server and client
-
 pub mod packet;
 
 mod encryption;
@@ -42,19 +40,17 @@ pub mod peer;
 #[allow(clippy::unwrap_used)]
 mod test;
 
-// TODO: send loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
-
 // TODO: where's the difference between v1 and v2 headers?
 
-const CHANNEL_GENERIC: usize = 0x00;
-const CHANNEL_URGENT: usize = 0x01; // IDR and reference frame invalidation requests
-const CHANNEL_KEYBOARD: usize = 0x02;
-const CHANNEL_MOUSE: usize = 0x03;
-const CHANNEL_PEN: usize = 0x04;
-const CHANNEL_TOUCH: usize = 0x05;
-const CHANNEL_UTF8: usize = 0x06;
-const CHANNEL_GAMEPAD_BASE: usize = 0x10; // 0x10 to 0x1F by controller index
-const CHANNEL_SENSOR_BASE: usize = 0x20; // 0x20 to 0x2F by controller index
+const CHANNEL_GENERIC: u8 = 0x00;
+const CHANNEL_URGENT: u8 = 0x01; // IDR and reference frame invalidation requests
+const CHANNEL_KEYBOARD: u8 = 0x02;
+const CHANNEL_MOUSE: u8 = 0x03;
+const CHANNEL_PEN: u8 = 0x04;
+const CHANNEL_TOUCH: u8 = 0x05;
+const CHANNEL_UTF8: u8 = 0x06;
+const CHANNEL_GAMEPAD_BASE: u8 = 0x10; // 0x10 to 0x1F by controller index
+const CHANNEL_SENSOR_BASE: u8 = 0x20; // 0x20 to 0x2F by controller index
 const CHANNEL_COUNT: usize = 0x30;
 
 /// A message from the [MoonlightStreamProto](super::MoonlightStreamProto) to the [ControlStream]
@@ -194,11 +190,21 @@ where
             return Ok(());
         }
 
-        let kind = if self.server_version.is_sunshine_like() {
+        let (channel, kind) = if self.server_version.is_sunshine_like() {
             match packet {
-                // TODO: are those reliable?
-                ControlPacket::RequestIdr => PacketKind::Reliable,
-                ControlPacket::StartB => PacketKind::Reliable,
+                // request idr: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1522-L1528
+                // ltr ack: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1569-L1575
+                // invalidate ref frames: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1509-L1515
+                ControlPacket::RequestIdr
+                | ControlPacket::StartB
+                | ControlPacket::LongTermReferenceFrameAcknowledgement { .. } => {
+                    (CHANNEL_URGENT, PacketKind::Reliable)
+                }
+                // loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1469-L1475
+                // frame fec: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1407-L1413
+                ControlPacket::LossStats { .. } | ControlPacket::FrameFec { .. } => {
+                    (CHANNEL_GENERIC, PacketKind::Unreliable { sequenced: false })
+                }
                 // See: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1429
                 // Send the message (and don't expect a response)
                 //
@@ -206,22 +212,23 @@ where
                 // regularly. This only happens when an ACK is received to a reliable packet.
                 // Since the other traffic on this channel is unsequenced, it doesn't really
                 // cause any negative HOL blocking side-effects.
-                ControlPacket::PeriodicPing => PacketKind::Reliable,
-                _ => PacketKind::Unreliable { sequenced: false },
+                ControlPacket::PeriodicPing => (CHANNEL_GENERIC, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L738-L742
+                ControlPacket::MouseMoveRelative { .. } => (CHANNEL_MOUSE, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L803-L806
+                ControlPacket::MouseMoveAbsolute { .. } => (CHANNEL_MOUSE, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L865-L866
+                ControlPacket::MouseButton { .. } => (CHANNEL_MOUSE, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L899-L900
+                ControlPacket::Keyboard { .. } => (CHANNEL_KEYBOARD, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L980-L981
+                ControlPacket::Text { .. } => (CHANNEL_UTF8, PacketKind::Reliable),
+                _ => todo!("{:?}", packet),
             }
         } else {
-            PacketKind::Reliable
-        };
-
-        let channel = if self.server_version.is_sunshine_like() {
-            (match packet {
-                ControlPacket::RequestIdr | ControlPacket::StartB => CHANNEL_URGENT,
-                _ => CHANNEL_GENERIC,
-            }) as u8
-        } else {
             // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
-            // Always use channel 0 for GFE
-            0
+            // Always use channel 0 and reliable for GFE
+            (0, PacketKind::Reliable)
         };
 
         // TODO: what channel?
@@ -277,6 +284,26 @@ where
                     if id != self.peer {
                         // ignore other peers
                         continue;
+                    }
+
+                    #[allow(clippy::single_match)]
+                    match &packet {
+                        ControlPacket::ServerTermination { .. } => {
+                            // Disconnect instanly:
+                            // We used to wait for a ENET_EVENT_TYPE_DISCONNECT event, but since
+                            // GFE 3.20.3.63 we don't get one for 10 seconds after we first get
+                            // this termination message. The termination message should be reliable
+                            // enough to end the stream now, rather than waiting for an explicit
+                            // disconnect. The server will also not acknowledge our disconnect
+                            // message once it sends this message, so we mark the peer as fully
+                            // disconnected now to avoid delays waiting for an ack that will
+                            // never arrive.
+                            // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1362-L1375
+                            self.host.disconnect_now(self.peer, 0)?;
+
+                            // The enet disconnect event will be called next poll
+                        }
+                        _ => {}
                     }
 
                     return Ok(ControlStreamOutput::Event(ControlStreamEvent::Packet(
@@ -364,6 +391,7 @@ where
                 Err(ControlError::Enet(EnetError::PeerSendError(PeerSendError::NotConnected)))
                 | Err(ControlError::NotConnected) => {
                     debug!(
+                        self = ?self,
                         "not sending periodic ping because the control stream (via enet) is not connected yet."
                     );
                     // We are not connected yet -> we cannot send a ping

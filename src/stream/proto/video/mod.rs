@@ -8,23 +8,20 @@ use std::{
 use thiserror::Error;
 use tracing::{Level, debug, instrument};
 
-use crate::{
-    ServerVersion,
-    stream::{
-        AesKey,
-        proto::{
-            ControlMessageInner,
-            control::{ControlMessage, packet::ControlPacket},
-            crypto::{CipherAlgorithm, CryptoBackend},
-            packet::SunshinePingPacket,
-            rtsp::moonlight::SunshinePing,
-            video::{
-                depayloader::{
-                    VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
-                    VideoDepayloaderReport, VideoFrame,
-                },
-                packet::EncryptedVideoHeader,
+use crate::stream::{
+    AesKey,
+    proto::{
+        ControlMessageInner,
+        control::{ControlMessage, packet::ControlPacket},
+        crypto::{CipherAlgorithm, CryptoBackend},
+        packet::SunshinePingPacket,
+        rtsp::moonlight::SunshinePing,
+        video::{
+            depayloader::{
+                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
+                VideoDepayloaderReport, VideoFrame,
             },
+            packet::EncryptedVideoHeader,
         },
     },
 };
