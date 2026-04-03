@@ -1,4 +1,7 @@
-use std::{ops::Deref, time::Duration};
+use std::{
+    ops::{Deref, DerefMut},
+    time::Duration,
+};
 
 use num::FromPrimitive;
 use thiserror::Error;
@@ -7,6 +10,7 @@ use tracing::{Level, instrument, trace, warn};
 use crate::{
     ServerVersion,
     stream::{
+        bindings::{ML_ERROR_FRAME_CONVERSION, ML_ERROR_GRACEFUL_TERMINATION},
         control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
         video::{Primary, SunshineHdrMetadata},
     },
@@ -233,8 +237,8 @@ pub struct ControlPacketConfig {
     pub rumble_data: Option<RawControlPacketType>,
     ///
     /// See also:
-    /// - [ControlPacket::Termination]
-    pub termination: Option<RawControlPacketType>,
+    /// - [ControlPacket::ServerTermination]
+    pub server_termination: Option<RawControlPacketType>,
     ///
     /// See also:
     /// - [ControlPacket::HdrMode]
@@ -292,7 +296,7 @@ impl ControlPacketConfig {
                 input_data: RawControlPacketType(0x0207),
 
                 rumble_data: None,
-                termination: None,
+                server_termination: None,
                 hdr_mode: None,
 
                 frame_fec: server_version
@@ -322,7 +326,7 @@ impl ControlPacketConfig {
 
                 input_data: RawControlPacketType(0x0206),
                 rumble_data: Some(RawControlPacketType(0x010b)),
-                termination: Some(RawControlPacketType(0x0109)),
+                server_termination: Some(RawControlPacketType(0x0109)),
                 hdr_mode: Some(RawControlPacketType(0x010e)),
 
                 frame_fec: server_version
@@ -352,7 +356,7 @@ impl ControlPacketConfig {
 
                 input_data: RawControlPacketType(0x0206),
                 rumble_data: Some(RawControlPacketType(0x010b)),
-                termination: Some(RawControlPacketType(0x0100)),
+                server_termination: Some(RawControlPacketType(0x0100)),
                 hdr_mode: Some(RawControlPacketType(0x010e)),
 
                 frame_fec: server_version
@@ -428,7 +432,7 @@ impl ControlPacketType {
             ControlPacketType::LossStats => Some(config.loss_stats),
             ControlPacketType::FrameStats => Some(config.frame_stats),
             ControlPacketType::RumbleData => config.rumble_data,
-            ControlPacketType::Termination => config.termination,
+            ControlPacketType::Termination => config.server_termination,
             ControlPacketType::HdrMode => config.hdr_mode,
             ControlPacketType::InputData => Some(config.input_data),
             ControlPacketType::FrameFec => config.frame_fec,
@@ -446,6 +450,7 @@ impl ControlPacketType {
         match direction {
             PacketDirection::ClientBound => match ty {
                 id if Some(id) == config.hdr_mode => Some(Self::HdrMode),
+                id if Some(id) == config.server_termination => Some(Self::Termination),
                 _ => None,
             },
             PacketDirection::ServerBound => match ty {
@@ -466,6 +471,30 @@ impl ControlPacketType {
             },
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TerminationReason {
+    Long(u32),
+    /// Prefer Long over Short
+    Short(u16),
+}
+
+impl TerminationReason {
+    /// Also known as NVST_DISCONN_SERVER_TERMINATED_CLOSED, ML_ERROR_GRACEFUL_TERMINATION or ML_ERROR_UNEXPECTED_EARLY_TERMINATION based on context and state.
+    ///
+    /// References:
+    /// - Wolf: https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/src/moonlight-protocol/moonlight/control.hpp#L300
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1320-L1330
+    pub const GRACEFUL: TerminationReason = TerminationReason::Long(0x80030023);
+    /// References:
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1314-L1316
+    pub const NVST_DISCONN_SERVER_VIDEO_ENCODER_CONVERT_INPUT_FRAME_FAILED: TerminationReason =
+        TerminationReason::Long(0x800e9403);
+    /// References:
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1317-L1319
+    pub const NVST_DISCONN_SERVER_VFP_PROTECTED_CONTENT: TerminationReason =
+        TerminationReason::Long(0x800e9302);
 }
 
 #[derive(Debug, PartialEq)]
@@ -523,6 +552,12 @@ pub enum ControlPacket {
         /// This is 0x14.
         unknown5: u32,
     },
+    /// Couldn't find any information on how to serialize / deserialize this packet.
+    /// But it exists and is unused.
+    ///
+    /// References:
+    /// - Moonlight unused: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L208
+    /// - Sunshine unused: https://github.com/LizardByte/Sunshine/blob/ba4db46ac0bfbe478ad017f0b388bfcb346ad8ce/src/stream.cpp#L58
     FrameStats {},
     /// Sunshine Extension
     ///
@@ -628,6 +663,19 @@ pub enum ControlPacket {
         reserved: u32,
     },
     // TODO: touch, controller, pen
+    /// The server terminated the session.
+    /// There also seems to be a short termination code, however this is not implemented.
+    ///
+    /// Client Termination works by disconnecting using enet.
+    ///
+    /// References:
+    /// - Wolf: https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/src/moonlight-protocol/moonlight/control.hpp#L300-L310
+    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1299-L1379
+    /// - Moonlight short: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1336-L1355
+    /// - Moonlight Client Disconnect: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Misc.c#L43-L85
+    ServerTermination {
+        reason: TerminationReason,
+    },
 }
 
 impl ControlPacket {
@@ -649,7 +697,7 @@ impl ControlPacket {
             Self::FrameStats { .. } => ControlPacketType::FrameStats,
             Self::FrameFec { .. } => ControlPacketType::FrameFec,
             Self::RumbleData { .. } => ControlPacketType::RumbleData,
-            // Self::Termination => ControlPacketType::Termination,
+            Self::ServerTermination { .. } => ControlPacketType::Termination,
             Self::HdrMode { .. } => ControlPacketType::HdrMode,
             Self::MouseButton { .. } => ControlPacketType::InputData,
             Self::MouseMoveRelative { .. } => ControlPacketType::InputData,
@@ -792,6 +840,20 @@ impl ControlPacket {
                 buffer[24..28].copy_from_slice(&unknown3.to_le_bytes());
                 buffer[28..32].copy_from_slice(&unknown4.to_le_bytes());
                 buffer[32..36].copy_from_slice(&unknown5.to_le_bytes());
+
+                Ok(4 + content_len as usize)
+            }
+            Self::FrameStats {} => {
+                // Ty
+                let ty = config.frame_stats;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let content_len: u16 = 0;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Data, unknown
+                warn!("FrameStats packet payload is unknown by this implementation");
 
                 Ok(4 + content_len as usize)
             }
@@ -956,6 +1018,16 @@ impl ControlPacket {
 
                 Ok(4 + content_len as usize)
             }
+            Self::MouseScroll {
+                scroll_amount_1,
+                scroll_amount_2,
+                zero,
+            } => {
+                todo!();
+            }
+            Self::MouseHorizontalScroll { amount } => {
+                todo!();
+            }
             Self::Keyboard {
                 action,
                 flags,
@@ -990,9 +1062,38 @@ impl ControlPacket {
 
                 Ok(4 + content_len as usize)
             }
-            _ => todo!(),
+            Self::RumbleData {
+                unused,
+                controller_id,
+                low_frequency,
+                high_frequency,
+            } => {
+                todo!();
+            }
+            Self::ServerTermination { reason } => {
+                let ty = config.server_termination.ok_or(ControlPacketNotSupported)?;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                match reason {
+                    TerminationReason::Short(code) => {
+                        let content_len: u16 = 2;
+                        buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                        buffer[4..6].copy_from_slice(&code.to_be_bytes());
+
+                        Ok(4 + content_len as usize)
+                    }
+                    TerminationReason::Long(code) => {
+                        let content_len: u16 = 4;
+                        buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                        buffer[4..8].copy_from_slice(&code.to_be_bytes());
+
+                        Ok(4 + content_len as usize)
+                    }
+                }
+            }
         }
-        // TODO
     }
 
     // TODO: maybe replace option with an result?
@@ -1048,8 +1149,24 @@ impl ControlPacket {
                 todo!()
             }
             ControlPacketType::Termination => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1241-L1269
-                todo!()
+                if payload.len() < 4 + 2 {
+                    warn!("Termination packet too small");
+                    return None;
+                }
+
+                if payload.len() >= 8 {
+                    let code = u32::from_be_bytes([payload[4], payload[5], payload[6], payload[7]]);
+
+                    Some(ControlPacket::ServerTermination {
+                        reason: TerminationReason::Long(code),
+                    })
+                } else {
+                    let code = u16::from_be_bytes([payload[4], payload[5]]);
+
+                    Some(ControlPacket::ServerTermination {
+                        reason: TerminationReason::Short(code),
+                    })
+                }
             }
             ControlPacketType::HdrMode => {
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
@@ -1142,6 +1259,11 @@ impl ControlPacket {
                     unknown4,
                     unknown5,
                 })
+            }
+            ControlPacketType::FrameStats => {
+                warn!("FrameStats packet payload is unknown by this implementation");
+
+                Some(ControlPacket::FrameStats {})
             }
             ControlPacketType::FrameFec => {
                 if payload.len() < 4 + 21 {
@@ -1352,10 +1474,11 @@ mod test {
             proto::control::packet::{
                 ControlPacket, ControlPacketConfig, ControlPacketType,
                 ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
-                EncryptedControlHeader, PacketDirection,
+                EncryptedControlHeader, PacketDirection, TerminationReason,
             },
             video::{Primary, SunshineHdrMetadata},
         },
+        test::init_test,
     };
 
     #[test]
@@ -1591,7 +1714,24 @@ mod test {
     }
 
     #[test]
+    fn frame_stats() {
+        init_test();
+
+        test_packet(
+            PacketDirection::ServerBound,
+            sunshine_gen_7_config(),
+            ControlPacket::FrameStats {},
+            &[
+                4, 2, // Type
+                0, 0, // Length
+            ],
+        );
+    }
+
+    #[test]
     fn frame_fec() {
+        init_test();
+
         test_packet(
             PacketDirection::ServerBound,
             sunshine_gen_7_config(),
@@ -1792,6 +1932,29 @@ mod test {
                 0x01, // Modifiers
                 0x00, 0x00, // Zero
             ],
+        );
+    }
+
+    #[test]
+    fn termination_long() {
+        test_packet(
+            PacketDirection::ClientBound,
+            sunshine_gen_7_config(),
+            ControlPacket::ServerTermination {
+                reason: TerminationReason::GRACEFUL,
+            },
+            &[0, 1, 4, 0, 128, 3, 0, 35],
+        );
+    }
+    #[test]
+    fn termination_short() {
+        test_packet(
+            PacketDirection::ClientBound,
+            sunshine_gen_7_config(),
+            ControlPacket::ServerTermination {
+                reason: TerminationReason::Short(2),
+            },
+            &[0, 1, 2, 0, 0, 2],
         );
     }
 }
