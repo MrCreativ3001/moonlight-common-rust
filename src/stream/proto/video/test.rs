@@ -6,7 +6,8 @@ use crate::{
         proto::video::{
             depayloader::{
                 VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderFecReport,
-                VideoDepayloaderOutput, VideoFrame, create_video_reed_solomon,
+                VideoDepayloaderOutput, VideoDepayloaderStatus, VideoFrame,
+                create_video_reed_solomon,
             },
             nal::{h264, h265},
             packet::{
@@ -1080,13 +1081,6 @@ fn depayloader_nofec_noparse() {
     let payload_size = 10;
     let expected_host_processing_latency = Duration::from_millis(10);
 
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
-        packet_size: payload_size + VideoHeader::SIZE,
-        // av1 doesn't get parsed
-        format: VideoFormat::Av1Main8,
-        server_version: sunshine_gen_7_431(),
-    });
-
     let expected_frame = [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1,
     ];
@@ -1104,9 +1098,39 @@ fn depayloader_nofec_noparse() {
         &expected_frame,
     );
 
+    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+        packet_size: payload_size + VideoHeader::SIZE,
+        // av1 doesn't get parsed
+        format: VideoFormat::Av1Main8,
+        server_version: sunshine_gen_7_431(),
+    });
+
+    assert_eq!(
+        depayloader.status(),
+        VideoDepayloaderStatus {
+            current_frame_index: 1,
+            received_data_packets: 0,
+            received_parity_packets: 0,
+            total_data_packets: None,
+            current_block: 0,
+            total_blocks: None,
+        }
+    );
+
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
+    assert_eq!(
+        depayloader.status(),
+        VideoDepayloaderStatus {
+            current_frame_index: 1,
+            received_data_packets: 1,
+            received_parity_packets: 0,
+            total_data_packets: Some(3),
+            current_block: 0,
+            total_blocks: Some(1),
+        }
+    );
     assert_eq!(
         depayloader.poll_output().unwrap(),
         VideoDepayloaderOutput::None
@@ -1116,6 +1140,17 @@ fn depayloader_nofec_noparse() {
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
     assert_eq!(
+        depayloader.status(),
+        VideoDepayloaderStatus {
+            current_frame_index: 1,
+            received_data_packets: 2,
+            received_parity_packets: 0,
+            total_data_packets: Some(3),
+            current_block: 0,
+            total_blocks: Some(1),
+        }
+    );
+    assert_eq!(
         depayloader.poll_output().unwrap(),
         VideoDepayloaderOutput::None
     );
@@ -1123,6 +1158,17 @@ fn depayloader_nofec_noparse() {
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
+    assert_eq!(
+        depayloader.status(),
+        VideoDepayloaderStatus {
+            current_frame_index: 1,
+            received_data_packets: 3,
+            received_parity_packets: 0,
+            total_data_packets: Some(3),
+            current_block: 0,
+            total_blocks: Some(1),
+        }
+    );
     trace!("{:#?}", depayloader);
     let VideoDepayloaderOutput::Frame {
         frame:

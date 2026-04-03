@@ -43,6 +43,24 @@ pub struct VideoDepayloaderConfig {
     pub server_version: ServerVersion,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoDepayloaderStatus {
+    /// The number of the current frame.
+    pub current_frame_index: u32,
+    /// The received data packets in the [Self::current_block]
+    pub received_data_packets: usize,
+    /// The received parity packets in the [Self::current_block]
+    pub received_parity_packets: usize,
+    /// The total data packets in the [Self::current_block]
+    /// None if it's still unknown how many data packets are in this block.
+    pub total_data_packets: Option<usize>,
+    /// The current block in this [Self::current_frame_index]
+    pub current_block: usize,
+    /// The total blocks in this [Self::current_frame_index]
+    /// None if it's still unknown how many blocks are in this frame.
+    pub total_blocks: Option<usize>,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct VideoFrame {
     pub frame_index: u32,
@@ -145,9 +163,35 @@ impl VideoDepayloader {
         todo!()
     }
 
-    pub fn status(&self) {
-        // TODO: maybe allow to get some status from the depayloader, because of dropping frames and requesting idrs
-        todo!()
+    pub fn status(&self) -> VideoDepayloaderStatus {
+        self.frame_status(self.current_frame_index)
+    }
+    fn frame_status(&self, frame_index: u32) -> VideoDepayloaderStatus {
+        let mut received_data_packets = 0;
+        let mut received_parity_packets = 0;
+        let mut total_data_packets = None;
+
+        for (_, packet) in self
+            .packets
+            .iter()
+            .filter(|packet| packet.1.frame_index == frame_index)
+        {
+            if packet.fec_shard_index < packet.fec_total_data_shards {
+                received_data_packets += 1;
+            } else {
+                received_parity_packets += 1;
+            }
+            total_data_packets = Some(packet.fec_total_data_shards as usize);
+        }
+
+        VideoDepayloaderStatus {
+            current_frame_index: frame_index,
+            received_data_packets,
+            received_parity_packets,
+            total_data_packets,
+            current_block: 0,
+            total_blocks: total_data_packets.map(|_| 1),
+        }
     }
 
     pub fn poll_output(&mut self) -> Result<VideoDepayloaderOutput, VideoQueueError> {
@@ -633,10 +677,7 @@ impl VideoDepayloader {
         trace!(rtp_header = ?rtp_header, video_header = ?video_header, "received video packet");
 
         // FLAG_EXTENSION is required for all supported versions of GFE: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpVideoQueue.c#L549-L550
-        if rtp_header.header & VIDEO_FLAG_EXTENSION == 0 {
-            // TODO: error
-            todo!();
-        }
+        debug_assert!(rtp_header.header & VIDEO_FLAG_EXTENSION != 0);
 
         if !video_header
             .flags
