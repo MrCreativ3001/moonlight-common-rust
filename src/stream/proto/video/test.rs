@@ -8,7 +8,7 @@ use crate::{
                 VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderFecReport,
                 VideoDepayloaderOutput, VideoFrame, create_video_reed_solomon,
             },
-            nal::h264,
+            nal::{h264, h265},
             packet::{
                 FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
                 VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_from,
@@ -1277,20 +1277,20 @@ fn depayloader_nofec_h265() {
     let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
         VideoFrameBuffer {
             buffer_type: BufferType::Vps,
-            data: vec![0, 0, 1, 1, 40, 4, 1, 2, 3, 58, 67],
+            data: vec![0, 0, 1, 0x40, 1, 4, 1, 2, 3, 58, 67],
         },
         VideoFrameBuffer {
             buffer_type: BufferType::Sps,
-            data: vec![0, 0, 1, 1, 42, 4, 5, 56],
+            data: vec![0, 0, 1, 0x42, 1, 4, 5, 56],
         },
         VideoFrameBuffer {
             buffer_type: BufferType::Pps,
-            data: vec![0, 0, 1, 1, 44, 6, 7, 33],
+            data: vec![0, 0, 1, 0x44, 1, 6, 7, 33],
         },
         VideoFrameBuffer {
             // idr
             buffer_type: BufferType::PicData,
-            data: vec![0, 0, 1, 1, 20, 1, 8, 5, 38, 120],
+            data: vec![0, 0, 1, 0x28, 1, 1, 8, 5, 38, 120],
         },
     ];
     let expected_frame = expected_buffers

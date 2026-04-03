@@ -160,7 +160,6 @@ impl VideoDepayloader {
                 fec_report: report,
             };
 
-            // TODO: increase current_frame_index and current_sequence_number
             self.current_frame_index += 1;
         }
 
