@@ -298,6 +298,7 @@ mod test {
     use super::*;
 
     // TODO: also test the padding
+    // TODO: here are tests: https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/tests/testCrypto.cpp#L74-L154
 
     #[test]
     fn openssl_cbc() {

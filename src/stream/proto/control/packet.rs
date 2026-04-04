@@ -555,16 +555,16 @@ pub const MULTI_CONTROLLER_MAGIC: u32 = 0x0000000D;
 pub const MULTI_CONTROLLER_MAGIC_GEN5: u32 = 0x0000000C;
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L89
-pub const MC_HEADER_B: u32 = 0x001A;
+pub const MC_HEADER_B: i16 = 0x001A;
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72
-pub const MC_MID_B: u32 = 0x0014;
+pub const MC_MID_B: i16 = 0x0014;
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L91
-pub const MC_TAIL_A: u32 = 0x009C;
+pub const MC_TAIL_A: i16 = 0x009C;
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L92
-pub const MC_TAIL_B: u32 = 0x0055;
+pub const MC_TAIL_B: i16 = 0x0055;
 
 /// This is for version ServerVersion::major < 4.
 /// Those are not supported by this implementation
@@ -804,49 +804,38 @@ pub enum ControlPacket {
     Pen {
         // TODO
     },
-    /// Send the inputs of the first controller to the host.
-    /// This packet should be avoided and was replaced by [Self::ControllerMulti].
-    ///
-    /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L73-L85
-    /// - how to use correctly: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162
-    Controller {
-        header_b: u16,
-        button_flags: ControllerButtons,
-        left_trigger: u8,
-        right_trigger: u8,
-        left_stick_x: i16,
-        left_stick_y: i16,
-        right_stick_x: i16,
-        right_stick_y: i16,
-        tail_a: i32,
-        tail_b: i16,
-    },
     /// Send controller inputs to the host.
+    ///
+    /// This is the MultiController packet in moonlight, but we only have this because we only support Gen5 server and only server below Gen5 use the old packet.
     ///
     /// References:
     /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L93-L109
     /// - how to use correctly: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162
-    ControllerMulti {
-        header_b: u16,
-        controller_number: u8,
+    ControllerState {
+        header_b: i16,
+        controller_number: i16,
         active_gamepad_mask: ActiveGamepads,
+        /// This is [MC_MID_B]
         mid_b: i16,
-        button_flags: ControllerButtons,
+        /// This is using the first two bytes of [ControllerButtons]
+        button_flags: i16,
         left_trigger: u8,
         right_trigger: u8,
         left_stick_x: i16,
         left_stick_y: i16,
         right_stick_x: i16,
         right_stick_y: i16,
-        tail_a: i32,
+        /// This is [MC_TAIL_A]
+        tail_a: i16,
         /// Sunshine Extension
+        /// This is using the last two bytes of [ControllerButtons]
         ///
         /// For GFE always 0.
         ///
         /// References:
         /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L107
         button_flags_2: i16,
+        /// This is [MC_TAIL_B]
         tail_b: i16,
     },
     /// Sunshine Extension
@@ -920,6 +909,7 @@ pub enum ControlPacket {
 }
 
 impl ControlPacket {
+    /// A simple wrapper for [Self::Text]
     pub fn text(text: &str) -> Option<Self> {
         let mut text_array = [0; _];
         if text.len() > text_array.len() {
@@ -931,6 +921,41 @@ impl ControlPacket {
             text: text_array,
             text_len: text.len(),
         })
+    }
+
+    /// A simple wrapper for [Self::ControllerState]
+    ///
+    /// left_trigger, right_trigger are values between or equal 0..1
+    /// left_stick_x, left_stick_y, right_stick_x, right_stick_y are values between or equal -1..1
+    pub fn controller_state(
+        mask: ActiveGamepads,
+        controller_number: i16,
+        button_flags: ControllerButtons,
+        left_trigger: f32,
+        right_trigger: f32,
+        left_stick_x: f32,
+        left_stick_y: f32,
+        right_stick_x: f32,
+        right_stick_y: f32,
+    ) -> Self {
+        // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1104-L1128
+
+        Self::ControllerState {
+            header_b: MC_HEADER_B,
+            controller_number,
+            active_gamepad_mask: mask,
+            mid_b: MC_MID_B,
+            button_flags: (button_flags.bits() & 0x0000_FFFF) as i16,
+            left_trigger: (left_trigger.clamp(0.0, 1.0) * u8::MAX as f32) as u8,
+            right_trigger: (right_trigger.clamp(0.0, 1.0) * u8::MAX as f32) as u8,
+            left_stick_x: (left_stick_x.clamp(-1.0, 1.0) * i16::MAX as f32) as i16,
+            left_stick_y: (left_stick_y.clamp(-1.0, 1.0) * i16::MAX as f32) as i16,
+            right_stick_x: (right_stick_x.clamp(-1.0, 1.0) * i16::MAX as f32) as i16,
+            right_stick_y: (right_stick_y.clamp(-1.0, 1.0) * i16::MAX as f32) as i16,
+            tail_a: MC_TAIL_A,
+            button_flags_2: ((button_flags.bits() >> 16) & 0x0000_FFFF) as i16,
+            tail_b: MC_TAIL_B,
+        }
     }
 
     // TODO: what is the max size
@@ -962,8 +987,7 @@ impl ControlPacket {
             Self::Text { .. } => ControlPacketType::InputData,
             Self::Touch { .. } => ControlPacketType::InputData,
             Self::Pen { .. } => ControlPacketType::InputData,
-            Self::Controller { .. } => ControlPacketType::InputData,
-            Self::ControllerMulti { .. } => ControlPacketType::InputData,
+            Self::ControllerState { .. } => ControlPacketType::InputData,
             Self::ControllerArrival { .. } => ControlPacketType::InputData,
             Self::ControllerMotion { .. } => ControlPacketType::InputData,
             Self::ControllerBattery { .. } => ControlPacketType::InputData,
@@ -1425,21 +1449,7 @@ impl ControlPacket {
 
                 Ok(4 + content_len as usize)
             }
-            Self::Controller {
-                header_b,
-                button_flags,
-                left_trigger,
-                right_trigger,
-                left_stick_x,
-                left_stick_y,
-                right_stick_x,
-                right_stick_y,
-                tail_a,
-                tail_b,
-            } => {
-                todo!();
-            }
-            Self::ControllerMulti {
+            Self::ControllerState {
                 header_b,
                 controller_number,
                 active_gamepad_mask,
@@ -1455,7 +1465,43 @@ impl ControlPacket {
                 button_flags_2,
                 tail_b,
             } => {
-                todo!();
+                // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L93-L109
+                // Note: we only support Gen 5 servers and above this makes this logic very easy
+
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 30;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = MULTI_CONTROLLER_MAGIC_GEN5;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..14].copy_from_slice(&header_b.to_le_bytes());
+                buffer[14..16].copy_from_slice(&controller_number.to_le_bytes());
+                buffer[16..18].copy_from_slice(&active_gamepad_mask.bits().to_le_bytes());
+                buffer[18..20].copy_from_slice(&mid_b.to_le_bytes());
+                buffer[20..22].copy_from_slice(&button_flags.to_le_bytes());
+                buffer[22..23].copy_from_slice(&[*left_trigger]);
+                buffer[23..24].copy_from_slice(&[*right_trigger]);
+                buffer[24..26].copy_from_slice(&left_stick_x.to_le_bytes());
+                buffer[26..28].copy_from_slice(&left_stick_y.to_le_bytes());
+                buffer[28..30].copy_from_slice(&right_stick_x.to_le_bytes());
+                buffer[30..32].copy_from_slice(&right_stick_y.to_le_bytes());
+                buffer[32..34].copy_from_slice(&tail_a.to_le_bytes());
+                buffer[34..36].copy_from_slice(&button_flags_2.to_le_bytes());
+                buffer[36..38].copy_from_slice(&tail_b.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
             Self::ControllerBattery {
                 controller_number,
@@ -2043,6 +2089,48 @@ impl ControlPacket {
                                 ty,
                                 capabilities,
                                 supported_buttons,
+                            })
+                        }
+                    }
+                    MULTI_CONTROLLER_MAGIC_GEN5 => {
+                        if input_len < 30 {
+                            warn!(input_len = ?input_len, "ControllerArrival packet too small!");
+                            None
+                        } else {
+                            let header_b = i16::from_le_bytes([payload[12], payload[13]]);
+                            let controller_number = i16::from_le_bytes([payload[14], payload[15]]);
+                            let active_gamepad_mask =
+                                ActiveGamepads::from_bits_retain(u16::from_le_bytes([
+                                    payload[16],
+                                    payload[17],
+                                ]));
+                            let mid_b = i16::from_le_bytes([payload[18], payload[19]]);
+                            let button_flags = i16::from_le_bytes([payload[20], payload[21]]);
+                            let left_trigger = payload[22];
+                            let right_trigger = payload[23];
+                            let left_stick_x = i16::from_le_bytes([payload[24], payload[25]]);
+                            let left_stick_y = i16::from_le_bytes([payload[26], payload[27]]);
+                            let right_stick_x = i16::from_le_bytes([payload[28], payload[29]]);
+                            let right_stick_y = i16::from_le_bytes([payload[30], payload[31]]);
+                            let tail_a = i16::from_le_bytes([payload[32], payload[33]]);
+                            let button_flags_2 = i16::from_le_bytes([payload[34], payload[35]]);
+                            let tail_b = i16::from_le_bytes([payload[36], payload[37]]);
+
+                            Some(ControlPacket::ControllerState {
+                                header_b,
+                                controller_number,
+                                active_gamepad_mask,
+                                mid_b,
+                                button_flags,
+                                left_trigger,
+                                right_trigger,
+                                left_stick_x,
+                                left_stick_y,
+                                right_stick_x,
+                                right_stick_y,
+                                tail_a,
+                                button_flags_2,
+                                tail_b,
                             })
                         }
                     }

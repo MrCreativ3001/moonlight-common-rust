@@ -9,13 +9,14 @@ use crate::{
     ServerVersion, init_test,
     stream::{
         control::{
-            ControllerButtons, ControllerCapabilities, ControllerType, KeyAction, KeyCode,
-            KeyFlags, KeyModifiers, MouseButton, MouseButtonAction, TouchEventType,
+            ActiveGamepads, ControllerButtons, ControllerCapabilities, ControllerType, KeyAction,
+            KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction, TouchEventType,
         },
         proto::control::packet::{
             ControlPacket, ControlPacketConfig, ControlPacketType,
             ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
-            EncryptedControlHeader, PacketDirection, TerminationReason,
+            EncryptedControlHeader, MC_HEADER_B, MC_MID_B, MC_TAIL_A, MC_TAIL_B, PacketDirection,
+            TerminationReason,
         },
         video::{Primary, SunshineHdrMetadata},
     },
@@ -621,13 +622,49 @@ fn controller_arrival() {
 }
 
 #[test]
-fn controller() {
-    todo!()
-}
+fn controller_state() {
+    // Also known as ControllerMulti
 
-#[test]
-fn controller_multi() {
-    todo!()
+    test_packet(
+        PacketDirection::ServerBound,
+        sunshine_gen_7_config(),
+        ControlPacket::ControllerState {
+            header_b: MC_HEADER_B,
+            controller_number: 0,
+            active_gamepad_mask: ActiveGamepads::GAMEPAD_1,
+            mid_b: MC_MID_B,
+            button_flags: (ControllerButtons::A | ControllerButtons::Y).bits() as i16,
+            left_trigger: 2,
+            right_trigger: 3,
+            left_stick_x: 4,
+            left_stick_y: 5,
+            right_stick_x: 6,
+            right_stick_y: 7,
+            tail_a: MC_TAIL_A,
+            button_flags_2: (ControllerButtons::PADDLE3.bits() >> 16) as i16,
+            tail_b: MC_TAIL_B,
+        },
+        &[
+            6, 2, // Type
+            34, 0, // Length
+            0, 0, 0, 30, // Input Length
+            12, 0, 0, 0, // Input Type
+            26, 0, // header b
+            0, 0, // controller number
+            1, 0, // gamepad mask
+            20, 0, // mid b
+            0, 144, // button flags 1
+            2,   // left trigger
+            3,   // right trigger
+            4, 0, // left stick x
+            5, 0, // left stick y
+            6, 0, // right stick x
+            7, 0, // right stick y
+            156, 0, // tail a
+            4, 0, // button flags 2
+            85, 0, // tail b
+        ],
+    );
 }
 
 #[test]
