@@ -1470,7 +1470,36 @@ impl ControlPacket {
                 contact_area_minor,
                 contact_area_major,
             } => {
-                todo!();
+                // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1326-L1371
+
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 32;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SS_TOUCH_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..13].copy_from_slice(&[*event_type as u8]);
+                buffer[13..14].copy_from_slice(&[*reserved]);
+                buffer[14..16].copy_from_slice(&rotation.to_le_bytes());
+                buffer[16..20].copy_from_slice(&pointer_id.to_le_bytes());
+                buffer[20..24].copy_from_slice(&x.to_le_bytes());
+                buffer[24..28].copy_from_slice(&y.to_le_bytes());
+                buffer[28..32].copy_from_slice(&pressure_or_distance.to_le_bytes());
+                buffer[32..36].copy_from_slice(&contact_area_minor.to_le_bytes());
+                buffer[36..40].copy_from_slice(&contact_area_major.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
             Self::Pen {} => {
                 todo!();
@@ -1899,6 +1928,70 @@ impl ControlPacket {
                         text[0..text_len].copy_from_slice(text_ref);
 
                         Some(ControlPacket::Text { text, text_len })
+                    }
+                    SS_TOUCH_MAGIC => {
+                        if input_len < 4 + 28 {
+                            warn!(input_len = ?input_len, "Touch packet too small!");
+                            None
+                        } else {
+                            let Some(event_type) = TouchEventType::from_u8(payload[12]) else {
+                                warn!(
+                                    got_type = payload[12],
+                                    "Touch packet contains unknown touch event type"
+                                );
+                                return None;
+                            };
+                            let reserved = payload[13];
+                            let rotation = u16::from_le_bytes([payload[14], payload[15]]);
+                            let pointer_id = u32::from_le_bytes([
+                                payload[16],
+                                payload[17],
+                                payload[18],
+                                payload[19],
+                            ]);
+                            let x = f32::from_le_bytes([
+                                payload[20],
+                                payload[21],
+                                payload[22],
+                                payload[23],
+                            ]);
+                            let y = f32::from_le_bytes([
+                                payload[24],
+                                payload[25],
+                                payload[26],
+                                payload[27],
+                            ]);
+                            let pressure_or_distance = f32::from_le_bytes([
+                                payload[28],
+                                payload[29],
+                                payload[30],
+                                payload[31],
+                            ]);
+                            let contact_area_minor = f32::from_le_bytes([
+                                payload[32],
+                                payload[33],
+                                payload[34],
+                                payload[35],
+                            ]);
+                            let contact_area_major = f32::from_le_bytes([
+                                payload[36],
+                                payload[37],
+                                payload[38],
+                                payload[39],
+                            ]);
+
+                            Some(ControlPacket::Touch {
+                                event_type,
+                                reserved,
+                                rotation,
+                                pointer_id,
+                                x,
+                                y,
+                                pressure_or_distance,
+                                contact_area_minor,
+                                contact_area_major,
+                            })
+                        }
                     }
                     _ => {
                         warn!("InputData packet contains not known input type: {input_ty:#}");

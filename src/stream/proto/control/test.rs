@@ -8,7 +8,10 @@ use std::{
 use crate::{
     ServerVersion, init_test,
     stream::{
-        control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
+        control::{
+            KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction,
+            TouchEventType,
+        },
         proto::control::packet::{
             ControlPacket, ControlPacketConfig, ControlPacketType,
             ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
@@ -551,7 +554,36 @@ fn text_utf8_max() {
 
 #[test]
 fn touch() {
-    todo!()
+    test_packet(
+        PacketDirection::ServerBound,
+        sunshine_gen_7_config(),
+        ControlPacket::Touch {
+            event_type: TouchEventType::Down,
+            reserved: 0,
+            rotation: 1,
+            pointer_id: 2,
+            x: 3.0,
+            y: 4.0,
+            pressure_or_distance: 5.0,
+            contact_area_minor: 6.0,
+            contact_area_major: 7.0,
+        },
+        &[
+            6, 2, // Type
+            36, 0, // Length
+            0, 0, 0, 32, // Input Length
+            2, 0, 0, 85, // Input Ty
+            1,  // Event Type
+            0,  // Reserved
+            1, 0, // Rotation
+            2, 0, 0, 0, // Pointer Id
+            0, 0, 64, 64, // X
+            0, 0, 128, 64, // Y
+            0, 0, 160, 64, // Pressure or distance
+            0, 0, 192, 64, // Contact area Minor
+            0, 0, 224, 64, // Contact area Major
+        ],
+    );
 }
 
 #[test]
@@ -561,6 +593,11 @@ fn pen() {
 
 #[test]
 fn controller_arrival() {
+    todo!()
+}
+
+#[test]
+fn controller() {
     todo!()
 }
 

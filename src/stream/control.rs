@@ -72,17 +72,17 @@ pub enum MouseButton {
 
 // --------------- Touch ---------------
 
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive)]
 pub enum TouchEventType {
-    Hover = LI_TOUCH_EVENT_HOVER,
-    Down = LI_TOUCH_EVENT_DOWN,
-    Up = LI_TOUCH_EVENT_UP,
-    Move = LI_TOUCH_EVENT_MOVE,
-    Cancel = LI_TOUCH_EVENT_CANCEL,
-    ButtonOnly = LI_TOUCH_EVENT_BUTTON_ONLY,
-    HoverLeave = LI_TOUCH_EVENT_HOVER_LEAVE,
-    CancelAll = LI_TOUCH_EVENT_CANCEL_ALL,
+    Hover = LI_TOUCH_EVENT_HOVER as u8,
+    Down = LI_TOUCH_EVENT_DOWN as u8,
+    Up = LI_TOUCH_EVENT_UP as u8,
+    Move = LI_TOUCH_EVENT_MOVE as u8,
+    Cancel = LI_TOUCH_EVENT_CANCEL as u8,
+    ButtonOnly = LI_TOUCH_EVENT_BUTTON_ONLY as u8,
+    HoverLeave = LI_TOUCH_EVENT_HOVER_LEAVE as u8,
+    CancelAll = LI_TOUCH_EVENT_CANCEL_ALL as u8,
 }
 
 // --------------- Controller ---------------
