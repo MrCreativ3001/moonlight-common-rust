@@ -171,7 +171,7 @@ impl ActiveGamepads {
 /// This is used to inform the host of what type of controller has arrived,
 /// which can help the host decide how to emulate it and what features to expose.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive)]
 pub enum ControllerType {
     /// Unknown controller type.
     Unknown = LI_CTYPE_UNKNOWN as u8,

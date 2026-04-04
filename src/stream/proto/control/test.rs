@@ -9,8 +9,8 @@ use crate::{
     ServerVersion, init_test,
     stream::{
         control::{
-            KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction,
-            TouchEventType,
+            ControllerButtons, ControllerCapabilities, ControllerType, KeyAction, KeyCode,
+            KeyFlags, KeyModifiers, MouseButton, MouseButtonAction, TouchEventType,
         },
         proto::control::packet::{
             ControlPacket, ControlPacketConfig, ControlPacketType,
@@ -588,12 +588,36 @@ fn touch() {
 
 #[test]
 fn pen() {
-    todo!()
+    test_packet(
+        PacketDirection::ServerBound,
+        sunshine_gen_7_config(),
+        ControlPacket::Pen {},
+        &[],
+    );
 }
 
 #[test]
 fn controller_arrival() {
-    todo!()
+    test_packet(
+        PacketDirection::ServerBound,
+        sunshine_gen_7_config(),
+        ControlPacket::ControllerArrival {
+            controller_number: 1,
+            ty: ControllerType::PlayStation,
+            capabilities: ControllerCapabilities::ANALOG_TRIGGERS,
+            supported_buttons: ControllerButtons::A | ControllerButtons::B | ControllerButtons::X,
+        },
+        &[
+            6, 2, // Type
+            16, 0, // Length
+            0, 0, 0, 12, // Input Length
+            4, 0, 0, 85, // Input Type
+            1,  // controller number
+            2,  // controller type
+            1, 0, // capabilities
+            0, 112, 0, 0, // supported buttons
+        ],
+    );
 }
 
 #[test]

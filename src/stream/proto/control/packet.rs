@@ -1395,11 +1395,35 @@ impl ControlPacket {
             }
             Self::ControllerArrival {
                 controller_number,
-                ty,
+                ty: controller_type,
                 capabilities,
                 supported_buttons,
             } => {
-                todo!();
+                // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1426-L1467
+
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 12;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SS_CONTROLLER_ARRIVAL_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12..13].copy_from_slice(&[*controller_number]);
+                buffer[13..14].copy_from_slice(&[*controller_type as u8]);
+                buffer[14..16].copy_from_slice(&capabilities.bits().to_le_bytes());
+                buffer[16..20].copy_from_slice(&supported_buttons.bits().to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
             Self::Controller {
                 header_b,
@@ -1990,6 +2014,35 @@ impl ControlPacket {
                                 pressure_or_distance,
                                 contact_area_minor,
                                 contact_area_major,
+                            })
+                        }
+                    }
+                    SS_CONTROLLER_ARRIVAL_MAGIC => {
+                        if input_len < 4 + 8 {
+                            warn!(input_len = ?input_len, "ControllerArrival packet too small!");
+                            None
+                        } else {
+                            let controller_number = payload[12];
+                            let ty = ControllerType::from_u8(payload[13])
+                                .unwrap_or(ControllerType::Unknown);
+                            let capabilities =
+                                ControllerCapabilities::from_bits_retain(u16::from_le_bytes([
+                                    payload[14],
+                                    payload[15],
+                                ]));
+                            let supported_buttons =
+                                ControllerButtons::from_bits_retain(u32::from_le_bytes([
+                                    payload[16],
+                                    payload[17],
+                                    payload[18],
+                                    payload[19],
+                                ]));
+
+                            Some(ControlPacket::ControllerArrival {
+                                controller_number,
+                                ty,
+                                capabilities,
+                                supported_buttons,
                             })
                         }
                     }

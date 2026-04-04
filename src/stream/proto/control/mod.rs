@@ -175,7 +175,13 @@ where
         })
     }
 
-    pub fn send(&mut self, packet: ControlPacket) -> Result<(), ControlError> {
+    // TODO: we should not directly use the ControlPacket as a way of sending packets
+    // Use some input enum
+    pub fn send(&mut self, input: ()) {
+        todo!()
+    }
+
+    pub fn send_raw(&mut self, packet: ControlPacket) -> Result<(), ControlError> {
         self.send_inner(packet, false)
     }
     fn send_inner(
@@ -271,7 +277,7 @@ where
 
                     // Send all buffered packets
                     for packet in mem::take(&mut self.buffered_packets) {
-                        self.send(packet)?;
+                        self.send_raw(packet)?;
                     }
                     continue;
                 }
@@ -362,7 +368,7 @@ where
                 if force {
                     self.send_inner(packet, true)?;
                 } else {
-                    if let Err(err) = self.send(packet) {
+                    if let Err(err) = self.send_raw(packet) {
                         trace!(error = ?err, "failed to send packet from control message");
                     }
                 }
@@ -386,7 +392,7 @@ where
         };
 
         if self.last_now >= last_ping + PERIODIC_PING_INTERVAL {
-            match self.send(ControlPacket::PeriodicPing) {
+            match self.send_raw(ControlPacket::PeriodicPing) {
                 Ok(()) => {}
                 Err(ControlError::Enet(EnetError::PeerSendError(PeerSendError::NotConnected)))
                 | Err(ControlError::NotConnected) => {
