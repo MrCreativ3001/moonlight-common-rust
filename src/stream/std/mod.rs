@@ -23,7 +23,6 @@ use crate::{
             control::{
                 ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
                 ControlStreamOutput,
-                packet::ControlPacket,
                 peer::{ControlError, ControlHostAction, ControlHostInput},
             },
             crypto::CryptoBackend,
@@ -51,28 +50,92 @@ pub enum MoonlightStreamError {
     Control(#[from] ControlError),
     #[error("thread join: {0:?}")]
     ThreadJoin(Box<dyn Any + Send + 'static>),
+    #[error("exceeded first frame timeout")]
+    FirstFrameTimeout,
 }
 
 pub struct MoonlightStream {
-    audio_stream_thread: Option<JoinHandle<()>>,
-    video_stream_thread: Option<JoinHandle<()>>,
-    control_stream: Arc<ControlInner>,
-    control_stream_sender_thread: Option<JoinHandle<()>>,
-    control_stream_receiver_thread: Option<JoinHandle<()>>,
+    inner: Arc<SharedInner>,
+    threads: Threads,
     stop: StopSignal,
 }
 
-struct ControlInner {
-    stream: Mutex<ControlStream<Arc<dyn CryptoBackend + Send>>>,
-    notify: Condvar,
+#[derive(Debug, Default)]
+struct Threads {
+    audio_stream: Option<JoinHandle<()>>,
+    video_stream: Option<JoinHandle<()>>,
+    control_stream_sender: Option<JoinHandle<()>>,
+    control_stream_receiver: Option<JoinHandle<()>>,
 }
+
+impl Threads {
+    /// This won't call the stop signal!
+    fn try_join_all(&mut self, mut on_error: impl FnMut(Box<dyn Any + Send + 'static>)) {
+        debug!("trying to join all threads of this stream");
+
+        if let Some(audio_stream) = self.audio_stream.take() {
+            if let Err(err) = audio_stream.join() {
+                on_error(err);
+            }
+        } else {
+            debug!("audio_stream_thread doesn't exist");
+        }
+        if let Some(video_stream) = self.video_stream.take() {
+            if let Err(err) = video_stream.join() {
+                on_error(err);
+            }
+        } else {
+            debug!("video_stream_thread doesn't exist");
+        }
+        if let Some(control_stream_sender) = self.control_stream_sender.take() {
+            if let Err(err) = control_stream_sender.join() {
+                on_error(err);
+            }
+        } else {
+            debug!("control_stream_sender_thread doesn't exist");
+        }
+        if let Some(control_stream_receiver) = self.control_stream_receiver.take() {
+            if let Err(err) = control_stream_receiver.join() {
+                on_error(err);
+            }
+        } else {
+            debug!("control_stream_receiver_thread doesn't exist");
+        }
+
+        debug!("finished thread cleanup");
+    }
+    fn take(&mut self) -> Self {
+        Self {
+            audio_stream: self.audio_stream.take(),
+            video_stream: self.video_stream.take(),
+            control_stream_sender: self.control_stream_sender.take(),
+            control_stream_receiver: self.control_stream_receiver.take(),
+        }
+    }
+}
+
+struct SharedInner {
+    control_stream: Mutex<Option<ControlStream<Arc<dyn CryptoBackend + Send>>>>,
+    control_notify: Condvar,
+    first_frame: Mutex<FirstFrame>,
+    first_frame_notify: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct FirstFrame {
+    has_audio: bool,
+    has_video: bool,
+    has_control: bool,
+}
+
+// TODO: how to handle errors, maybe in the connection listener?
 
 impl MoonlightStream {
     pub fn launch_query_parameters() -> &'static str {
         MoonlightStreamSetup::<DisabledCryptoBackend>::launch_query_parameters()
     }
 
-    pub fn new<Crypto>(
+    pub fn connect<Crypto>(
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         video_decoder: impl VideoDecoder + Send + 'static,
@@ -83,24 +146,73 @@ impl MoonlightStream {
     where
         Crypto: CryptoBackend + Clone + 'static,
     {
+        let stop = StopSignal::new();
+
+        let mut threads = Threads::default();
+
+        let inner = match Self::connect_inner(
+            config,
+            settings,
+            video_decoder,
+            audio_decoder,
+            connection_listener,
+            crypto_backend,
+            &mut threads,
+            &stop,
+        ) {
+            Ok(value) => value,
+            Err(err) => {
+                error!(error = ?err, "failed to start moonlight stream");
+                info!("cleaning up all threads");
+
+                // stop, wait, then error
+                stop.stop();
+
+                threads.try_join_all(|err| {
+                    warn!(error = ?err, "error whilst joining thread");
+                });
+
+                todo!();
+            }
+        };
+
+        Ok(Self {
+            inner,
+            threads,
+            stop,
+        })
+    }
+    fn connect_inner<Crypto>(
+        config: MoonlightStreamConfig,
+        settings: MoonlightStreamSettings,
+        video_decoder: impl VideoDecoder + Send + 'static,
+        audio_decoder: impl AudioDecoder + Send + 'static,
+        connection_listener: impl ConnectionListener + Send + 'static,
+        crypto_backend: Crypto,
+        threads: &mut Threads,
+        stop: &StopSignal,
+    ) -> Result<Arc<SharedInner>, MoonlightStreamError>
+    where
+        Crypto: CryptoBackend + Clone + 'static,
+    {
         let span = info_span!("stream");
         let _enter = span.enter();
 
         let crypto_backend: Arc<dyn CryptoBackend + Send + 'static> = Arc::new(crypto_backend);
 
-        let stop = StopSignal::new();
         let mut tcp_stream: Option<TcpStream> = None;
         let mut recv_buffer = vec![0; 2048];
 
         let mut audio_decoder = Some(audio_decoder);
-        let mut audio_stream_thread = None;
 
         let mut video_decoder = Some(video_decoder);
-        let mut video_stream_thread = None;
 
-        let mut control_stream = None;
-        let mut control_stream_sender_thread = None;
-        let mut control_stream_receiver_thread = None;
+        let shared_inner = Arc::new(SharedInner {
+            control_notify: Condvar::new(),
+            control_stream: Mutex::new(None),
+            first_frame: Mutex::new(FirstFrame::default()),
+            first_frame_notify: Condvar::new(),
+        });
 
         let mut setup =
             MoonlightStreamSetup::new(Instant::now(), config, settings, crypto_backend)?;
@@ -124,7 +236,7 @@ impl MoonlightStream {
                             {
                                 0
                             }
-                            Err(err) => todo!("{}", err),
+                            Err(err) => return Err(err.into()),
                         };
                         trace!(bytes_len = len, "receive tcp bytes");
 
@@ -151,7 +263,10 @@ impl MoonlightStream {
                 MoonlightStreamSetupOutput::TcpConnect { addr } => {
                     trace!(addr = ?addr, "opening tcp stream");
 
-                    let new_stream = TcpStream::connect(addr)?;
+                    let new_stream = TcpStream::connect_timeout(
+                        &addr,
+                        MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT,
+                    )?;
                     new_stream.set_nodelay(true)?;
 
                     tcp_stream = Some(new_stream);
@@ -166,12 +281,13 @@ impl MoonlightStream {
                         .take()
                         .expect("audio decoder was already taken");
 
-                    audio_stream_thread = Some(audio_thread(
+                    threads.audio_stream = Some(audio_thread(
                         info_span!("audio_stream"),
                         stop.clone(),
                         addr,
                         audio_stream,
                         audio_decoder,
+                        shared_inner.clone(),
                     ));
                 }
                 MoonlightStreamSetupOutput::StartVideoStream { addr, video_stream } => {
@@ -179,39 +295,42 @@ impl MoonlightStream {
                         .take()
                         .expect("video decoder was already taken");
 
-                    video_stream_thread = Some(video_thread(
+                    threads.video_stream = Some(video_thread(
                         info_span!("video_stream"),
                         stop.clone(),
                         addr,
                         video_stream,
                         video_decoder,
+                        shared_inner.clone(),
                     ));
                 }
                 MoonlightStreamSetupOutput::StartControlStream {
                     addr,
                     control_stream: new_control_stream,
                 } => {
-                    let new_control_stream = Arc::new(ControlInner {
-                        stream: Mutex::new(new_control_stream),
-                        notify: Condvar::new(),
-                    });
-                    control_stream = Some(new_control_stream.clone());
-
                     let socket = Arc::new(UdpSocket::bind("0.0.0.0:0")?);
                     socket.connect(addr)?;
 
-                    control_stream_sender_thread = Some(control_thread_sender(
+                    {
+                        let mut control_stream = shared_inner
+                            .control_stream
+                            .lock()
+                            .expect("failed to lock ControlStream");
+                        *control_stream = Some(new_control_stream);
+                    }
+
+                    threads.control_stream_sender = Some(control_thread_sender(
                         info_span!("control_stream_sender"),
                         stop.clone(),
                         socket.clone(),
-                        new_control_stream.clone(),
+                        shared_inner.clone(),
                     ));
 
-                    control_stream_receiver_thread = Some(control_thread_receiver(
+                    threads.control_stream_receiver = Some(control_thread_receiver(
                         info_span!("control_stream_sender"),
                         stop.clone(),
                         socket.clone(),
-                        new_control_stream,
+                        shared_inner.clone(),
                     ));
                 }
                 MoonlightStreamSetupOutput::Connected => break,
@@ -222,24 +341,32 @@ impl MoonlightStream {
 
         drop(tcp_stream);
 
-        // TODO: wait until first packet from audio,video and control was received
+        // wait until all streams are connected: audio, video, control
+        let maximum_timeout = Instant::now() + Duration::from_secs(20);
+        loop {
+            let first_frame = shared_inner
+                .first_frame
+                .lock()
+                .expect("failed to get FirstFrame");
+
+            if Instant::now() > maximum_timeout {
+                debug!(first_frame = ?first_frame, "exceeded FirstFrame timeout");
+                return Err(MoonlightStreamError::FirstFrameTimeout);
+            }
+
+            let (first_frame, _) = shared_inner
+                .first_frame_notify
+                .wait_timeout(first_frame, Duration::from_secs(1))
+                .expect("failed to get FirstFrame");
+
+            if first_frame.has_audio && first_frame.has_video && first_frame.has_control {
+                break;
+            }
+        }
 
         info!("Started Moonlight Stream");
 
-        let control_stream =
-            control_stream.expect("MoonlightStreamSetup didn't produce a ControlStream");
-
-        Ok(Self {
-            stop,
-            audio_stream_thread,
-            video_stream_thread,
-            control_stream,
-            control_stream_sender_thread,
-            control_stream_receiver_thread,
-        })
-    }
-    fn connect_inner() {
-        // TODO: move everything into here so we can use error propagation with ?
+        Ok(shared_inner)
     }
 
     pub fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
@@ -263,16 +390,19 @@ impl MoonlightStream {
 
         {
             let mut control_stream = self
+                .inner
                 .control_stream
-                .stream
                 .lock()
                 .expect("failed to lock ControlStream");
+            let control_stream = control_stream
+                .as_mut()
+                .expect("failed to get ControlStream");
 
-            f(&mut control_stream)?;
+            f(control_stream)?;
         }
 
         // this should notify both the sender and receiver
-        self.control_stream.notify.notify_all();
+        self.inner.control_notify.notify_all();
 
         Ok(())
     }
@@ -280,40 +410,11 @@ impl MoonlightStream {
     pub fn stop(mut self) {
         // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
 
-        self.stop.stop_graceful();
+        self.stop.stop();
 
-        if let Err(err) = self
-            .audio_stream_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread")
-            .join()
-        {
-            todo!()
-        };
-        if let Err(err) = self
-            .video_stream_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread")
-            .join()
-        {
-            todo!()
-        };
-        if let Err(err) = self
-            .control_stream_receiver_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread")
-            .join()
-        {
-            todo!()
-        };
-        if let Err(err) = self
-            .control_stream_sender_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread")
-            .join()
-        {
-            todo!()
-        };
+        self.threads.try_join_all(|err| {
+            warn!(error = ?err,"error whilst joining thread");
+        });
     }
 }
 
@@ -326,30 +427,12 @@ impl Drop for MoonlightStream {
 
         debug!("MoonlightStream was dropped, performing cleanup in another thread");
 
-        self.stop.stop_graceful();
-
-        let audio_stream = self
-            .audio_stream_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread");
-        let video_stream = self
-            .video_stream_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread");
-        let control_stream_sender = self
-            .control_stream_sender_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread");
-        let control_stream_receiver = self
-            .control_stream_receiver_thread
-            .take()
-            .expect("MoonlightStream didn't have AudioStream thread");
+        let mut threads = self.threads.take();
 
         spawn(move || {
-            audio_stream.join().unwrap();
-            video_stream.join().unwrap();
-            control_stream_receiver.join().unwrap();
-            control_stream_sender.join().unwrap();
+            threads.try_join_all(|err| {
+                warn!(error = ?err,"error whilst joining thread");
+            });
         });
     }
 }
@@ -357,7 +440,7 @@ impl Drop for MoonlightStream {
 // IMPORTANT: after this point errors shouldn't be propagated via ? because we also need to stop the stream
 fn handle_error(stop: &StopSignal, error: MoonlightStreamError) {
     error!(error = ?error, "an error occured");
-    stop.stop_graceful();
+    stop.stop();
 }
 
 const UDP_BUFFER_CAPACITY: usize = 4096;
@@ -413,6 +496,7 @@ fn audio_thread<Crypto>(
     addr: SocketAddr,
     mut audio_stream: AudioStream<Crypto>,
     mut audio_decoder: impl AudioDecoder + Send + 'static,
+    shared_inner: Arc<SharedInner>,
 ) -> JoinHandle<()>
 where
     Crypto: CryptoBackend + 'static,
@@ -469,6 +553,12 @@ where
                 }
                 AudioStreamOutput::AudioSample(sample) => {
                     if !started {
+                        let mut first_frame = shared_inner
+                            .first_frame
+                            .lock()
+                            .expect("failed to get FirstFrame");
+                        first_frame.has_audio = true;
+
                         audio_decoder.start();
 
                         started = true;
@@ -518,6 +608,7 @@ fn video_thread<Crypto>(
     addr: SocketAddr,
     mut video_stream: VideoStream<Crypto>,
     mut video_decoder: impl VideoDecoder + Send + 'static,
+    shared_inner: Arc<SharedInner>,
 ) -> JoinHandle<()>
 where
     Crypto: CryptoBackend + 'static,
@@ -575,6 +666,12 @@ where
                 // }
                 VideoStreamOutput::VideoFrame(frame) => {
                     if !started {
+                        let mut first_frame = shared_inner
+                            .first_frame
+                            .lock()
+                            .expect("failed to get FirstFrame");
+                        first_frame.has_video = true;
+
                         video_decoder.start();
 
                         started = true;
@@ -646,7 +743,7 @@ fn control_thread_sender(
     span: Span,
     stop: StopSignal,
     socket: Arc<UdpSocket>,
-    control: Arc<ControlInner>,
+    shared_inner: Arc<SharedInner>,
 ) -> JoinHandle<()> {
     spawn(move || {
         let _enter = span.enter();
@@ -656,40 +753,48 @@ fn control_thread_sender(
         let mut timeout = Duration::ZERO;
 
         'outer: loop {
-            let mut control_stream = control
-                .stream
+            let mut control_stream = shared_inner
+                .control_stream
                 .lock()
                 .expect("failed to get lock on ControlStream");
-
-            // Check for shutdown
-            if let Some(final_shutdown_timeout) = final_shutdown_timeout
-                && Instant::now() > final_shutdown_timeout
             {
-                warn!("failed to gracefully close the stream. exiting now");
+                let control_stream = control_stream
+                    .as_mut()
+                    .expect("failed to get ControlStream");
 
-                return;
-            }
+                // Check for shutdown
+                if let Some(final_shutdown_timeout) = final_shutdown_timeout
+                    && Instant::now() > final_shutdown_timeout
+                {
+                    warn!("failed to gracefully close the stream. exiting now");
 
-            if stop.is_notified() && final_shutdown_timeout.is_none() {
-                // This will only get called once on shutdown
-                final_shutdown_timeout = Some(Instant::now() + Duration::from_secs(10));
+                    return;
+                }
 
-                // TODO: figure the disconnect code out
-                if let Err(err) = control_stream.disconnect(0) {
-                    handle_error(&stop, err.into());
+                if stop.is_notified() && final_shutdown_timeout.is_none() {
+                    // This will only get called once on shutdown
+                    final_shutdown_timeout = Some(Instant::now() + Duration::from_secs(10));
+
+                    // TODO: figure the disconnect code out
+                    if let Err(err) = control_stream.disconnect(0) {
+                        handle_error(&stop, err.into());
+                        break 'outer;
+                    }
+                }
+
+                if stop.is_notified() && control_stream.can_discard() {
                     break 'outer;
                 }
             }
 
-            if stop.is_notified() && control_stream.can_discard() {
-                break 'outer;
-            }
-
             // Wait on Condvar
-            let (mut control_stream, _) = control
-                .notify
+            let (mut control_stream, _) = shared_inner
+                .control_notify
                 .wait_timeout(control_stream, timeout)
                 .expect("failed to wait on ControlStream");
+            let control_stream = control_stream
+                .as_mut()
+                .expect("failed to get ControlStream");
 
             // Do event loop for control stream
             let deadline = loop {
@@ -717,6 +822,11 @@ fn control_thread_sender(
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Connect) => {
+                        let mut first_frame = shared_inner
+                            .first_frame
+                            .lock()
+                            .expect("failed to get FirstFrame");
+                        first_frame.has_control = true;
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Packet(packet)) => {
@@ -724,7 +834,7 @@ fn control_thread_sender(
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Disconnect) => {
-                        stop.stop_graceful();
+                        stop.stop();
                         continue;
                     }
                     ControlStreamOutput::Action(ControlHostAction::Timeout(timeout)) => {
@@ -747,7 +857,7 @@ fn control_thread_receiver(
     span: Span,
     stop: StopSignal,
     socket: Arc<UdpSocket>,
-    control: Arc<ControlInner>,
+    control: Arc<SharedInner>,
 ) -> JoinHandle<()> {
     spawn(move || {
         let _enter = span.enter();
@@ -802,9 +912,12 @@ fn control_thread_receiver(
             {
                 // Give input into ControlStream
                 let mut control_stream = control
-                    .stream
+                    .control_stream
                     .lock()
                     .expect("failed to get lock on ControlStream");
+                let control_stream = control_stream
+                    .as_mut()
+                    .expect("failed to get ControlStream");
 
                 if let Err(err) = control_stream.handle_input(input) {
                     handle_error(&stop, err.into());

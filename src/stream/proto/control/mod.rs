@@ -695,7 +695,8 @@ where
                     for packet in mem::take(&mut self.buffered_packets) {
                         self.send_raw(packet)?;
                     }
-                    continue;
+
+                    return Ok(ControlStreamOutput::Event(ControlStreamEvent::Connect));
                 }
                 ControlHostOutput::Event(ControlHostEvent::Receive {
                     id,

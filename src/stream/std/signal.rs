@@ -20,17 +20,10 @@ impl StopSignal {
     }
 
     /// Set the signal to "true", indicating stop
-    pub fn stop_graceful(&self) {
+    pub fn stop(&self) {
         debug!("sending stop signal");
 
         self.inner.store(true, Ordering::SeqCst);
-    }
-    pub fn stop_with_error(&self, error: MoonlightStreamError) {
-        debug!(error = ?error, "sending stop signal with error");
-
-        self.inner.store(true, Ordering::SeqCst);
-
-        todo!();
     }
 
     /// Check whether the signal has been notified

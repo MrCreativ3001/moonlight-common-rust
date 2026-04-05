@@ -119,7 +119,7 @@ fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream = MoonlightStream::new(
+    let stream = MoonlightStream::connect(
         config,
         settings,
         video_decoder,
@@ -128,9 +128,6 @@ fn main() {
         crypto_backend,
     )
     .unwrap();
-
-    // Wait some time for the stream to start
-    sleep(Duration::from_secs(5));
 
     // Move the cursor from the left side to the right side of the screen
     for i in 0..100 {
