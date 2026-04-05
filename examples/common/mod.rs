@@ -40,11 +40,10 @@ pub fn init() {
         .with(fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive(Level::TRACE.into())
-                .from_env_lossy()
-                .add_directive(audio_directive)
-                .add_directive(video_directive)
-                .add_directive(control_directive),
+                .with_default_directive(Level::INFO.into())
+                .from_env_lossy(), // .add_directive(audio_directive)
+                                   // .add_directive(video_directive)
+                                   // .add_directive(control_directive),
         )
         .init();
 }

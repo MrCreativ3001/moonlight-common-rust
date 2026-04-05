@@ -152,6 +152,4 @@ fn main() {
     // Stop the stream: this will block
     // Dropping the [MoonlightStream] will also stop the stream without blocking the current thread
     stream.stop();
-
-    info!("Stopped the stream");
 }

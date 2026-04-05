@@ -7,7 +7,7 @@ use std::{
 };
 
 use rusty_enet::{PacketKind, error::PeerSendError};
-use tracing::{Level, debug, instrument, trace, warn};
+use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -696,6 +696,8 @@ where
                         self.send_raw(packet)?;
                     }
 
+                    info!("connected control stream");
+
                     return Ok(ControlStreamOutput::Event(ControlStreamEvent::Connect));
                 }
                 ControlHostOutput::Event(ControlHostEvent::Receive {
@@ -740,6 +742,8 @@ where
                     }
 
                     self.peer_connected = false;
+
+                    info!("disconnected control stream");
 
                     return Ok(ControlStreamOutput::Event(ControlStreamEvent::Disconnect));
                 }
@@ -845,6 +849,12 @@ where
         }
 
         Ok(Some(last_ping + PERIODIC_PING_INTERVAL))
+    }
+}
+
+impl<Crypto> Drop for ControlStream<Crypto> {
+    fn drop(&mut self) {
+        info!("terminated control stream");
     }
 }
 

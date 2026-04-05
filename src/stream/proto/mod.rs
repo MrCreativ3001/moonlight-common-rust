@@ -4,14 +4,13 @@
 //!
 
 use std::{
-    error::Error,
     fmt::Debug,
     net::{IpAddr, SocketAddr},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, instrument, warn};
+use tracing::{Level, debug, info, instrument, warn};
 
 use crate::{
     ServerVersion,
@@ -20,11 +19,10 @@ use crate::{
         EncryptionFlags, MoonlightStreamConfig, MoonlightStreamSettings, StreamingConfig,
         audio::{AudioConfig, OpusMultistreamConfig},
         proto::{
-            audio::{AudioStream, AudioStreamConfig, AudioStreamError},
+            audio::{AudioStream, AudioStreamConfig},
             control::{
-                ControlMessage, ControlMessageInner, ControlStream, ControlStreamConfig,
-                packet::ControlPacket,
-                peer::{ControlEncryptionMethod, ControlError},
+                ControlMessageInner, ControlStream, ControlStreamConfig, packet::ControlPacket,
+                peer::ControlEncryptionMethod,
             },
             crypto::CryptoBackend,
             rtsp::{
@@ -42,10 +40,7 @@ use crate::{
                 client::{ClientSdp, MoonlightFeatureFlags, SunshineEncryptionFlags},
                 server::ServerSdp,
             },
-            video::{
-                VideoStream, VideoStreamConfig, VideoStreamError,
-                depayloader::VideoDepayloaderConfig,
-            },
+            video::{VideoStream, VideoStreamConfig, depayloader::VideoDepayloaderConfig},
         },
         video::{DEFAULT_VIDEO_PORT, VideoFormat},
     },
@@ -375,6 +370,8 @@ where
                                 response: audio_setup,
                             };
 
+                            info!("starting audio stream");
+
                             return Ok(MoonlightStreamSetupOutput::StartAudioStream {
                                 addr,
                                 audio_stream,
@@ -427,6 +424,8 @@ where
                             self.state = State::RtspSetupVideoReceive {
                                 response: video_setup,
                             };
+
+                            info!("starting video stream");
 
                             return Ok(MoonlightStreamSetupOutput::StartVideoStream {
                                 addr,
@@ -507,6 +506,8 @@ where
                                 response: control_setup,
                             };
 
+                            info!("starting control stream");
+
                             return Ok(MoonlightStreamSetupOutput::StartControlStream {
                                 addr,
                                 control_stream,
@@ -523,6 +524,8 @@ where
                                 }
                                 .into_request(self.server_version),
                             )?;
+
+                            info!("sending final rtsp play command");
 
                             // We can never receive a response from the play
                             self.state = State::RtspPlayReceive;

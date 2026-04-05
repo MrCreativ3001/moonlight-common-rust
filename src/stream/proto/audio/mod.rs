@@ -6,7 +6,7 @@ use std::{
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{Level, debug, instrument};
+use tracing::{Level, debug, info, instrument};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -195,6 +195,8 @@ where
                 self.last_now = now;
 
                 if matches!(self.state, State::SendPing { .. }) {
+                    info!("received first audio packet");
+
                     self.state = State::Setup;
                 }
 
@@ -209,6 +211,12 @@ where
 impl<Crypto> Debug for AudioStream<Crypto> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[AudioStream]")
+    }
+}
+
+impl<Crypto> Drop for AudioStream<Crypto> {
+    fn drop(&mut self) {
+        info!("terminated audio stream");
     }
 }
 

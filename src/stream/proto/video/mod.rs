@@ -1,11 +1,10 @@
 use std::{
     fmt::{self, Debug, Formatter},
-    net::SocketAddr,
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, instrument};
+use tracing::{Level, debug, info, instrument};
 
 use crate::stream::{
     AesKey,
@@ -202,6 +201,10 @@ where
             VideoStreamInput::Receive { now, data } => {
                 self.last_now = now;
 
+                if matches!(self.state, State::SendPing { .. }) {
+                    info!("received first video packet");
+                }
+
                 self.state = State::ReceiveVideo;
 
                 // TODO: move this into the depayloader
@@ -245,5 +248,11 @@ where
 impl<Crypto> Debug for VideoStream<Crypto> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[VideoStream]")
+    }
+}
+
+impl<Crypto> Drop for VideoStream<Crypto> {
+    fn drop(&mut self) {
+        info!("terminated video stream");
     }
 }

@@ -364,7 +364,7 @@ impl MoonlightStream {
             }
         }
 
-        info!("Started Moonlight Stream");
+        info!("started moonlight stream");
 
         Ok(shared_inner)
     }
@@ -415,6 +415,8 @@ impl MoonlightStream {
         self.threads.try_join_all(|err| {
             warn!(error = ?err,"error whilst joining thread");
         });
+
+        info!("fully terminated the stream");
     }
 }
 
@@ -433,6 +435,8 @@ impl Drop for MoonlightStream {
             threads.try_join_all(|err| {
                 warn!(error = ?err,"error whilst joining thread");
             });
+
+            info!("fully terminated the stream");
         });
     }
 }
