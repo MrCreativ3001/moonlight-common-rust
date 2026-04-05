@@ -7,7 +7,7 @@ use std::error::Error;
 use crate::stream::{
     AesKey,
     proto::{
-        crypto::{CipherAlgorithm, CryptoBackend},
+        crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
         rtsp::packet::RtspEncryptionHeader,
     },
 };
@@ -23,7 +23,7 @@ pub enum RtspEncryptionError {
     #[error("the provided output buffer is too small")]
     OutputTooSmall,
     #[error("crypto: {0}")]
-    Crypto(Box<dyn Error>),
+    Crypto(#[from] CryptoError),
 }
 
 /// References:
@@ -37,7 +37,6 @@ pub fn encrypt_client_rtsp_message_into<Crypto>(
 ) -> Result<usize, RtspEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     let len = RtspEncryptionHeader::SIZE + message.len();
     if encrypted_message.len() < len {
@@ -58,16 +57,14 @@ where
         tag: [0; 16],
     };
 
-    crypto_backend
-        .encrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &aes_key,
-            &iv,
-            &mut header.tag,
-            message,
-            &mut encrypted_message[RtspEncryptionHeader::SIZE..],
-        )
-        .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
+    crypto_backend.encrypt(
+        CipherAlgorithm::Aes128Gcm,
+        &aes_key,
+        &iv,
+        &mut header.tag,
+        message,
+        &mut encrypted_message[RtspEncryptionHeader::SIZE..],
+    )?;
 
     #[allow(clippy::unwrap_used)]
     // This won't panic because we're literally using the size to get the slice
@@ -95,7 +92,6 @@ pub fn decrypt_client_rtsp_message_into<Crypto>(
 ) -> Result<usize, RtspEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     if encrypted_message.len() < RtspEncryptionHeader::SIZE {
         return Err(RtspEncryptionError::MessageTooSmallHeader);
@@ -132,16 +128,14 @@ where
         return Err(RtspEncryptionError::OutputTooSmall);
     }
 
-    crypto_backend
-        .decrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &aes_key,
-            &iv,
-            Some(&header.tag),
-            ciphertext,
-            &mut message[..message_len],
-        )
-        .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
+    crypto_backend.decrypt(
+        CipherAlgorithm::Aes128Gcm,
+        &aes_key,
+        &iv,
+        Some(&header.tag),
+        ciphertext,
+        &mut message[..message_len],
+    )?;
 
     Ok(message_len)
 }
@@ -155,7 +149,6 @@ pub fn encrypt_server_rtsp_message_into<Crypto>(
 ) -> Result<usize, RtspEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     let len = RtspEncryptionHeader::SIZE + message.len();
     if encrypted_message.len() < len {
@@ -176,16 +169,14 @@ where
         tag: [0; 16],
     };
 
-    crypto_backend
-        .encrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &aes_key,
-            &iv,
-            &mut header.tag,
-            message,
-            &mut encrypted_message[RtspEncryptionHeader::SIZE..],
-        )
-        .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
+    crypto_backend.encrypt(
+        CipherAlgorithm::Aes128Gcm,
+        &aes_key,
+        &iv,
+        &mut header.tag,
+        message,
+        &mut encrypted_message[RtspEncryptionHeader::SIZE..],
+    )?;
 
     #[allow(clippy::unwrap_used)]
     // This won't panic because we're literally using the size to get the slice
@@ -210,7 +201,6 @@ pub fn decrypt_server_rtsp_message_into<Crypto>(
 ) -> Result<usize, RtspEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     if encrypted_message.len() < RtspEncryptionHeader::SIZE {
         return Err(RtspEncryptionError::MessageTooSmallHeader);
@@ -247,16 +237,14 @@ where
         return Err(RtspEncryptionError::OutputTooSmall);
     }
 
-    crypto_backend
-        .decrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &aes_key,
-            &iv,
-            Some(&header.tag),
-            ciphertext,
-            &mut message[..message_len],
-        )
-        .map_err(|err| RtspEncryptionError::Crypto(Box::new(err)))?;
+    crypto_backend.decrypt(
+        CipherAlgorithm::Aes128Gcm,
+        &aes_key,
+        &iv,
+        Some(&header.tag),
+        ciphertext,
+        &mut message[..message_len],
+    )?;
 
     Ok(message_len)
 }
@@ -274,7 +262,6 @@ mod test {
             },
         },
     };
-    use std::error::Error;
 
     fn test_clientbound_message_encryption<Crypto>(
         crypto: &Crypto,
@@ -284,7 +271,6 @@ mod test {
         expected_encrypted_message: &[u8],
     ) where
         Crypto: CryptoBackend + 'static,
-        Crypto::Error: Error + 'static,
     {
         let mut encrypted_message = vec![0; expected_encrypted_message.len()];
         let encrypted_message_len = encrypt_client_rtsp_message_into(
@@ -324,7 +310,6 @@ mod test {
         expected_encrypted_message: &[u8],
     ) where
         Crypto: CryptoBackend + 'static,
-        Crypto::Error: Error + 'static,
     {
         let mut encrypted_message = vec![0; expected_encrypted_message.len()];
         let encrypted_message_len = encrypt_server_rtsp_message_into(
@@ -359,7 +344,6 @@ mod test {
     fn test_crypto<Crypto>(crypto: &Crypto)
     where
         Crypto: CryptoBackend + 'static,
-        Crypto::Error: Error + 'static,
     {
         test_clientbound_message_encryption(
             crypto,

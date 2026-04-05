@@ -6,8 +6,6 @@ use std::{
 };
 
 use fec_rs::ReedSolomon;
-use rand::RngExt;
-use rand_v8::{Rng, rngs::StdRng};
 use thiserror::Error;
 
 use crate::{
@@ -19,9 +17,9 @@ use crate::{
             audio::{
                 create_audio_reed_solomon,
                 packet::{
-                    AudioFecHeader, INVALID_OPUS_HEADER, MAX_AUDIO_PACKET_SIZE,
-                    RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER, RTP_AUDIO_TOTAL_SHARDS,
-                    RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC, RtpAudioHeader,
+                    AudioFecHeader, INVALID_OPUS_HEADER, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
+                    RTP_AUDIO_TOTAL_SHARDS, RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC,
+                    RtpAudioHeader,
                 },
             },
             crypto::{CipherAlgorithm, CryptoBackend},
@@ -37,8 +35,9 @@ pub enum AudioDepayloaderError {
     BufferTooSmall,
     #[error("reed solomon: {0}")]
     ReedSolomon(#[from] fec_rs::Error),
+    // TODO: use anyhow?
     #[error("crypto: {0}")]
-    Crypto(Box<dyn Error>),
+    Crypto(Box<dyn Error + Send>),
 }
 
 // TODO: make a cap for the amount of fec packets and the amount of packets that can be buffered
@@ -89,7 +88,6 @@ pub struct AudioDepayloader<Crypto> {
 impl<Crypto> AudioDepayloader<Crypto>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(config: AudioDepayloaderConfig, crypto_backend: Crypto) -> Self {

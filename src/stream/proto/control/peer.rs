@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, net::SocketAddr, time::Instant};
 
-use rusty_enet::{Packet, PacketKind, PeerID};
+use rusty_enet::{Packet, PacketKind, PeerID, PeerState};
 use thiserror::Error;
 use tracing::{Level, debug, instrument, trace, warn};
 
@@ -157,7 +157,6 @@ pub struct ControlHost<Crypto> {
 impl<Crypto> ControlHost<Crypto>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(
@@ -243,6 +242,12 @@ where
             debug!(packet = ?packet, "sending packet");
         }
 
+        // Firstly see if the peer exists
+        let Some(peer) = self.host.peer(id.0) else {
+            return Err(ControlError::Enet(EnetError::PeerNotFound));
+        };
+
+        // Then if we've got a config
         let data = self
             .peer_data
             .get_mut(&id)
@@ -291,12 +296,7 @@ where
             &unencrypted_buffer[0..len]
         };
 
-        // The peer MUST be present because we have a config for it
-        #[allow(clippy::unwrap_used)]
-        self.host
-            .peer(id.0)
-            .unwrap()
-            .send(channel_id, &Packet::new(buffer, kind))
+        peer.send(channel_id, &Packet::new(buffer, kind))
             .map_err(EnetError::from)?;
 
         Ok(())
@@ -426,6 +426,23 @@ where
     /// If this object can be discarded
     /// - Checks if there's still any connection that is currently happening
     pub fn can_discard(&mut self) -> bool {
-        self.host.enet.peers().count() == 0
+        self.host
+            .enet
+            .peers()
+            .filter(|peer| {
+                matches!(
+                    peer.state(),
+                    PeerState::AcknowledgingConnect
+                        | PeerState::AcknowledgingDisconnect
+                        | PeerState::Connected
+                        | PeerState::Connecting
+                        | PeerState::ConnectionPending
+                        | PeerState::ConnectionSucceeded
+                        | PeerState::DisconnectLater
+                        | PeerState::Disconnecting
+                )
+            })
+            .count()
+            == 0
     }
 }

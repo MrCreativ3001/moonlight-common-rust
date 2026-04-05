@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
     time::{Duration, Instant},
@@ -65,7 +64,7 @@ pub enum AudioStreamInput<'a> {
 
 #[derive(Debug)]
 pub enum AudioStreamOutput {
-    Send { to: SocketAddr, data: Vec<u8> },
+    Send { data: Vec<u8> },
     Setup { opus_config: OpusMultistreamConfig },
     AudioSample(AudioSample),
     Timeout(Instant),
@@ -82,7 +81,6 @@ enum State {
 }
 
 pub struct AudioStream<Crypto> {
-    addr: SocketAddr,
     opus_config: OpusMultistreamConfig,
     last_now: Instant,
     last_sample: Instant,
@@ -99,12 +97,10 @@ impl AudioStream<DisabledCryptoBackend> {
 impl<Crypto> AudioStream<Crypto>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: Crypto) -> Self {
         Self {
-            addr: config.addr,
             opus_config: config.opus_config,
             last_now: now,
             last_sample: now,
@@ -152,10 +148,7 @@ where
 
                 last_send.replace(self.last_now);
 
-                Ok(AudioStreamOutput::Send {
-                    to: self.addr,
-                    data: packet,
-                })
+                Ok(AudioStreamOutput::Send { data: packet })
             }
             State::Setup => {
                 self.state = State::ReceiveAudio;

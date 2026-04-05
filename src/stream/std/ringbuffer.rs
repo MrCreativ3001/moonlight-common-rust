@@ -5,6 +5,8 @@ pub struct RingBuffer {
     inner: Mutex<Inner>,
     not_empty: Condvar,
     not_full: Condvar,
+    capacity: usize,
+    max_packet_size: usize,
 }
 
 struct Inner {
@@ -13,8 +15,6 @@ struct Inner {
     head: usize,
     tail: usize,
     len: usize,
-    capacity: usize,
-    max_packet_size: usize,
 }
 
 impl RingBuffer {
@@ -29,30 +29,30 @@ impl RingBuffer {
                 head: 0,
                 tail: 0,
                 len: 0,
-                capacity,
-                max_packet_size,
             }),
             not_empty: Condvar::new(),
             not_full: Condvar::new(),
+            capacity,
+            max_packet_size,
         }
     }
 
     pub fn push(&self, packet: &[u8]) {
         let mut inner = self.inner.lock().unwrap();
-        assert!(packet.len() <= inner.max_packet_size);
+        assert!(packet.len() <= self.max_packet_size);
 
-        while inner.len == inner.capacity {
+        while inner.len == self.capacity {
             inner = self.not_full.wait(inner).unwrap();
         }
 
         let tail = inner.tail;
-        let offset = tail * inner.max_packet_size;
+        let offset = tail * self.max_packet_size;
 
         inner.buffer[offset..offset + packet.len()].copy_from_slice(packet);
 
         inner.lengths[tail] = packet.len();
 
-        inner.tail = (tail + 1) % inner.capacity;
+        inner.tail = (tail + 1) % self.capacity;
         inner.len += 1;
 
         self.not_empty.notify_one();
@@ -96,15 +96,22 @@ impl RingBuffer {
         let packet_len = inner.lengths[head];
         assert!(out_buf.len() >= packet_len);
 
-        let offset = head * inner.max_packet_size;
+        let offset = head * self.max_packet_size;
 
         out_buf[..packet_len].copy_from_slice(&inner.buffer[offset..offset + packet_len]);
 
-        inner.head = (head + 1) % inner.capacity;
+        inner.head = (head + 1) % self.capacity;
         inner.len -= 1;
 
         self.not_full.notify_one();
         Some(packet_len)
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+    pub fn max_packet_size(&self) -> usize {
+        self.max_packet_size
     }
 }
 

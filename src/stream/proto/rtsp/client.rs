@@ -1,6 +1,6 @@
 //! A sans io rtsp client implementation with moonlight encryption support
 
-use std::{error::Error, mem::swap, net::SocketAddr, str::Utf8Error};
+use std::{mem::swap, net::SocketAddr, str::Utf8Error};
 
 use thiserror::Error;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -114,7 +114,6 @@ impl RtspClient<DisabledCryptoBackend> {
 impl<Crypto> RtspClient<Crypto>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     // TODO: enet? https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L246-L371
     // TODO: maybe make client version an enum?

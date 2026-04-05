@@ -73,7 +73,7 @@ pub struct VideoFrame {
     ///
     /// References:
     /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
-    pub timestamp: u32,
+    pub timestamp: Duration,
     /// The processing latency of the host
     ///
     /// References:
@@ -516,7 +516,7 @@ impl VideoDepayloader {
                 frame_index: frame_number,
                 // Trust the server frame type
                 frame_type,
-                timestamp,
+                timestamp: rtp_timestamp_to_duration(timestamp),
                 host_processing_latency,
                 buffers: vec![VideoFrameBuffer {
                     buffer_type: BufferType::PicData,
@@ -635,7 +635,7 @@ impl VideoDepayloader {
         VideoFrame {
             frame_index: frame_number,
             frame_type,
-            timestamp,
+            timestamp: rtp_timestamp_to_duration(timestamp),
             host_processing_latency,
             buffers,
         }
@@ -702,4 +702,17 @@ impl VideoDepayloader {
 
         Ok(())
     }
+}
+
+fn rtp_timestamp_to_duration(ts: u32) -> Duration {
+    // 90 kHz -> 90,000 ticks per second
+    const RTP_FREQ: u64 = 90_000;
+
+    // Separate integer and fractional parts for precision
+    let secs = ts as u64 / RTP_FREQ;
+    let frac_ticks = ts as u64 % RTP_FREQ;
+
+    let nanos = (frac_ticks * 1_000_000_000) / RTP_FREQ;
+
+    Duration::new(secs, nanos as u32)
 }

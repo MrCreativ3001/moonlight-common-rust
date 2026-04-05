@@ -129,7 +129,7 @@ fn main() {
     )
     .unwrap();
 
-    // Wait for connecting
+    // Wait some time for the stream to start
     sleep(Duration::from_secs(5));
 
     // Move the cursor from the left side to the right side of the screen
@@ -150,11 +150,11 @@ fn main() {
     }
 
     // Wait some time to stop the stream
-    sleep(Duration::from_secs(1000));
+    sleep(Duration::from_secs(20));
 
     // Stop the stream: this will block
     // Dropping the [MoonlightStream] will also stop the stream without blocking the current thread
     stream.stop();
 
-    info!("Stopped Stream");
+    info!("Stopped the stream");
 }

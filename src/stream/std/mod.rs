@@ -1,17 +1,14 @@
 use std::{
-    error::Error,
-    io::{self, ErrorKind as IoError, Read, Write},
+    any::Any,
+    io::{self, Read, Write},
     net::{SocketAddr, TcpStream, UdpSocket},
-    sync::{
-        Arc,
-        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel},
-    },
-    thread::spawn,
+    sync::{Arc, Condvar, Mutex},
+    thread::{JoinHandle, sleep, spawn},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tracing::{Level, Span, info, info_span, instrument, trace};
+use tracing::{Span, debug, debug_span, error, info, info_span, trace, warn};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -20,26 +17,25 @@ use crate::{
         audio::{AudioConfig, AudioDecoder},
         connection::ConnectionListener,
         proto::{
-            MoonlightStreamAction, MoonlightStreamInput, MoonlightStreamOutput,
-            MoonlightStreamProto, MoonlightStreamProtoError,
-            audio::{AudioStream, AudioStreamInput, AudioStreamOutput},
+            MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
+            MoonlightStreamProtoError, MoonlightStreamSetup, MoonlightStreamSetupOutput,
+            audio::{AudioStream, AudioStreamError, AudioStreamInput, AudioStreamOutput},
             control::{
-                ClientInputEvent, ControlMessage, ControlStream, ControlStreamEvent,
-                ControlStreamInput, ControlStreamOutput,
+                ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
+                ControlStreamOutput,
                 packet::ControlPacket,
                 peer::{ControlError, ControlHostAction, ControlHostInput},
             },
             crypto::CryptoBackend,
-            video::{VideoStream, VideoStreamInput, VideoStreamOutput},
+            video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
         },
-        std::ringbuffer::RingBuffer,
+        std::{ringbuffer::RingBuffer, signal::StopSignal},
         video::{ColorSpace, FrameType, VideoDecodeUnit, VideoDecoder, VideoFrameBuffer},
     },
 };
 
-// TODO: move decoders into different thread because the network thread NEEDS to be quick to avoid packet losses by the underlying buffer dropping packets
-
 mod ringbuffer;
+mod signal;
 
 #[derive(Debug, Error)]
 pub enum MoonlightStreamError {
@@ -47,15 +43,33 @@ pub enum MoonlightStreamError {
     Io(#[from] io::Error),
     #[error("proto: {0}")]
     Proto(#[from] MoonlightStreamProtoError),
+    #[error("audio stream: {0}")]
+    Audio(#[from] AudioStreamError),
+    #[error("video stream: {0}")]
+    Video(#[from] VideoStreamError),
+    #[error("control stream: {0}")]
+    Control(#[from] ControlError),
+    #[error("thread join: {0:?}")]
+    ThreadJoin(Box<dyn Any + Send + 'static>),
 }
 
 pub struct MoonlightStream {
-    control_stream_sender: Sender<Input>,
+    audio_stream_thread: Option<JoinHandle<()>>,
+    video_stream_thread: Option<JoinHandle<()>>,
+    control_stream: Arc<ControlInner>,
+    control_stream_sender_thread: Option<JoinHandle<()>>,
+    control_stream_receiver_thread: Option<JoinHandle<()>>,
+    stop: StopSignal,
+}
+
+struct ControlInner {
+    stream: Mutex<ControlStream<Arc<dyn CryptoBackend + Send>>>,
+    notify: Condvar,
 }
 
 impl MoonlightStream {
     pub fn launch_query_parameters() -> &'static str {
-        MoonlightStreamProto::<DisabledCryptoBackend>::launch_query_parameters()
+        MoonlightStreamSetup::<DisabledCryptoBackend>::launch_query_parameters()
     }
 
     pub fn new<Crypto>(
@@ -68,651 +82,742 @@ impl MoonlightStream {
     ) -> Result<Self, MoonlightStreamError>
     where
         Crypto: CryptoBackend + Clone + 'static,
-        Crypto::Error: Error + 'static,
     {
-        // TODO: this should block until it's connected!
-
         let span = info_span!("stream");
-        let span2 = span.clone();
-        let _enter = span2.enter();
+        let _enter = span.enter();
 
-        let proto = MoonlightStreamProto::new(Instant::now(), config, settings, crypto_backend)?;
+        let crypto_backend: Arc<dyn CryptoBackend + Send + 'static> = Arc::new(crypto_backend);
 
-        let (control_stream_sender, control_stream_receiver) = channel();
-        let control_stream_sender2 = control_stream_sender.clone();
+        let stop = StopSignal::new();
+        let mut tcp_stream: Option<TcpStream> = None;
+        let mut recv_buffer = vec![0; 2048];
 
-        let (sender, receiver) = channel();
+        let mut audio_decoder = Some(audio_decoder);
+        let mut audio_stream_thread = None;
 
-        let (_, send_udp) = bind_udp_socket(sender.clone())?;
+        let mut video_decoder = Some(video_decoder);
+        let mut video_stream_thread = None;
 
-        spawn(move || {
-            let _enter = span.enter();
+        let mut control_stream = None;
+        let mut control_stream_sender_thread = None;
+        let mut control_stream_receiver_thread = None;
 
-            proto_thread(
-                proto,
-                (control_stream_sender2, control_stream_receiver),
-                sender,
-                receiver,
-                send_udp,
-                Box::new(audio_decoder),
-                Box::new(video_decoder),
-                Box::new(connection_listener),
-            );
-        });
+        let mut setup =
+            MoonlightStreamSetup::new(Instant::now(), config, settings, crypto_backend)?;
+
+        loop {
+            match setup.poll_output()? {
+                MoonlightStreamSetupOutput::Timeout(timeout) => {
+                    let sleep_duration = timeout.saturating_duration_since(Instant::now());
+
+                    if let Some(stream) = tcp_stream.as_mut() {
+                        stream.set_read_timeout(Some(sleep_duration))?;
+
+                        let len = match stream.read(&mut recv_buffer) {
+                            Ok(len) => len,
+                            Err(err)
+                                if matches!(
+                                    err.kind(),
+                                    io::ErrorKind::ConnectionReset
+                                        | io::ErrorKind::ConnectionAborted
+                                ) =>
+                            {
+                                0
+                            }
+                            Err(err) => todo!("{}", err),
+                        };
+                        trace!(bytes_len = len, "receive tcp bytes");
+
+                        if len == 0 {
+                            setup.handle_input(MoonlightStreamInput::TcpDisconnected(
+                                Instant::now(),
+                            ))?;
+
+                            tcp_stream = None;
+                        } else {
+                            setup.handle_input(MoonlightStreamInput::TcpReceive {
+                                now: Instant::now(),
+                                data: &recv_buffer[0..len],
+                            })?;
+                        }
+
+                        continue;
+                    } else {
+                        sleep(sleep_duration);
+
+                        // Timeout is a fallthrough
+                    }
+                }
+                MoonlightStreamSetupOutput::TcpConnect { addr } => {
+                    trace!(addr = ?addr, "opening tcp stream");
+
+                    let new_stream = TcpStream::connect(addr)?;
+                    new_stream.set_nodelay(true)?;
+
+                    tcp_stream = Some(new_stream);
+                }
+                MoonlightStreamSetupOutput::TcpWrite { data } => {
+                    let tcp_stream = tcp_stream.as_mut().expect("MoonlightStreamSetup issued a TcpWrite action, however no TcpStream is currently connected!");
+
+                    tcp_stream.write_all(&data)?;
+                }
+                MoonlightStreamSetupOutput::StartAudioStream { addr, audio_stream } => {
+                    let audio_decoder = audio_decoder
+                        .take()
+                        .expect("audio decoder was already taken");
+
+                    audio_stream_thread = Some(audio_thread(
+                        info_span!("audio_stream"),
+                        stop.clone(),
+                        addr,
+                        audio_stream,
+                        audio_decoder,
+                    ));
+                }
+                MoonlightStreamSetupOutput::StartVideoStream { addr, video_stream } => {
+                    let video_decoder = video_decoder
+                        .take()
+                        .expect("video decoder was already taken");
+
+                    video_stream_thread = Some(video_thread(
+                        info_span!("video_stream"),
+                        stop.clone(),
+                        addr,
+                        video_stream,
+                        video_decoder,
+                    ));
+                }
+                MoonlightStreamSetupOutput::StartControlStream {
+                    addr,
+                    control_stream: new_control_stream,
+                } => {
+                    let new_control_stream = Arc::new(ControlInner {
+                        stream: Mutex::new(new_control_stream),
+                        notify: Condvar::new(),
+                    });
+                    control_stream = Some(new_control_stream.clone());
+
+                    let socket = Arc::new(UdpSocket::bind("0.0.0.0:0")?);
+                    socket.connect(addr)?;
+
+                    control_stream_sender_thread = Some(control_thread_sender(
+                        info_span!("control_stream_sender"),
+                        stop.clone(),
+                        socket.clone(),
+                        new_control_stream.clone(),
+                    ));
+
+                    control_stream_receiver_thread = Some(control_thread_receiver(
+                        info_span!("control_stream_sender"),
+                        stop.clone(),
+                        socket.clone(),
+                        new_control_stream,
+                    ));
+                }
+                MoonlightStreamSetupOutput::Connected => break,
+            }
+
+            setup.handle_input(MoonlightStreamInput::Timeout(Instant::now()))?;
+        }
+
+        drop(tcp_stream);
+
+        // TODO: wait until first packet from audio,video and control was received
+
+        info!("Started Moonlight Stream");
+
+        let control_stream =
+            control_stream.expect("MoonlightStreamSetup didn't produce a ControlStream");
 
         Ok(Self {
-            control_stream_sender,
+            stop,
+            audio_stream_thread,
+            video_stream_thread,
+            control_stream,
+            control_stream_sender_thread,
+            control_stream_receiver_thread,
         })
+    }
+    fn connect_inner() {
+        // TODO: move everything into here so we can use error propagation with ?
     }
 
     pub fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
         trace!(input = ?input, "received input from application");
 
-        // TODO: how do i handle the error in here?
-        self.control_stream_sender
-            .send(Input::ControlInput { input })
-            .unwrap();
+        self.use_control_stream(|stream| stream.batch_input(input))?;
 
         Ok(())
     }
 
-    pub fn stop(self) {
-        // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
-    }
-}
-
-enum Input {
-    TcpConnect(Instant),
-    TcpReceive {
-        now: Instant,
-        data: Vec<u8>,
-    },
-    TcpDisconnect(Instant),
-    UdpReceive {
-        now: Instant,
-        source: SocketAddr,
-        data: Vec<u8>,
-    },
-    ControlMessage {
-        message: ControlMessage,
-    },
-    ControlInput {
-        input: ClientInputEvent,
-    },
-}
-
-fn bind_udp_socket(
-    sender: Sender<Input>,
-) -> Result<(Arc<UdpSocket>, Sender<(SocketAddr, Vec<u8>)>), io::Error> {
-    let udp = UdpSocket::bind("0.0.0.0:0")?;
-    let udp = Arc::new(udp);
-
-    let (send_udp, receive_udp) = channel();
-    spawn({
-        let udp = udp.clone();
-        move || {
-            udp_send_thread(udp, receive_udp);
+    fn use_control_stream(
+        &self,
+        f: impl FnOnce(
+            &mut ControlStream<Arc<dyn CryptoBackend + Send + 'static>>,
+        ) -> Result<(), ControlError>,
+    ) -> Result<(), ControlError> {
+        if self.stop.is_notified() {
+            trace!("couldn't aquire control stream because the stream was stopped");
+            return Err(ControlError::NotConnected);
         }
-    });
 
-    spawn({
-        let udp = udp.clone();
-        move || {
-            udp_receive_thread(udp, sender);
-        }
-    });
-
-    Ok((udp, send_udp))
-}
-fn udp_send_thread(socket: Arc<UdpSocket>, receiver: Receiver<(SocketAddr, Vec<u8>)>) {
-    while let Ok((addr, data)) = receiver.recv() {
-        socket.send_to(&data, addr).unwrap();
-    }
-}
-fn udp_receive_thread(socket: Arc<UdpSocket>, sender: Sender<Input>) {
-    let mut buffer = vec![0u8; 4096];
-
-    loop {
-        let (len, addr) = socket.recv_from(&mut buffer).unwrap();
-
-        let slice = &buffer[0..len];
-        if sender
-            .send(Input::UdpReceive {
-                now: Instant::now(),
-                source: addr,
-                data: slice.to_vec(),
-            })
-            .is_err()
         {
-            return;
+            let mut control_stream = self
+                .control_stream
+                .stream
+                .lock()
+                .expect("failed to lock ControlStream");
+
+            f(&mut control_stream)?;
         }
+
+        // this should notify both the sender and receiver
+        self.control_stream.notify.notify_all();
+
+        Ok(())
+    }
+
+    pub fn stop(mut self) {
+        // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
+
+        self.stop.stop_graceful();
+
+        if let Err(err) = self
+            .audio_stream_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread")
+            .join()
+        {
+            todo!()
+        };
+        if let Err(err) = self
+            .video_stream_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread")
+            .join()
+        {
+            todo!()
+        };
+        if let Err(err) = self
+            .control_stream_receiver_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread")
+            .join()
+        {
+            todo!()
+        };
+        if let Err(err) = self
+            .control_stream_sender_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread")
+            .join()
+        {
+            todo!()
+        };
     }
 }
 
-fn udp_queue_receive_thread(
+impl Drop for MoonlightStream {
+    fn drop(&mut self) {
+        if self.stop.is_notified() {
+            // We already clean up, likely using stop
+            return;
+        }
+
+        debug!("MoonlightStream was dropped, performing cleanup in another thread");
+
+        self.stop.stop_graceful();
+
+        let audio_stream = self
+            .audio_stream_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread");
+        let video_stream = self
+            .video_stream_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread");
+        let control_stream_sender = self
+            .control_stream_sender_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread");
+        let control_stream_receiver = self
+            .control_stream_receiver_thread
+            .take()
+            .expect("MoonlightStream didn't have AudioStream thread");
+
+        spawn(move || {
+            audio_stream.join().unwrap();
+            video_stream.join().unwrap();
+            control_stream_receiver.join().unwrap();
+            control_stream_sender.join().unwrap();
+        });
+    }
+}
+
+// IMPORTANT: after this point errors shouldn't be propagated via ? because we also need to stop the stream
+fn handle_error(stop: &StopSignal, error: MoonlightStreamError) {
+    error!(error = ?error, "an error occured");
+    stop.stop_graceful();
+}
+
+const UDP_BUFFER_CAPACITY: usize = 4096;
+
+fn udp_receiver(
+    span: Span,
+    stop: StopSignal,
     socket: Arc<UdpSocket>,
-    queue: Arc<RingBuffer>,
-    max_packet_size: usize,
-) {
-    let mut buffer = vec![0; max_packet_size];
-    loop {
-        let len = socket.recv(&mut buffer).unwrap();
+    buffer: Arc<RingBuffer>,
+) -> JoinHandle<()> {
+    spawn(move || {
+        let _enter = span.enter();
 
-        queue.push(&buffer[0..len]);
-    }
-}
+        let mut recv_buffer = vec![0; buffer.max_packet_size()];
 
-fn tcp_thread(addr: SocketAddr, send_tcp: Sender<Input>, receiver: Receiver<Vec<u8>>) {
-    let stream = TcpStream::connect(addr).unwrap();
-    stream.set_nodelay(true).unwrap();
-
-    match send_tcp.send(Input::TcpConnect(Instant::now())) {
-        Ok(_) => {}
-        Err(_) => todo!(),
-    }
-
-    let stream = Arc::new(stream);
-
-    spawn({
-        let stream = stream.clone();
-
-        move || {
-            tcp_receive_thread(stream, send_tcp);
-        }
-    });
-    let mut stream = &stream as &TcpStream;
-    let stream = &mut stream as &mut &TcpStream;
-
-    loop {
-        while let Ok(data) = receiver.recv() {
-            stream.write_all(&data).unwrap();
-        }
-    }
-}
-fn tcp_receive_thread(stream: Arc<TcpStream>, mut sender: Sender<Input>) {
-    let mut stream = &stream as &TcpStream;
-    let stream = &mut stream as &mut &TcpStream;
-
-    let mut buffer = vec![0u8; 4096];
-
-    loop {
-        let len = match stream.read(&mut buffer) {
-            Ok(len) => len,
-            Err(err)
-                if matches!(
-                    err.kind(),
-                    IoError::ConnectionReset | IoError::ConnectionAborted
-                ) =>
-            {
-                0
-            }
-            Err(err) => todo!("{}", err),
-        };
-
-        if len == 0 {
-            let _ = sender.send(Input::TcpDisconnect(Instant::now()));
+        // Set read timeout to regularly check for the stop signal
+        if let Err(err) = socket.set_read_timeout(Some(Duration::from_secs(1))) {
+            handle_error(&stop, err.into());
             return;
         }
 
-        let slice = &buffer[0..len];
+        loop {
+            match socket.recv(&mut recv_buffer) {
+                Ok(len) => {
+                    buffer.push(&recv_buffer[0..len]);
+                }
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    // handles read timeout
+                }
+                Err(err) => {
+                    handle_error(&stop, err.into());
+                    break;
+                }
+            }
 
-        match sender.send(Input::TcpReceive {
-            now: Instant::now(),
-            data: slice.to_vec(),
-        }) {
-            Ok(_) => {}
-            Err(_) => todo!(),
+            if stop.is_notified() {
+                break;
+            }
         }
-    }
+
+        debug!("stopped udp_receiver");
+    })
 }
 
-#[instrument(level = Level::DEBUG, skip_all)]
-fn proto_thread<Crypto>(
-    mut proto: MoonlightStreamProto<Crypto>,
-    control_stream: (Sender<Input>, Receiver<Input>),
-    sender: Sender<Input>,
-    receiver: Receiver<Input>,
-    send_udp: Sender<(SocketAddr, Vec<u8>)>,
-    // TODO: should those be impls?
-    audio_decoder: Box<dyn AudioDecoder + Send + 'static>,
-    video_decoder: Box<dyn VideoDecoder + Send + 'static>,
-    connection_listener: Box<dyn ConnectionListener + Send + 'static>,
-) where
-    Crypto: CryptoBackend + Clone + 'static,
-    Crypto::Error: Error + 'static,
-{
-    let mut send_tcp = None;
-    let (send_control_message, receive_control_message) = control_stream;
-
-    let mut audio_decoder = Some(audio_decoder);
-    let mut video_decoder = Some(video_decoder);
-    let mut connection_listener = Some((connection_listener, receive_control_message));
-
-    loop {
-        let timeout = match proto.poll_output().unwrap() {
-            MoonlightStreamOutput::Action(action) => match action {
-                MoonlightStreamAction::ConnectTcp { addr } => {
-                    let sender = sender.clone();
-                    let (tcp_sender, tcp_receiver) = channel();
-
-                    spawn(move || {
-                        tcp_thread(addr, sender, tcp_receiver);
-                    });
-
-                    send_tcp = Some(tcp_sender);
-                    continue;
-                }
-                MoonlightStreamAction::SendTcp { data } => {
-                    send_tcp.as_mut().unwrap().send(data).unwrap();
-                    continue;
-                }
-                MoonlightStreamAction::SendUdp { to, data } => {
-                    send_udp.send((to, data)).unwrap();
-                    continue;
-                }
-                MoonlightStreamAction::StartAudioStream { addr, audio_stream } => {
-                    let audio_decoder = audio_decoder.take().unwrap();
-
-                    let udp = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
-
-                    udp.connect(addr).unwrap();
-
-                    let span = Span::current();
-                    spawn(move || {
-                        let _enter = span.enter();
-
-                        info!("Starting Audio Thread");
-
-                        audio_thread(audio_stream, udp, audio_decoder);
-                    });
-                    continue;
-                }
-                MoonlightStreamAction::StartVideoStream { addr, video_stream } => {
-                    let video_decoder = video_decoder.take().unwrap();
-
-                    let udp = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
-
-                    udp.connect(addr).unwrap();
-
-                    let span = Span::current();
-
-                    let send_control_message = send_control_message.clone();
-                    spawn(move || {
-                        let _enter = span.enter();
-
-                        info!("Starting Video Thread");
-
-                        video_thread(video_stream, udp, video_decoder, send_control_message);
-                    });
-                    continue;
-                }
-                MoonlightStreamAction::StartControlStream {
-                    addr,
-                    control_stream,
-                } => {
-                    let (connection_listener, receiver) = connection_listener.take().unwrap();
-
-                    let udp = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
-
-                    udp.connect(addr).unwrap();
-
-                    // TODO: maybe the udp sender should have the control stream?
-                    spawn({
-                        let udp = udp.clone();
-                        let send_control_message = send_control_message.clone();
-                        move || {
-                            udp_receive_thread(udp, send_control_message);
-                        }
-                    });
-
-                    let span = Span::current();
-                    spawn(move || {
-                        let _enter = span.enter();
-                        info!("Starting Control Thread");
-
-                        control_thread(control_stream, udp, receiver, connection_listener);
-                    });
-                    continue;
-                }
-                MoonlightStreamAction::SendControlMessage { message } => {
-                    send_control_message
-                        .send(Input::ControlMessage { message })
-                        .unwrap();
-                    continue;
-                }
-            },
-            MoonlightStreamOutput::Event(event) => {
-                println!("{event:?}");
-
-                continue;
-            }
-            MoonlightStreamOutput::Timeout(timeout) => timeout,
-        };
-
-        let Some(duration) = timeout.checked_duration_since(Instant::now()) else {
-            proto
-                .handle_input(MoonlightStreamInput::Timeout(Instant::now()))
-                .unwrap();
-            continue;
-        };
-
-        let input = match receiver.recv_timeout(duration) {
-            Ok(input) => input,
-            Err(RecvTimeoutError::Timeout) => {
-                proto
-                    .handle_input(MoonlightStreamInput::Timeout(Instant::now()))
-                    .unwrap();
-                continue;
-            }
-            // TODO
-            Err(RecvTimeoutError::Disconnected) => todo!(),
-        };
-
-        match input {
-            Input::TcpConnect(time) => {
-                // TODO. do i need this?
-            }
-            Input::TcpReceive { now, data } => {
-                proto
-                    .handle_input(MoonlightStreamInput::TcpReceive { now, data: &data })
-                    .unwrap();
-            }
-            Input::TcpDisconnect(time) => {
-                proto
-                    .handle_input(MoonlightStreamInput::TcpDisconnected(time))
-                    .unwrap();
-            }
-            Input::UdpReceive { now, source, data } => {
-                proto
-                    .handle_input(MoonlightStreamInput::UdpReceive {
-                        now,
-                        source,
-                        data: &data,
-                    })
-                    .unwrap();
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[instrument(level = Level::DEBUG, skip_all)]
 fn audio_thread<Crypto>(
+    span: Span,
+    stop: StopSignal,
+    addr: SocketAddr,
     mut audio_stream: AudioStream<Crypto>,
-    socket: Arc<UdpSocket>,
-    mut audio_decoder: Box<dyn AudioDecoder + Send + 'static>,
-) where
-    Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
+    mut audio_decoder: impl AudioDecoder + Send + 'static,
+) -> JoinHandle<()>
+where
+    Crypto: CryptoBackend + 'static,
 {
-    let mut started = false;
+    spawn(move || {
+        let _enter = span.enter();
 
-    let (send_udp, send_udp_receiver) = channel();
-    spawn({
-        let socket = socket.clone();
-        move || {
-            udp_send_thread(socket, send_udp_receiver);
-        }
-    });
-
-    // TODO: max packet size
-    let max_packet_size = 4096;
-    let mut buffer = vec![0; max_packet_size];
-    let queue = Arc::new(RingBuffer::new(100, max_packet_size));
-
-    spawn({
-        let queue = queue.clone();
-
-        move || {
-            udp_queue_receive_thread(socket, queue.clone(), max_packet_size);
-        }
-    });
-
-    loop {
-        let timeout = match audio_stream.poll_output().unwrap() {
-            AudioStreamOutput::Send { to, data } => {
-                send_udp.send((to, data)).unwrap();
-                continue;
+        let socket = match UdpSocket::bind("0.0.0.0:0") {
+            Ok(value) => value,
+            Err(err) => {
+                handle_error(&stop, err.into());
+                return;
             }
-            AudioStreamOutput::Setup { opus_config } => {
-                // TODO: audio config?
-                audio_decoder.setup(AudioConfig::STEREO, opus_config);
-
-                continue;
-            }
-            AudioStreamOutput::AudioSample(sample) => {
-                if !started {
-                    audio_decoder.start();
-
-                    started = true;
-                }
-
-                audio_decoder.decode_and_play_sample(sample);
-
-                // TODO: call stop somewhere when shutting down
-                continue;
-            }
-            AudioStreamOutput::Timeout(timeout) => timeout,
         };
-
-        let Some(duration) = timeout.checked_duration_since(Instant::now()) else {
-            audio_stream
-                .handle_input(AudioStreamInput::Timeout(Instant::now()))
-                .unwrap();
-            continue;
-        };
-
-        if let Some(len) = queue.pop(&mut buffer, Some(duration)) {
-            let slice = &buffer[0..len];
-
-            audio_stream
-                .handle_input(AudioStreamInput::Receive {
-                    now: Instant::now(),
-                    data: slice,
-                })
-                .unwrap();
-        } else {
-            audio_stream
-                .handle_input(AudioStreamInput::Timeout(Instant::now()))
-                .unwrap();
+        let socket = Arc::new(socket);
+        if let Err(err) = socket.connect(addr) {
+            handle_error(&stop, err.into());
+            return;
         }
-    }
-}
 
-// TODO: where to put this?
-// https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L16-L17
-const VIDEO_SECOND_TO_TIMESTAMP: f64 = 90000.0;
+        let ring_buffer = Arc::new(RingBuffer::new(100, UDP_BUFFER_CAPACITY));
 
-#[instrument(level = Level::DEBUG, skip_all)]
-fn video_thread<Crypto>(
-    mut video_stream: VideoStream<Crypto>,
-    socket: Arc<UdpSocket>,
-    mut video_decoder: Box<dyn VideoDecoder + Send + 'static>,
-    send_control_message: Sender<Input>,
-    // TODO: get the video information
-) where
-    Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
-{
-    let mut started = false;
+        let receive_handle = udp_receiver(
+            debug_span!("udp_receiver"),
+            stop.clone(),
+            socket.clone(),
+            ring_buffer.clone(),
+        );
 
-    // Sending udp
-    let (send_udp, send_udp_receiver) = channel();
-    spawn({
-        let socket = socket.clone();
-        move || {
-            udp_send_thread(socket, send_udp_receiver);
-        }
-    });
+        let mut buffer = vec![0; ring_buffer.max_packet_size()];
+        let mut started = false;
 
-    // TODO: max packet size
-    let max_packet_size = 4096;
-    let mut buffer = vec![0; max_packet_size];
-    let queue = Arc::new(RingBuffer::new(100, max_packet_size));
-
-    spawn({
-        let queue = queue.clone();
-
-        move || {
-            udp_queue_receive_thread(socket, queue.clone(), max_packet_size);
-        }
-    });
-
-    loop {
-        let timeout = match video_stream.poll_output().unwrap() {
-            VideoStreamOutput::SendUdp { to, data } => {
-                send_udp.send((to, data)).unwrap();
-                continue;
-            }
-            VideoStreamOutput::VideoFrame(frame) => {
-                if !started {
-                    // TODO: setup, maybe when setting up sdp?
-                    // video_decoder.setup(setup);
-
-                    video_decoder.start();
-                    started = true;
+        loop {
+            let poll_output = match audio_stream.poll_output() {
+                Ok(value) => value,
+                Err(err) => {
+                    handle_error(&stop, err.into());
+                    break;
                 }
+            };
 
-                let mut buffers = Vec::new();
-                for buffer in &frame.buffers {
-                    buffers.push(VideoFrameBuffer {
-                        buffer_type: buffer.buffer_type,
-                        data: buffer.data.as_slice(),
-                    });
-                }
-
-                // TODO
-
-                video_decoder.submit_decode_unit(VideoDecodeUnit {
-                    frame_number: frame.frame_index as i32,
-                    // TODO: frame type
-                    frame_type: FrameType::PFrame,
-                    frame_processing_latency: None,
-                    // TODO: timestamp
-                    timestamp: Duration::ZERO,
-                    hdr_active: false,
-                    color_space: ColorSpace::Rec709,
-                    buffers: buffers.as_slice(),
-                });
-
-                // TODO: stop video decoder
-                continue;
-            }
-            VideoStreamOutput::SendControlMessage { message } => {
-                send_control_message
-                    .send(Input::ControlMessage { message })
-                    .unwrap();
-                continue;
-            }
-            VideoStreamOutput::Timeout(timeout) => timeout,
-        };
-
-        let Some(duration) = timeout.checked_duration_since(Instant::now()) else {
-            video_stream
-                .handle_input(VideoStreamInput::Timeout(Instant::now()))
-                .unwrap();
-            continue;
-        };
-
-        if let Some(len) = queue.pop(&mut buffer, Some(duration)) {
-            let slice = &buffer[0..len];
-
-            video_stream
-                .handle_input(VideoStreamInput::Receive {
-                    now: Instant::now(),
-                    data: slice,
-                })
-                .unwrap();
-        } else {
-            video_stream
-                .handle_input(VideoStreamInput::Timeout(Instant::now()))
-                .unwrap();
-        }
-    }
-}
-
-#[instrument(level = Level::DEBUG, skip_all)]
-fn control_thread<Crypto>(
-    mut control_stream: ControlStream<Crypto>,
-    socket: Arc<UdpSocket>,
-    receiver: Receiver<Input>,
-    mut connection_listener: Box<dyn ConnectionListener + Send + 'static>,
-) where
-    Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
-{
-    loop {
-        let timeout = match control_stream.poll_output().unwrap() {
-            ControlStreamOutput::Event(event) => match event {
-                ControlStreamEvent::Connect => {
-                    continue;
-                }
-                ControlStreamEvent::Packet(packet) => {
-                    match packet {
-                        ControlPacket::HdrMode { enabled, sunshine } => {
-                            connection_listener.set_hdr_mode(enabled, sunshine);
-                        }
-                        _ => {}
+            let timeout = match poll_output {
+                AudioStreamOutput::Send { data } => {
+                    if let Err(err) = socket.send(&data) {
+                        handle_error(&stop, err.into());
+                        break;
                     }
                     continue;
                 }
-                ControlStreamEvent::Disconnect => {
-                    // TODO
-                    todo!();
+                AudioStreamOutput::Setup { opus_config } => {
+                    // TODO: audio config
+                    audio_decoder.setup(AudioConfig::STEREO, opus_config);
+                    continue;
                 }
-            },
-            ControlStreamOutput::Action(ControlHostAction::SendUdp { addr, data }) => {
-                socket.send_to(&data, addr).unwrap();
-                continue;
+                AudioStreamOutput::AudioSample(sample) => {
+                    if !started {
+                        audio_decoder.start();
+
+                        started = true;
+                    }
+
+                    audio_decoder.decode_and_play_sample(sample);
+                    continue;
+                }
+                AudioStreamOutput::Timeout(timeout) => timeout,
+            };
+
+            let mut timeout = timeout.saturating_duration_since(Instant::now());
+
+            // Will likely never happen, but we need to regularly check on the stop signal
+            timeout = timeout.max(Duration::from_secs(1));
+
+            let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
+                None => AudioStreamInput::Timeout(Instant::now()),
+                Some(len) => AudioStreamInput::Receive {
+                    now: Instant::now(),
+                    data: &mut buffer[0..len],
+                },
+            };
+
+            if let Err(err) = audio_stream.handle_input(input) {
+                handle_error(&stop, err.into());
+                break;
             }
-            ControlStreamOutput::Action(ControlHostAction::Timeout(timeout)) => timeout,
-        };
 
-        let received_input = match timeout.checked_duration_since(Instant::now()) {
-            None => receiver.try_recv().map_err(|err| match err {
-                TryRecvError::Disconnected => RecvTimeoutError::Disconnected,
-                TryRecvError::Empty => RecvTimeoutError::Timeout,
-            }),
-            Some(timeout) => receiver.recv_timeout(timeout),
-        };
-
-        match received_input {
-            Ok(input) => match input {
-                Input::ControlInput { input } => {
-                    trace!(input = ?input, "control stream thread received input from another thread");
-
-                    control_stream.batch_input(input).unwrap();
-                }
-                Input::ControlMessage { message } => {
-                    control_stream
-                        .handle_input(ControlStreamInput::Message {
-                            now: Instant::now(),
-                            message,
-                        })
-                        .unwrap();
-                }
-                Input::UdpReceive { now, source, data } => {
-                    control_stream
-                        .handle_input(ControlStreamInput::Host(ControlHostInput::Receive {
-                            now,
-                            addr: source,
-                            data: &data,
-                        }))
-                        .unwrap();
-                }
-                Input::TcpReceive { .. } => unreachable!(),
-                Input::TcpDisconnect(_) => unreachable!(),
-                Input::TcpConnect(_) => unreachable!(),
-            },
-            Err(RecvTimeoutError::Timeout) => {
-                control_stream
-                    .handle_input(ControlStreamInput::Host(ControlHostInput::Timeout(
-                        Instant::now(),
-                    )))
-                    .unwrap();
+            if stop.is_notified() {
+                break;
             }
-            // TODO
-            Err(RecvTimeoutError::Disconnected) => todo!(),
         }
-    }
+
+        // handle receive thread
+        if let Err(err) = receive_handle.join() {
+            handle_error(&stop, MoonlightStreamError::ThreadJoin(err));
+        }
+
+        debug!("stopped audio_thread");
+    })
+}
+
+fn video_thread<Crypto>(
+    span: Span,
+    stop: StopSignal,
+    addr: SocketAddr,
+    mut video_stream: VideoStream<Crypto>,
+    mut video_decoder: impl VideoDecoder + Send + 'static,
+) -> JoinHandle<()>
+where
+    Crypto: CryptoBackend + 'static,
+{
+    spawn(move || {
+        let _enter = span.enter();
+
+        let socket = match UdpSocket::bind("0.0.0.0:0") {
+            Ok(value) => value,
+            Err(err) => {
+                handle_error(&stop, err.into());
+                return;
+            }
+        };
+        let socket = Arc::new(socket);
+        if let Err(err) = socket.connect(addr) {
+            handle_error(&stop, err.into());
+            return;
+        }
+
+        let ring_buffer = Arc::new(RingBuffer::new(100, UDP_BUFFER_CAPACITY));
+
+        let receive_handle = udp_receiver(
+            debug_span!("udp_receiver"),
+            stop.clone(),
+            socket.clone(),
+            ring_buffer.clone(),
+        );
+
+        let mut buffer = vec![0; ring_buffer.max_packet_size()];
+        let mut started = false;
+
+        loop {
+            let poll_output = match video_stream.poll_output() {
+                Ok(value) => value,
+                Err(err) => {
+                    handle_error(&stop, err.into());
+                    break;
+                }
+            };
+
+            let timeout = match poll_output {
+                VideoStreamOutput::Send { data } => {
+                    if let Err(err) = socket.send(&data) {
+                        handle_error(&stop, err.into());
+                        break;
+                    }
+                    continue;
+                }
+                // TODO: setup?
+                // VideoStreamOutput::Setup => {
+                //     // TODO: audio config
+                //
+                //     continue;
+                // }
+                VideoStreamOutput::VideoFrame(frame) => {
+                    if !started {
+                        video_decoder.start();
+
+                        started = true;
+                    }
+
+                    let buffers = frame
+                        .buffers
+                        .iter()
+                        .map(|x| VideoFrameBuffer {
+                            buffer_type: x.buffer_type,
+                            data: x.data.as_slice(),
+                        })
+                        .collect::<Vec<_>>();
+
+                    let decode_unit = VideoDecodeUnit {
+                        frame_number: frame.frame_index as i32,
+                        color_space: ColorSpace::Rec709,
+                        // TODO
+                        frame_type: FrameType::PFrame,
+                        frame_processing_latency: frame.host_processing_latency,
+                        hdr_active: false,
+                        timestamp: frame.timestamp,
+                        buffers: &buffers,
+                    };
+
+                    video_decoder.submit_decode_unit(decode_unit);
+                    continue;
+                }
+                VideoStreamOutput::SendControlMessage { message } => {
+                    // TODO: handle this
+                    continue;
+                }
+                VideoStreamOutput::Timeout(timeout) => timeout,
+            };
+
+            let mut timeout = timeout.saturating_duration_since(Instant::now());
+
+            // Will likely never happen, but we need to regularly check on the stop signal
+            timeout = timeout.max(Duration::from_secs(1));
+
+            let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
+                None => VideoStreamInput::Timeout(Instant::now()),
+                Some(len) => VideoStreamInput::Receive {
+                    now: Instant::now(),
+                    data: &mut buffer[0..len],
+                },
+            };
+
+            if let Err(err) = video_stream.handle_input(input) {
+                handle_error(&stop, err.into());
+                break;
+            }
+
+            if stop.is_notified() {
+                break;
+            }
+        }
+
+        // handle receive thread
+        if let Err(err) = receive_handle.join() {
+            handle_error(&stop, MoonlightStreamError::ThreadJoin(err));
+        }
+
+        debug!("stopped video_thread");
+    })
+}
+
+fn control_thread_sender(
+    span: Span,
+    stop: StopSignal,
+    socket: Arc<UdpSocket>,
+    control: Arc<ControlInner>,
+) -> JoinHandle<()> {
+    spawn(move || {
+        let _enter = span.enter();
+
+        let mut final_shutdown_timeout = None;
+
+        let mut timeout = Duration::ZERO;
+
+        'outer: loop {
+            let mut control_stream = control
+                .stream
+                .lock()
+                .expect("failed to get lock on ControlStream");
+
+            // Check for shutdown
+            if let Some(final_shutdown_timeout) = final_shutdown_timeout
+                && Instant::now() > final_shutdown_timeout
+            {
+                warn!("failed to gracefully close the stream. exiting now");
+
+                return;
+            }
+
+            if stop.is_notified() && final_shutdown_timeout.is_none() {
+                // This will only get called once on shutdown
+                final_shutdown_timeout = Some(Instant::now() + Duration::from_secs(10));
+
+                // TODO: figure the disconnect code out
+                if let Err(err) = control_stream.disconnect(0) {
+                    handle_error(&stop, err.into());
+                    break 'outer;
+                }
+            }
+
+            if stop.is_notified() && control_stream.can_discard() {
+                break 'outer;
+            }
+
+            // Wait on Condvar
+            let (mut control_stream, _) = control
+                .notify
+                .wait_timeout(control_stream, timeout)
+                .expect("failed to wait on ControlStream");
+
+            // Do event loop for control stream
+            let deadline = loop {
+                if control_stream.can_discard() {
+                    debug!(
+                        "stopping control_thread_sender because the ControlStream can be discarded"
+                    );
+                    break 'outer;
+                }
+
+                let poll_output = match control_stream.poll_output() {
+                    Ok(value) => value,
+                    Err(err) => {
+                        handle_error(&stop, err.into());
+                        break 'outer;
+                    }
+                };
+
+                match poll_output {
+                    ControlStreamOutput::Action(ControlHostAction::SendUdp { addr, data }) => {
+                        if let Err(err) = socket.send_to(&data, addr) {
+                            handle_error(&stop, err.into());
+                            break 'outer;
+                        }
+                        continue;
+                    }
+                    ControlStreamOutput::Event(ControlStreamEvent::Connect) => {
+                        continue;
+                    }
+                    ControlStreamOutput::Event(ControlStreamEvent::Packet(packet)) => {
+                        // TODO: handle packet
+                        continue;
+                    }
+                    ControlStreamOutput::Event(ControlStreamEvent::Disconnect) => {
+                        stop.stop_graceful();
+                        continue;
+                    }
+                    ControlStreamOutput::Action(ControlHostAction::Timeout(timeout)) => {
+                        break timeout;
+                    }
+                }
+            };
+
+            timeout = deadline.saturating_duration_since(Instant::now());
+
+            // Will likely never happen, but we need to regularly check on the stop signal
+            timeout = timeout.max(Duration::from_secs(1));
+        }
+
+        debug!("stopped control_thread_sender");
+    })
+}
+
+fn control_thread_receiver(
+    span: Span,
+    stop: StopSignal,
+    socket: Arc<UdpSocket>,
+    control: Arc<ControlInner>,
+) -> JoinHandle<()> {
+    spawn(move || {
+        let _enter = span.enter();
+
+        // This should be more than enough
+        let mut recv_buffer = vec![0; 2048];
+
+        // Set read timeout to regularly check for the stop signal
+        if let Err(err) = socket.set_read_timeout(Some(Duration::from_secs(1))) {
+            handle_error(&stop, err.into());
+            return;
+        }
+
+        let mut final_shutdown_timeout = None;
+
+        loop {
+            // Check if this thread needs to shutdown
+            if let Some(final_shutdown_timeout) = final_shutdown_timeout
+                && Instant::now() > final_shutdown_timeout
+            {
+                warn!("failed to gracefully close the stream. exiting now");
+
+                return;
+            }
+
+            if stop.is_notified() && final_shutdown_timeout.is_none() {
+                final_shutdown_timeout = Some(Instant::now() + Duration::from_secs(10));
+            }
+
+            // Receive data and create input
+            let input = match socket.recv_from(&mut recv_buffer) {
+                Ok((len, addr)) => ControlStreamInput::Host(ControlHostInput::Receive {
+                    now: Instant::now(),
+                    addr,
+                    data: &mut recv_buffer[0..len],
+                }),
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    // handles read timeout
+                    ControlStreamInput::Host(ControlHostInput::Timeout(Instant::now()))
+                }
+                Err(err) => {
+                    handle_error(&stop, err.into());
+                    break;
+                }
+            };
+
+            {
+                // Give input into ControlStream
+                let mut control_stream = control
+                    .stream
+                    .lock()
+                    .expect("failed to get lock on ControlStream");
+
+                if let Err(err) = control_stream.handle_input(input) {
+                    handle_error(&stop, err.into());
+                    break;
+                }
+
+                // Check if we can discard the control stream
+                if stop.is_notified() && control_stream.can_discard() {
+                    break;
+                }
+            }
+        }
+
+        debug!("stopped control_thread_receiver");
+    })
 }

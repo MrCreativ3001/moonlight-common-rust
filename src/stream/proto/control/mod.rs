@@ -1,6 +1,5 @@
 use std::{
     collections::HashSet,
-    error::Error,
     fmt::{self, Debug, Formatter},
     mem,
     net::SocketAddr,
@@ -208,7 +207,6 @@ pub struct ControlStream<Crypto> {
 impl<Crypto> ControlStream<Crypto>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(
@@ -581,10 +579,19 @@ where
         Ok(())
     }
 
+    pub fn disconnect(&mut self, disconnect_data: u32) -> Result<(), ControlError> {
+        self.host.disconnect(self.peer, disconnect_data)?;
+
+        Ok(())
+    }
+    pub fn can_discard(&mut self) -> bool {
+        self.host.can_discard()
+    }
+
     pub fn send_raw(&mut self, packet: ControlPacket) -> Result<(), ControlError> {
         self.send_inner(packet, false)
     }
-    fn send_inner(
+    pub(crate) fn send_inner(
         &mut self,
         packet: ControlPacket,
         force_packet: bool,
@@ -598,6 +605,8 @@ where
         if !force_packet && !self.allow_packets {
             return Err(ControlError::NotConnected);
         } else if force_packet && !self.peer_connected {
+            trace!(force_packet = force_packet, packet = ?packet, "buffering forced packet");
+
             self.buffered_packets.push(packet);
             return Ok(());
         }
@@ -654,6 +663,7 @@ where
             debug_assert_eq!(self.buffered_packets.len(), 0);
         }
         if self.host.can_discard() {
+            trace!("erroring with NotConnected because the host can be discarded");
             // This only happens when there's no peer in the connection
             // -> we must've disconnected somehow -> this object is not useable anymore
             return Err(ControlError::NotConnected);

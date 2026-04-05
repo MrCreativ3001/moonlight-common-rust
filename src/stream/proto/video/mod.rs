@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
     time::{Duration, Instant},
@@ -13,7 +12,7 @@ use crate::stream::{
     proto::{
         ControlMessageInner,
         control::{ControlMessage, packet::ControlPacket},
-        crypto::{CipherAlgorithm, CryptoBackend},
+        crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
         packet::SunshinePingPacket,
         rtsp::moonlight::SunshinePing,
         video::{
@@ -40,7 +39,7 @@ const PING_RETRY: Duration = Duration::from_millis(500);
 #[derive(Debug, Error)]
 pub enum VideoStreamError {
     #[error("crypto: {0}")]
-    Crypto(Box<dyn Error>),
+    Crypto(#[from] CryptoError),
 }
 
 #[derive(Debug)]
@@ -51,8 +50,7 @@ pub enum VideoStreamInput<'a> {
 
 #[derive(Debug)]
 pub enum VideoStreamOutput {
-    SendUdp {
-        to: SocketAddr,
+    Send {
         data: Vec<u8>,
     },
     VideoFrame(VideoFrame),
@@ -65,7 +63,6 @@ pub enum VideoStreamOutput {
 
 #[derive(Debug, Clone)]
 pub struct VideoStreamConfig {
-    pub addr: SocketAddr,
     pub queue: VideoDepayloaderConfig,
     pub sunshine_ping: Option<SunshinePing>,
     pub sunshine_encryption: Option<AesKey>,
@@ -84,7 +81,6 @@ enum State {
 
 // TODO: maybe rename this into video stream proto?
 pub struct VideoStream<Crypto> {
-    addr: SocketAddr,
     crypto_backend: Crypto,
     aes_key: Option<AesKey>,
     last_now: Instant,
@@ -101,12 +97,10 @@ pub struct VideoStream<Crypto> {
 impl<Crypto> VideoStream<Crypto>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: Crypto) -> Self {
         Self {
-            addr: config.addr,
             crypto_backend,
             aes_key: config.sunshine_encryption,
             state: State::SendPing {
@@ -149,10 +143,7 @@ where
 
                 last_send.replace(self.last_now);
 
-                Ok(VideoStreamOutput::SendUdp {
-                    to: self.addr,
-                    data: packet,
-                })
+                Ok(VideoStreamOutput::Send { data: packet })
             }
             State::ReceiveVideo => {
                 if let VideoDepayloaderOutput::Frame {
@@ -228,17 +219,14 @@ where
                     let mut decrypted = vec![0; data.len() - EncryptedVideoHeader::SIZE];
 
                     // TODO: fix unwrap
-                    let size = self
-                        .crypto_backend
-                        .decrypt(
-                            CipherAlgorithm::Aes128Gcm,
-                            &aes_key, // TODO: get key <---
-                            &encryption_header.iv,
-                            Some(&encryption_header.tag),
-                            &data[32..],
-                            &mut decrypted,
-                        )
-                        .map_err(|err| VideoStreamError::Crypto(Box::new(err)))?;
+                    let size = self.crypto_backend.decrypt(
+                        CipherAlgorithm::Aes128Gcm,
+                        &aes_key, // TODO: get key <---
+                        &encryption_header.iv,
+                        Some(&encryption_header.tag),
+                        &data[32..],
+                        &mut decrypted,
+                    )?;
                     decrypted.resize(size, 0);
 
                     decrypted

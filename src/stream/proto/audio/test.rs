@@ -1596,7 +1596,6 @@ fn test_audio_depayloader_sunshine() {
 fn audio_depayloader_encrypted_sunshine<Crypto>(crypto: Crypto)
 where
     Crypto: CryptoBackend + Clone,
-    Crypto::Error: Error + 'static,
 {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {

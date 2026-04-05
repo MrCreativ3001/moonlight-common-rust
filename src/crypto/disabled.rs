@@ -5,7 +5,7 @@ use crate::{
         ClientIdentifier, ClientSecret,
         pair::{HashAlgorithm, PairingCryptoBackend},
     },
-    stream::proto::crypto::{CipherAlgorithm, CryptoBackend},
+    stream::proto::crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
 };
 
 #[derive(Debug, Error)]
@@ -76,8 +76,6 @@ impl PairingCryptoBackend for DisabledCryptoBackend {
 }
 
 impl CryptoBackend for DisabledCryptoBackend {
-    type Error = CryptoBackendDisabledError;
-
     fn encrypt(
         &self,
         _algorithm: CipherAlgorithm,
@@ -86,8 +84,8 @@ impl CryptoBackend for DisabledCryptoBackend {
         _tag: &mut [u8],
         _input: &[u8],
         _output: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        Err(CryptoBackendDisabledError)
+    ) -> Result<(), CryptoError> {
+        Err(CryptoError::from_error(CryptoBackendDisabledError))
     }
     fn decrypt(
         &self,
@@ -97,7 +95,7 @@ impl CryptoBackend for DisabledCryptoBackend {
         _tag: Option<&[u8]>, // Required for AEAD (e.g. GCM), unused for CBC
         _input: &[u8],
         _output: &mut [u8],
-    ) -> Result<usize, Self::Error> {
-        Err(CryptoBackendDisabledError)
+    ) -> Result<usize, CryptoError> {
+        Err(CryptoError::from_error(CryptoBackendDisabledError))
     }
 }

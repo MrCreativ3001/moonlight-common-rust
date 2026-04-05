@@ -1,6 +1,6 @@
-use std::{fmt, fmt::Debug, sync::Arc};
+use std::{error::Error, sync::Arc};
 
-use crate::stream::{AesIv, AesKey};
+use thiserror::Error;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -11,9 +11,24 @@ pub enum CipherAlgorithm {
     Aes128Gcm,
 }
 
-pub trait CryptoBackend: Send + Sync {
-    type Error;
+#[derive(Debug, Error)]
+#[error("{inner}")]
+pub struct CryptoError {
+    inner: Box<dyn Error + Send + 'static>,
+}
 
+impl CryptoError {
+    pub fn from_error<T>(value: T) -> Self
+    where
+        T: Error + Send + 'static,
+    {
+        Self {
+            inner: Box::new(value),
+        }
+    }
+}
+
+pub trait CryptoBackend: Send + Sync {
     // TODO: make seperate encrypt_aes_cbc and encrypt_aes_gcm fns, same with decrypt
 
     /// Encrypt a message using the given crypto context and parameters:
@@ -27,7 +42,7 @@ pub trait CryptoBackend: Send + Sync {
         tag: &mut [u8],
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<(), Self::Error>;
+    ) -> Result<(), CryptoError>;
 
     /// Decrypt a message using the given crypto context and parameters:
     /// - For CBC, `output` must be large enough to hold PKCS7-padded output.
@@ -41,33 +56,13 @@ pub trait CryptoBackend: Send + Sync {
         tag: Option<&[u8]>, // Required for AEAD (e.g. GCM), unused for CBC
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<usize, Self::Error>;
-}
-
-// TODO: better name, use this inside the proto streams
-pub struct EncryptionValues {
-    // TODO: what is error?
-    pub backend: Arc<dyn CryptoBackend<Error = ()>>,
-    pub remote_aes_key: AesKey,
-    pub remote_aes_iv: AesIv,
-}
-
-impl Debug for EncryptionValues {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "EncryptionValues {{ remote_aes_key: {:?}, remote_aes_iv: {:?} }}",
-            self.remote_aes_key, self.remote_aes_iv
-        )
-    }
+    ) -> Result<usize, CryptoError>;
 }
 
 impl<T> CryptoBackend for Arc<T>
 where
-    T: CryptoBackend,
+    T: CryptoBackend + ?Sized,
 {
-    type Error = T::Error;
-
     fn encrypt(
         &self,
         algorithm: CipherAlgorithm,
@@ -76,7 +71,7 @@ where
         tag: &mut [u8],
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), CryptoError> {
         T::encrypt(&self, algorithm, key, iv, tag, input, output)
     }
 
@@ -88,7 +83,7 @@ where
         tag: Option<&[u8]>, // Required for AEAD (e.g. GCM), unused for CBC
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<usize, Self::Error> {
+    ) -> Result<usize, CryptoError> {
         T::decrypt(&self, algorithm, key, iv, tag, input, output)
     }
 }

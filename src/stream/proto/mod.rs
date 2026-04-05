@@ -73,10 +73,6 @@ mod sdp;
 mod enet;
 mod packet;
 
-#[allow(clippy::unwrap_used)]
-#[cfg(test)]
-mod test;
-
 // TODO: move all defaults ports to some better location
 pub const DEFAULT_RTSP_PORT: u16 = 48010;
 
@@ -91,46 +87,29 @@ pub enum MoonlightStreamProtoError {
         expected_session: String,
         session: String,
     },
-    #[error("audio stream: {0}")]
-    AudioStream(#[from] AudioStreamError),
-    #[error("video stream: {0}")]
-    VideoStream(#[from] VideoStreamError),
-    #[error("control stream: {0}")]
-    ControlStream(#[from] ControlError),
 }
+
+pub const MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Debug)]
 pub enum MoonlightStreamInput<'a> {
     Timeout(Instant),
-    TcpReceive {
-        now: Instant,
-        data: &'a [u8],
-    },
+    TcpReceive { now: Instant, data: &'a [u8] },
     TcpDisconnected(Instant),
-    UdpReceive {
-        now: Instant,
-        source: SocketAddr,
-        data: &'a [u8],
-    },
 }
 
 #[derive(Debug)]
-pub enum MoonlightStreamOutput<Crypto> {
+pub enum MoonlightStreamSetupOutput<Crypto> {
     Timeout(Instant),
-    Action(MoonlightStreamAction<Crypto>),
-    Event(MoonlightStreamEvent),
-}
-
-#[derive(Debug)]
-pub enum MoonlightStreamAction<Crypto> {
-    ConnectTcp {
+    /// Connect to the address using tcp
+    TcpConnect {
         addr: SocketAddr,
     },
-    SendTcp {
-        data: Vec<u8>,
-    },
-    SendUdp {
-        to: SocketAddr,
+    /// Write using tcp the already connected tcp stream
+    ///
+    /// See also:
+    /// - [Self::TcpConnect]
+    TcpWrite {
         data: Vec<u8>,
     },
     /// Can only be called once by the implementation
@@ -148,15 +127,8 @@ pub enum MoonlightStreamAction<Crypto> {
         addr: SocketAddr,
         control_stream: ControlStream<Crypto>,
     },
-    /// Send a control message to the [ControlStream] returned by [MoonlightStreamAction::StartControlStream]
-    SendControlMessage {
-        message: ControlMessage,
-    },
-}
-
-#[derive(Debug, PartialEq)]
-pub enum MoonlightStreamEvent {
-    // TODO
+    /// The stream is now fully started and the [MoonlightStreamSetup] can be discarded
+    Connected,
 }
 
 #[derive(Debug)]
@@ -166,6 +138,8 @@ struct Sdp {
     opus_config: OpusMultistreamConfig,
     video_format: VideoFormat,
 }
+
+// TODO: improve the robustness of this impl, calling poll_output multiple times without handle_input should either work or crash
 
 ///
 /// The entrypoint of the Moonlight Sans-IO Protocol implementation.
@@ -177,7 +151,7 @@ struct Sdp {
 /// // TODO
 /// ```
 ///
-pub struct MoonlightStreamProto<Crypto> {
+pub struct MoonlightStreamSetup<Crypto> {
     client_config: MoonlightStreamConfig,
     client_settings: MoonlightStreamSettings,
     crypto_backend: Crypto,
@@ -201,12 +175,10 @@ enum State {
     RtspSetupControlReceive { response: RtspSetupControlResponse },
     RtspAnnounceReceive,
     RtspPlayReceive,
-    ControlRequestIdr,
-    ControlStartB,
     Connected,
 }
 
-impl MoonlightStreamProto<DisabledCryptoBackend> {
+impl MoonlightStreamSetup<DisabledCryptoBackend> {
     pub fn new_unencrypted(
         now: Instant,
         config: MoonlightStreamConfig,
@@ -216,10 +188,9 @@ impl MoonlightStreamProto<DisabledCryptoBackend> {
     }
 }
 
-impl<Crypto> MoonlightStreamProto<Crypto>
+impl<Crypto> MoonlightStreamSetup<Crypto>
 where
     Crypto: CryptoBackend + Clone,
-    Crypto::Error: Error + 'static,
 {
     pub fn launch_query_parameters() -> &'static str {
         "&corever=1"
@@ -298,19 +269,15 @@ where
 
     pub fn poll_output(
         &mut self,
-    ) -> Result<MoonlightStreamOutput<Crypto>, MoonlightStreamProtoError> {
+    ) -> Result<MoonlightStreamSetupOutput<Crypto>, MoonlightStreamProtoError> {
         let mut timeout;
         loop {
             match self.rtsp.poll_output()? {
                 RtspOutput::Connect { addr } => {
-                    return Ok(MoonlightStreamOutput::Action(
-                        MoonlightStreamAction::ConnectTcp { addr },
-                    ));
+                    return Ok(MoonlightStreamSetupOutput::TcpConnect { addr });
                 }
                 RtspOutput::Write { data } => {
-                    return Ok(MoonlightStreamOutput::Action(
-                        MoonlightStreamAction::SendTcp { data },
-                    ));
+                    return Ok(MoonlightStreamSetupOutput::TcpWrite { data });
                 }
                 RtspOutput::Response {
                     response: Some(response),
@@ -408,9 +375,10 @@ where
                                 response: audio_setup,
                             };
 
-                            return Ok(MoonlightStreamOutput::Action(
-                                MoonlightStreamAction::StartAudioStream { addr, audio_stream },
-                            ));
+                            return Ok(MoonlightStreamSetupOutput::StartAudioStream {
+                                addr,
+                                audio_stream,
+                            });
                         }
                         // RtspSetupAudioReceive down
                         State::SetupVideo => {
@@ -443,7 +411,6 @@ where
                             let video_stream = VideoStream::new(
                                 self.last_now,
                                 VideoStreamConfig {
-                                    addr,
                                     queue: VideoDepayloaderConfig {
                                         server_version: self.server_version,
                                         // Packet size will always exist
@@ -461,9 +428,10 @@ where
                                 response: video_setup,
                             };
 
-                            return Ok(MoonlightStreamOutput::Action(
-                                MoonlightStreamAction::StartVideoStream { addr, video_stream },
-                            ));
+                            return Ok(MoonlightStreamSetupOutput::StartVideoStream {
+                                addr,
+                                video_stream,
+                            });
                         }
                         State::SetupControl => {
                             let control_setup =
@@ -512,7 +480,7 @@ where
                                 None
                             };
 
-                            let control_stream = ControlStream::new(
+                            let mut control_stream = ControlStream::new(
                                 self.last_now,
                                 ControlStreamConfig {
                                     server_version: self.server_version,
@@ -521,18 +489,28 @@ where
                                     encryption,
                                 },
                                 self.crypto_backend.clone(),
-                            )?;
+                            )
+                            .unwrap();
+
+                            // Buffer RequestIdr and StartB for connect because they should be the first packets
+                            // This won't panic, because we have control over all values and they don't panic
+                            #[allow(clippy::unwrap_used)]
+                            control_stream
+                                .send_inner(ControlPacket::RequestIdr, true)
+                                .unwrap();
+                            #[allow(clippy::unwrap_used)]
+                            control_stream
+                                .send_inner(ControlPacket::StartB, true)
+                                .unwrap();
 
                             self.state = State::RtspSetupControlReceive {
                                 response: control_setup,
                             };
 
-                            return Ok(MoonlightStreamOutput::Action(
-                                MoonlightStreamAction::StartControlStream {
-                                    addr,
-                                    control_stream,
-                                },
-                            ));
+                            return Ok(MoonlightStreamSetupOutput::StartControlStream {
+                                addr,
+                                control_stream,
+                            });
                         }
                         State::RtspAnnounceReceive => {
                             // Session id exists at this point
@@ -551,9 +529,6 @@ where
 
                             continue;
                         }
-                        State::Connected => {
-                            // TODO: this should at least print some warning?
-                        }
                         _ => {}
                     }
 
@@ -562,12 +537,12 @@ where
                 RtspOutput::Response { .. } => match &mut self.state {
                     State::RtspPlayReceive => {
                         // move to next state
-                        self.state = State::ControlRequestIdr;
+                        self.state = State::Connected;
 
                         continue;
                     }
                     // this cannot happen because it's only reachable, when using [RtspClient::send_no_response]
-                    _ => unreachable!(),
+                    _ => unreachable!("received empty rtsp response in state {:?}", self.state),
                 },
                 RtspOutput::Timeout => {
                     // TODO: manage timeout and disconnect
@@ -626,29 +601,8 @@ where
                     self.state = State::RtspAnnounceReceive;
                     continue;
                 }
-                State::ControlRequestIdr => {
-                    self.state = State::ControlStartB;
-
-                    return Ok(MoonlightStreamOutput::Action(
-                        MoonlightStreamAction::SendControlMessage {
-                            message: ControlMessage(ControlMessageInner::SendPacket {
-                                force: true,
-                                packet: ControlPacket::RequestIdr,
-                            }),
-                        },
-                    ));
-                }
-                State::ControlStartB => {
-                    self.state = State::Connected;
-
-                    return Ok(MoonlightStreamOutput::Action(
-                        MoonlightStreamAction::SendControlMessage {
-                            message: ControlMessage(ControlMessageInner::SendPacket {
-                                force: true,
-                                packet: ControlPacket::StartB,
-                            }),
-                        },
-                    ));
+                State::Connected => {
+                    return Ok(MoonlightStreamSetupOutput::Connected);
                 }
                 _ => {}
             }
@@ -657,7 +611,7 @@ where
             break;
         }
 
-        Ok(MoonlightStreamOutput::Timeout(timeout))
+        Ok(MoonlightStreamSetupOutput::Timeout(timeout))
     }
 
     pub fn handle_input(

@@ -27,7 +27,7 @@ use crate::{
         ClientIdentifier, ClientSecret, ServerIdentifier,
         pair::{HashAlgorithm, PairingCryptoBackend},
     },
-    stream::proto::crypto::{CipherAlgorithm, CryptoBackend},
+    stream::proto::crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
 };
 
 #[derive(Debug, Clone)]
@@ -205,9 +205,11 @@ fn add_pkcs7_padding(input: &[u8]) -> Vec<u8> {
     out
 }
 
-impl CryptoBackend for OpenSSLCryptoBackend {
-    type Error = ErrorStack;
+fn crypto_err(error: ErrorStack) -> CryptoError {
+    CryptoError::from_error(error)
+}
 
+impl CryptoBackend for OpenSSLCryptoBackend {
     fn encrypt(
         &self,
         algorithm: CipherAlgorithm,
@@ -216,30 +218,30 @@ impl CryptoBackend for OpenSSLCryptoBackend {
         tag: &mut [u8],
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<(), ErrorStack> {
+    ) -> Result<(), CryptoError> {
         let cipher = match algorithm {
             CipherAlgorithm::Aes128Cbc => symm::Cipher::aes_128_cbc(),
             CipherAlgorithm::Aes128Gcm => symm::Cipher::aes_128_gcm(),
         };
 
-        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv))?;
+        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
         crypter.pad(false);
 
         match algorithm {
             CipherAlgorithm::Aes128Cbc => {
                 let padded = add_pkcs7_padding(input);
 
-                let mut count = crypter.update(&padded, output)?;
-                count += crypter.finalize(&mut output[count..])?;
+                let mut count = crypter.update(&padded, output).map_err(crypto_err)?;
+                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
                 Ok(())
             }
 
             CipherAlgorithm::Aes128Gcm => {
-                let mut count = crypter.update(input, output)?;
-                count += crypter.finalize(&mut output[count..])?;
+                let mut count = crypter.update(input, output).map_err(crypto_err)?;
+                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
-                crypter.get_tag(tag)?;
+                crypter.get_tag(tag).map_err(crypto_err)?;
 
                 Ok(())
             }
@@ -254,19 +256,19 @@ impl CryptoBackend for OpenSSLCryptoBackend {
         tag: Option<&[u8]>,
         input: &[u8],
         output: &mut [u8],
-    ) -> Result<usize, ErrorStack> {
+    ) -> Result<usize, CryptoError> {
         let cipher = match algorithm {
             CipherAlgorithm::Aes128Cbc => symm::Cipher::aes_128_cbc(),
             CipherAlgorithm::Aes128Gcm => symm::Cipher::aes_128_gcm(),
         };
 
-        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))?;
+        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
         crypter.pad(false);
 
         match algorithm {
             CipherAlgorithm::Aes128Cbc => {
-                let mut count = crypter.update(input, output)?;
-                count += crypter.finalize(&mut output[count..])?;
+                let mut count = crypter.update(input, output).map_err(crypto_err)?;
+                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
                 let pad_len = output[count - 1];
                 if pad_len > 0 && pad_len <= 16 {
@@ -276,12 +278,12 @@ impl CryptoBackend for OpenSSLCryptoBackend {
                 Ok(count)
             }
             CipherAlgorithm::Aes128Gcm => {
-                let mut count = crypter.update(input, output)?;
+                let mut count = crypter.update(input, output).map_err(crypto_err)?;
 
-                let tag = tag.ok_or_else(ErrorStack::get)?;
+                let tag = tag.ok_or_else(ErrorStack::get).map_err(crypto_err)?;
 
-                crypter.set_tag(tag)?;
-                count += crypter.finalize(&mut output[count..])?;
+                crypter.set_tag(tag).map_err(crypto_err)?;
+                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
                 Ok(count)
             }

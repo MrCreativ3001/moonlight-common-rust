@@ -1187,7 +1187,7 @@ fn depayloader_nofec_noparse() {
 
     assert_eq!(frame_index, 1);
     assert_eq!(frame_type, FrameType::Idr);
-    assert_eq!(timestamp, 0);
+    assert_eq!(timestamp, Duration::from_millis(0));
     assert_eq!(
         host_processing_latency,
         Some(expected_host_processing_latency)
@@ -1286,7 +1286,7 @@ fn depayloader_nofec_h264() {
             frame: VideoFrame {
                 frame_type: FrameType::Idr,
                 frame_index: 1,
-                timestamp: 0,
+                timestamp: Duration::from_millis(0),
                 host_processing_latency: None,
                 buffers: expected_buffers,
             },
@@ -1379,7 +1379,7 @@ fn depayloader_nofec_h265() {
             frame: VideoFrame {
                 frame_type: FrameType::Idr,
                 frame_index: 1,
-                timestamp: 0,
+                timestamp: Duration::from_millis(0),
                 host_processing_latency: None,
                 buffers: expected_buffers,
             },

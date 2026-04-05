@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use crate::stream::proto::crypto::{CipherAlgorithm, CryptoBackend};
 
-pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend<Error = impl Debug>) {
+pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend) {
     let key = [0x11u8; 16];
     let iv = [0x22u8; 16];
 
@@ -41,7 +41,7 @@ pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend<Error = impl Debug>) 
     assert_eq!(unpadded, plaintext);
 }
 
-pub fn test_aes_gcm_roundtrip(backend: &impl CryptoBackend<Error = impl Debug>) {
+pub fn test_aes_gcm_roundtrip(backend: &impl CryptoBackend) {
     let key = [0x33u8; 16];
     let iv = [0x44u8; 12];
 
@@ -76,7 +76,7 @@ pub fn test_aes_gcm_roundtrip(backend: &impl CryptoBackend<Error = impl Debug>) 
     assert_eq!(&decrypted[..len], plaintext);
 }
 
-pub fn test_gcm_tag_failure(backend: &impl CryptoBackend<Error = impl Debug>) {
+pub fn test_gcm_tag_failure(backend: &impl CryptoBackend) {
     let key = [0x55u8; 16];
     let iv = [0x66u8; 12];
 

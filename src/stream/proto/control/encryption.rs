@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use thiserror::Error;
 use tracing::warn;
 
@@ -13,7 +11,7 @@ use crate::stream::{
                 EncryptedControlHeader,
             },
         },
-        crypto::{CipherAlgorithm, CryptoBackend},
+        crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
     },
 };
 
@@ -30,7 +28,7 @@ pub enum ControlEncryptionError {
     #[error("payload is too small")]
     EncryptionHeaderLengthTooSmall,
     #[error("crypto: {0}")]
-    Crypto(Box<dyn Error>),
+    Crypto(#[from] CryptoError),
 }
 
 fn encrypt_control_packet_into<Crypto>(
@@ -43,7 +41,6 @@ fn encrypt_control_packet_into<Crypto>(
 ) -> Result<usize, ControlEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     let mut header = EncryptedControlHeader {
         ty: ENCRYPTED_CONTROL_PACKET_TYPE,
@@ -85,7 +82,6 @@ fn decrypt_control_packet_into<Crypto>(
 ) -> Result<usize, ControlEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     if encrypted_packet.len() < EncryptedControlHeader::SIZE {
         warn!(packet = ?encrypted_packet, required_len = ?EncryptedControlHeader::SIZE, "dropping packet that is smaller than the encrypted control header");
@@ -149,7 +145,6 @@ pub fn encrypt_clientbound_control_packet_into<Crypto>(
 ) -> Result<usize, ControlEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     let mut iv = [0; _];
     let iv_len = generate_iv(encryption_method, true, sequence_number, &mut iv);
@@ -178,7 +173,6 @@ pub fn decrypt_clientbound_control_packet_into<Crypto>(
 ) -> Result<usize, ControlEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     decrypt_control_packet_into(
         crypto,
@@ -204,7 +198,6 @@ pub fn encrypt_serverbound_control_packet_into<Crypto>(
 ) -> Result<usize, ControlEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     let mut iv = [0; _];
     let iv_len = generate_iv(encryption_method, false, sequence_number, &mut iv);
@@ -233,7 +226,6 @@ pub fn decrypt_serverbound_control_packet_into<Crypto>(
 ) -> Result<usize, ControlEncryptionError>
 where
     Crypto: CryptoBackend,
-    Crypto::Error: Error + 'static,
 {
     decrypt_control_packet_into(
         crypto,
@@ -366,7 +358,6 @@ mod test {
     fn test_clientbound_packet<Crypto>(crypto: Crypto)
     where
         Crypto: CryptoBackend,
-        Crypto::Error: Error + 'static,
     {
         let aes_key = AesKey([
             198, 75, 90, 29, 86, 98, 60, 149, 58, 169, 236, 53, 216, 185, 60, 152,
@@ -429,7 +420,6 @@ mod test {
     fn test_serverbound_packet<Crypto>(crypto: Crypto)
     where
         Crypto: CryptoBackend,
-        Crypto::Error: Error + 'static,
     {
         let aes_key = AesKey([
             198, 75, 90, 29, 86, 98, 60, 149, 58, 169, 236, 53, 216, 185, 60, 152,
