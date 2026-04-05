@@ -82,6 +82,7 @@ enum State {
     },
 }
 
+// TODO: maybe rename this into video stream proto?
 pub struct VideoStream<Crypto> {
     addr: SocketAddr,
     crypto_backend: Crypto,
@@ -191,9 +192,11 @@ where
 
                 self.state = State::ReceiveVideo;
 
-                Ok(VideoStreamOutput::SendControlMessage {
-                    message: ControlMessage(message),
-                })
+                // TODO: for some reason sunshine doesn't support this??!?
+                // Ok(VideoStreamOutput::SendControlMessage {
+                //     message: ControlMessage(message),
+                // })
+                Ok(VideoStreamOutput::Timeout(self.last_now))
             }
         }
     }

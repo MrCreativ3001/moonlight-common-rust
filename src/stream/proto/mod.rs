@@ -32,7 +32,7 @@ use crate::{
                 moonlight::{
                     DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspAnnounceRequest,
                     RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest,
-                    RtspOptionsResponse, RtspPlayRequest, RtspPlayResponse, RtspSetupAudioRequest,
+                    RtspOptionsResponse, RtspPlayRequest, RtspSetupAudioRequest,
                     RtspSetupAudioResponse, RtspSetupControlRequest, RtspSetupControlResponse,
                     RtspSetupVideoRequest, RtspSetupVideoResponse,
                 },
@@ -102,12 +102,11 @@ pub enum MoonlightStreamProtoError {
 #[derive(Debug)]
 pub enum MoonlightStreamInput<'a> {
     Timeout(Instant),
-    TcpConnect(Instant),
     TcpReceive {
         now: Instant,
         data: &'a [u8],
     },
-    TcpDisconnect(Instant),
+    TcpDisconnected(Instant),
     UdpReceive {
         now: Instant,
         source: SocketAddr,
@@ -204,7 +203,6 @@ enum State {
     RtspPlayReceive,
     ControlRequestIdr,
     ControlStartB,
-    ControlAllowPackets,
     Connected,
 }
 
@@ -293,7 +291,7 @@ where
                 target: this.rtsp.target_addr(),
             }
             .into_request(this.server_version),
-        );
+        )?;
 
         Ok(this)
     }
@@ -314,7 +312,9 @@ where
                         MoonlightStreamAction::SendTcp { data },
                     ));
                 }
-                RtspOutput::Response(response) => {
+                RtspOutput::Response {
+                    response: Some(response),
+                } => {
                     match &mut self.state {
                         State::RtspOptionsReceive => {
                             let _options = RtspOptionsResponse::try_from_response(&response)?;
@@ -324,7 +324,7 @@ where
                                     target: self.rtsp.target_addr(),
                                 }
                                 .into_request(self.server_version),
-                            );
+                            )?;
                             self.state = State::RtspDescribeReceive;
                         }
                         State::RtspDescribeReceive => {
@@ -352,7 +352,7 @@ where
                                     session_id: None,
                                 }
                                 .into_request(self.server_version),
-                            );
+                            )?;
                             self.state = State::SetupAudio;
                         }
                         State::SetupAudio => {
@@ -539,22 +539,17 @@ where
                             #[allow(clippy::unwrap_used)]
                             let session_id = self.session_id.as_ref().unwrap();
 
-                            self.rtsp.send(
+                            self.rtsp.send_no_response(
                                 RtspPlayRequest {
                                     session_id: session_id.to_owned(),
                                 }
                                 .into_request(self.server_version),
-                            );
+                            )?;
 
                             // We can never receive a response from the play
                             self.state = State::RtspPlayReceive;
 
                             continue;
-                        }
-                        State::RtspPlayReceive => {
-                            let _response = RtspPlayResponse::try_from_response(&response)?;
-
-                            self.state = State::ControlRequestIdr;
                         }
                         State::Connected => {
                             // TODO: this should at least print some warning?
@@ -564,6 +559,16 @@ where
 
                     continue;
                 }
+                RtspOutput::Response { .. } => match &mut self.state {
+                    State::RtspPlayReceive => {
+                        // move to next state
+                        self.state = State::ControlRequestIdr;
+
+                        continue;
+                    }
+                    // this cannot happen because it's only reachable, when using [RtspClient::send_no_response]
+                    _ => unreachable!(),
+                },
                 RtspOutput::Timeout => {
                     // TODO: manage timeout and disconnect
                     timeout = self.last_now + Duration::from_secs(1);
@@ -579,7 +584,7 @@ where
                             session_id: Some(response.session_id.clone()),
                         }
                         .into_request(self.server_version),
-                    );
+                    )?;
 
                     self.session_id = Some(response.session_id.clone());
 
@@ -596,7 +601,7 @@ where
                             session_id: Some(session_id.clone()),
                         }
                         .into_request(self.server_version),
-                    );
+                    )?;
 
                     self.state = State::SetupControl;
                     continue;
@@ -616,7 +621,7 @@ where
                             sdp: sdp.client_sdp.clone(),
                         }
                         .into_request(self.server_version),
-                    );
+                    )?;
 
                     self.state = State::RtspAnnounceReceive;
                     continue;
@@ -634,7 +639,7 @@ where
                     ));
                 }
                 State::ControlStartB => {
-                    self.state = State::ControlAllowPackets;
+                    self.state = State::Connected;
 
                     return Ok(MoonlightStreamOutput::Action(
                         MoonlightStreamAction::SendControlMessage {
@@ -642,15 +647,6 @@ where
                                 force: true,
                                 packet: ControlPacket::StartB,
                             }),
-                        },
-                    ));
-                }
-                State::ControlAllowPackets => {
-                    self.state = State::Connected;
-
-                    return Ok(MoonlightStreamOutput::Action(
-                        MoonlightStreamAction::SendControlMessage {
-                            message: ControlMessage(ControlMessageInner::AllowOtherPackets),
                         },
                     ));
                 }
@@ -675,20 +671,15 @@ where
             MoonlightStreamInput::Timeout(now) => {
                 self.last_now = now;
             }
-            MoonlightStreamInput::TcpConnect(now) => {
-                self.last_now = now;
-
-                self.rtsp.handle_input(RtspInput::Connect)?;
-            }
             MoonlightStreamInput::TcpReceive { now, data } => {
                 self.last_now = now;
 
                 self.rtsp.handle_input(RtspInput::Receive(data))?;
             }
-            MoonlightStreamInput::TcpDisconnect(now) => {
+            MoonlightStreamInput::TcpDisconnected(now) => {
                 self.last_now = now;
 
-                self.rtsp.handle_input(RtspInput::Disconnect)?;
+                self.rtsp.handle_input(RtspInput::Disconnected)?;
             }
             _ => todo!(),
         }

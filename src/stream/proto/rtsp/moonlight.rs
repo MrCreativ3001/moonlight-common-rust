@@ -403,16 +403,6 @@ impl RtspPlayRequest {
     }
 }
 
-pub struct RtspPlayResponse {}
-
-impl RtspPlayResponse {
-    pub fn try_from_response(
-        _response: &RtspResponse,
-    ) -> Result<Self, ParseMoonlightRtspResponseError> {
-        Ok(Self {})
-    }
-}
-
 // TODO: where is this used?
 // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Video.h#L48
 // TODO: maybe don't make this a const?

@@ -575,6 +575,12 @@ pub const SCROLL_MAGIC: u32 = 0x00000009;
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L112
 pub const SCROLL_MAGIC_GEN5: u32 = 0x0000000A;
+/// Matches Win32 WHEEL_DELTA definition
+///
+/// References:
+/// - definition https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L36-L37
+/// - usage: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1182-L1275
+pub const SCROLL_DELTA: i16 = 120;
 
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L120
@@ -713,7 +719,7 @@ pub enum ControlPacket {
     MouseMoveAbsolute {
         x: i16,
         y: i16,
-        // This is 0.
+        /// This is 0.
         unused: i16,
         reference_width: i16,
         reference_height: i16,

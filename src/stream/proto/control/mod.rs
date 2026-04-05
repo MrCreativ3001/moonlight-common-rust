@@ -3,7 +3,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     mem,
     net::SocketAddr,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use rusty_enet::{PacketKind, error::PeerSendError};
@@ -13,11 +13,12 @@ use crate::{
     ServerVersion,
     stream::{
         AesKey,
+        control::{KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction},
         proto::{
             control::{
                 packet::{
-                    ControlPacket, ControlPacketConfig, PERIODIC_PING_INTERVAL,
-                    PERIODIC_PING_VERSION,
+                    ControlPacket, ControlPacketConfig, ControlPacketNotSupported,
+                    PERIODIC_PING_INTERVAL, PERIODIC_PING_VERSION,
                 },
                 peer::{
                     ControlConnectConfig, ControlEncryptionMethod, ControlError, ControlHost,
@@ -58,11 +59,70 @@ const CHANNEL_COUNT: usize = 0x30;
 pub struct ControlMessage(pub(super) ControlMessageInner);
 #[derive(Debug)]
 pub(super) enum ControlMessageInner {
-    /// The first packets MUST be RequestIdr, followed by StartB on Sunshine
-    /// Only allow other packets (e.g. ping, actions) after the starting process from the main stream is done
-    AllowOtherPackets,
     /// Sends a packet regardless of the [Self::AllowOtherPackets] option
     SendPacket { packet: ControlPacket, force: bool },
+}
+
+#[derive(Debug, Clone)]
+pub enum ClientInputEvent {
+    Keyboard {
+        action: KeyAction,
+        flags: KeyFlags,
+        key_code: KeyCode,
+        modifier: KeyModifiers,
+    },
+    MouseMoveRelative {
+        delta_x: i16,
+        delta_y: i16,
+    },
+    MouseMoveAbsolute {
+        x: i16,
+        y: i16,
+        reference_width: i16,
+        reference_height: i16,
+    },
+    MouseButton {
+        action: MouseButtonAction,
+        button: MouseButton,
+    },
+    MouseScrollVertical {
+        /// This value might be clamped to [LI_WHEEL_DELTA]
+        scroll_y: i16,
+    },
+    /// Sunshine extension
+    MouseScrollHorizontal {
+        scroll_x: i16,
+    },
+    ControllerConnect {
+        controller_number: u8,
+    },
+    ControllerState {
+        controller_number: u8,
+    },
+    ControllerDisconnect {
+        controller_number: u8,
+    },
+}
+
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L39-L44
+const BATCH_INTERVAL_MS: Duration = Duration::from_millis(1);
+
+#[derive(Debug)]
+struct BatchedInputs {
+    last_send: Instant,
+    dirty: bool,
+    // mouse move relative
+    mouse_delta_x: i16,
+    mouse_delta_y: i16,
+    // mouse move absolute
+    mouse_absolute_x: i16,
+    mouse_absolute_y: i16,
+    mouse_absolute_reference_width: i16,
+    mouse_absolute_reference_height: i16,
+    // mouse scroll
+    mouse_scroll_x: i16,
+    mouse_scroll_y: i16,
 }
 
 #[derive(Debug)]
@@ -101,14 +161,26 @@ pub enum ControlStreamEvent {
     Disconnect,
 }
 
+/// This is the high level client control stream.
+///
+/// It does:
+/// - automatic input batching using [Self::batch_input] and sending in a predefined interval
+/// - regular periodic ping to avoid disconnects
+///
+/// When used in combination with the [MoonlightStreamProto](super::MoonlightStreamProto) and the [VideoStream](super::video::VideoStream) it handles:
+/// - automatic idr requests
+/// - sending a disconnect packet on stop
+///
+/// If it's not used with that it won't do these things, however you can manually do them using the [Self::send_raw] function.
 pub struct ControlStream<Crypto> {
     server_version: ServerVersion,
     peer: ControlPeerId,
     peer_connected: bool,
-    allow_packets: bool,
     last_now: Instant,
     last_ping: Option<Instant>,
+    allow_packets: bool,
     buffered_packets: Vec<ControlPacket>,
+    batched_inputs: BatchedInputs,
     host: ControlHost<Crypto>,
 }
 
@@ -171,14 +243,196 @@ where
             last_now: now,
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
             buffered_packets: vec![],
+            batched_inputs: BatchedInputs {
+                last_send: now,
+                dirty: false,
+                mouse_delta_x: 0,
+                mouse_delta_y: 0,
+                mouse_absolute_x: 0,
+                mouse_absolute_y: 0,
+                mouse_absolute_reference_width: 0,
+                mouse_absolute_reference_height: 0,
+                mouse_scroll_x: 0,
+                mouse_scroll_y: 0,
+            },
             host,
         })
     }
 
-    // TODO: we should not directly use the ControlPacket as a way of sending packets
-    // Use some input enum
-    pub fn send(&mut self, input: ()) {
-        todo!()
+    /// This will intelligently batch or instantly send the input based on if it makes sense to do so.
+    pub fn batch_input(&mut self, input: ClientInputEvent) -> Result<(), ControlError> {
+        trace!(input = ?input, "batching input for control stream");
+
+        self.check_input_supported(&input)?;
+
+        match input {
+            ClientInputEvent::MouseMoveRelative { delta_x, delta_y } => {
+                self.batched_inputs.dirty = true;
+
+                self.batched_inputs.mouse_delta_x =
+                    self.batched_inputs.mouse_delta_x.saturating_add(delta_x);
+                self.batched_inputs.mouse_delta_y =
+                    self.batched_inputs.mouse_delta_y.saturating_add(delta_y);
+            }
+            ClientInputEvent::MouseMoveAbsolute {
+                x,
+                y,
+                reference_width,
+                reference_height,
+            } => {
+                self.batched_inputs.dirty = true;
+
+                // See the send batch now function
+                debug_assert_ne!(
+                    reference_width, 0,
+                    "non null values as reference size will have weird results"
+                );
+                debug_assert_ne!(
+                    reference_height, 0,
+                    "non null values as reference size will have weird results"
+                );
+
+                self.batched_inputs.mouse_absolute_x = x;
+                self.batched_inputs.mouse_absolute_y = y;
+                self.batched_inputs.mouse_absolute_reference_width = reference_width;
+                self.batched_inputs.mouse_absolute_reference_height = reference_height;
+            }
+            ClientInputEvent::MouseScrollVertical { scroll_y } => {
+                self.batched_inputs.dirty = true;
+
+                self.batched_inputs.mouse_scroll_y =
+                    self.batched_inputs.mouse_scroll_y.saturating_add(scroll_y);
+            }
+            ClientInputEvent::MouseScrollHorizontal { scroll_x } => {
+                self.batched_inputs.dirty = true;
+
+                self.batched_inputs.mouse_scroll_x =
+                    self.batched_inputs.mouse_scroll_x.saturating_add(scroll_x);
+            }
+            input => {
+                self.send_input_now(input)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Will send all batched inputs now.
+    ///
+    /// This is automatically done if you're following the default event loop of this struct.
+    pub fn send_batched_inputs_now(&mut self) -> Result<(), ControlError> {
+        trace!(batched_inputs = ?self.batched_inputs, "sending batched inputs");
+
+        self.batched_inputs.last_send = self.last_now;
+
+        if !self.batched_inputs.dirty {
+            // early return
+            return Ok(());
+        }
+        self.batched_inputs.dirty = false;
+
+        // mouse relative
+        if self.batched_inputs.mouse_delta_x != 0 || self.batched_inputs.mouse_delta_y != 0 {
+            self.send_input_now(ClientInputEvent::MouseMoveRelative {
+                delta_x: self.batched_inputs.mouse_delta_x,
+                delta_y: self.batched_inputs.mouse_delta_y,
+            })?;
+
+            self.batched_inputs.mouse_delta_x = 0;
+            self.batched_inputs.mouse_delta_y = 0;
+        }
+
+        // mouse absolute
+        if self.batched_inputs.mouse_absolute_reference_width != 0
+            || self.batched_inputs.mouse_absolute_reference_height != 0
+        {
+            self.send_input_now(ClientInputEvent::MouseMoveAbsolute {
+                x: self.batched_inputs.mouse_absolute_x,
+                y: self.batched_inputs.mouse_absolute_y,
+                reference_width: self.batched_inputs.mouse_absolute_reference_width,
+                reference_height: self.batched_inputs.mouse_absolute_reference_height,
+            })?;
+        }
+
+        // mouse scroll
+        if self.batched_inputs.mouse_scroll_x != 0 {
+            self.send_input_now(ClientInputEvent::MouseScrollHorizontal {
+                scroll_x: self.batched_inputs.mouse_scroll_x,
+            })?;
+
+            self.batched_inputs.mouse_scroll_x = 0;
+        }
+        if self.batched_inputs.mouse_scroll_y != 0 {
+            self.send_input_now(ClientInputEvent::MouseScrollVertical {
+                scroll_y: self.batched_inputs.mouse_scroll_y,
+            })?;
+
+            self.batched_inputs.mouse_scroll_y = 0;
+        }
+
+        Ok(())
+    }
+
+    fn check_input_supported(&self, input: &ClientInputEvent) -> Result<(), ControlError> {
+        // TODO: add other things: e.g. controller stuff and so on
+
+        match input {
+            ClientInputEvent::MouseScrollVertical { .. }
+                if !self.server_version.is_sunshine_like() =>
+            {
+                Err(ControlError::PacketNotSupported(ControlPacketNotSupported))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// You should prefer to call [Self::batch_input] to avoid spamming the server.
+    pub fn send_input_now(&mut self, input: ClientInputEvent) -> Result<(), ControlError> {
+        self.check_input_supported(&input)?;
+
+        match input {
+            ClientInputEvent::Keyboard {
+                action,
+                flags,
+                key_code,
+                modifier,
+            } => todo!(),
+            ClientInputEvent::MouseMoveRelative { delta_x, delta_y } => todo!(),
+            ClientInputEvent::MouseMoveAbsolute {
+                x,
+                y,
+                reference_width,
+                reference_height,
+            } => {
+                self.send_raw(ControlPacket::MouseMoveAbsolute {
+                    x,
+                    y,
+                    unused: 0,
+                    reference_width,
+                    reference_height,
+                })?;
+            }
+            ClientInputEvent::MouseButton { action, button } => todo!(),
+            ClientInputEvent::MouseScrollVertical { scroll_y } => {
+                self.send_raw(ControlPacket::MouseScroll {
+                    scroll_amount_1: scroll_y,
+                    scroll_amount_2: scroll_y,
+                    zero: 0,
+                })?;
+            }
+            ClientInputEvent::MouseScrollHorizontal { scroll_x } => {
+                // we already checked if this is allowed
+
+                self.send_raw(ControlPacket::MouseHorizontalScroll {
+                    scroll_amount: scroll_x,
+                })?;
+            }
+            ClientInputEvent::ControllerConnect { controller_number } => todo!(),
+            ClientInputEvent::ControllerState { controller_number } => todo!(),
+            ClientInputEvent::ControllerDisconnect { controller_number } => todo!(),
+        }
+
+        Ok(())
     }
 
     pub fn send_raw(&mut self, packet: ControlPacket) -> Result<(), ControlError> {
@@ -189,6 +443,12 @@ where
         packet: ControlPacket,
         force_packet: bool,
     ) -> Result<(), ControlError> {
+        // TODO: we should only allow RequestIdr and StartB for starting in that order
+        // this current approach is more hacky
+        if matches!(packet, ControlPacket::StartB) {
+            self.allow_packets = true;
+        }
+
         if !force_packet && !self.allow_packets {
             return Err(ControlError::NotConnected);
         } else if force_packet && !self.peer_connected {
@@ -329,6 +589,11 @@ where
             }
         };
 
+        // Handle batching
+        if let Some(new_timeout) = self.do_batching()? {
+            timeout = timeout.min(new_timeout);
+        }
+
         // Handle periodic ping
         if let Some(new_timeout) = self.do_ping()? {
             timeout = timeout.min(new_timeout);
@@ -373,14 +638,21 @@ where
                     }
                 }
             }
-            ControlMessageInner::AllowOtherPackets => {
-                debug!(now = ?self.last_now, message = ?message, "received control message");
-
-                self.allow_packets = true;
-            }
         }
 
         Ok(())
+    }
+
+    fn do_batching(&mut self) -> Result<Option<Instant>, ControlError> {
+        if !self.batched_inputs.dirty {
+            return Ok(None);
+        }
+
+        if self.batched_inputs.last_send + BATCH_INTERVAL_MS <= self.last_now {
+            self.send_batched_inputs_now()?;
+        }
+
+        Ok(Some(self.batched_inputs.last_send + BATCH_INTERVAL_MS))
     }
 
     /// Returns the time when the next ping must be sent

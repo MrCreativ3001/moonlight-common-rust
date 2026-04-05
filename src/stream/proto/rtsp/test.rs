@@ -292,16 +292,13 @@ fn rtsp_send_receive() {
 
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
-    rtsp.send(request);
+    rtsp.send(request).unwrap();
     assert_eq!(
         rtsp.poll_output().unwrap(),
         RtspOutput::Connect {
             addr: SocketAddrV4::new(Ipv4Addr::new(192, 168, 178, 140), 48010).into(),
         }
     );
-    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
-
-    rtsp.handle_input(RtspInput::Connect).unwrap();
     assert_eq!(
         rtsp.poll_output().unwrap(),
         RtspOutput::Write {
@@ -314,7 +311,142 @@ fn rtsp_send_receive() {
         .unwrap();
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
-    rtsp.handle_input(RtspInput::Disconnect).unwrap();
-    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Response(response));
+    rtsp.handle_input(RtspInput::Disconnected).unwrap();
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Response {
+            response: Some(response)
+        }
+    );
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 }
+
+#[test]
+fn rtsp_send_no_response_with_receive() {
+    let mut rtsp = RtspClient::new_unencrypted(RtspClientConfig {
+        target: "rtsp://192.168.178.140:48010".parse().unwrap(),
+        client_version: 14,
+        aes_key: None,
+    });
+
+    let request = RtspRequest {
+        message: RtspRequestMessage {
+            command: RtspCommand::Announce,
+            target: "rtsp://192.168.178.140:48010".to_string(),
+            protocol: RtspProtocol::V1_0,
+        },
+        options: vec![
+            ("Test".to_string(), "1".to_string()),
+            ("Test2".to_string(), "2".to_string()),
+        ],
+        payload: Some("Some Value".to_string()),
+    };
+
+    let response = RtspResponse {
+        message: RtspResponseMessage {
+            protocol: RtspProtocol::V1_0,
+            status_code: 200,
+            status_message: "Ok".to_string(),
+        },
+        options: vec![("CSeq".to_string(), "1".to_string())],
+        payload: Some("Test".to_string()),
+    };
+
+    let mut full_request = request.clone();
+    full_request
+        .options
+        .push(("CSeq".to_string(), "1".to_string()));
+    full_request
+        .options
+        .push(("X-GS-ClientVersion".to_string(), "14".to_string()));
+    full_request
+        .options
+        .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
+
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+
+    rtsp.send_no_response(request).unwrap();
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Connect {
+            addr: SocketAddrV4::new(Ipv4Addr::new(192, 168, 178, 140), 48010).into(),
+        }
+    );
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Write {
+            data: full_request.to_string().into_bytes()
+        }
+    );
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+
+    rtsp.handle_input(RtspInput::Receive(&response.to_string().into_bytes()))
+        .unwrap();
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+
+    rtsp.handle_input(RtspInput::Disconnected).unwrap();
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Response { response: None }
+    );
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+}
+
+#[test]
+fn rtsp_send_no_response_instant_disconnect() {
+    let mut rtsp = RtspClient::new_unencrypted(RtspClientConfig {
+        target: "rtsp://192.168.178.140:48010".parse().unwrap(),
+        client_version: 14,
+        aes_key: None,
+    });
+
+    let request = RtspRequest {
+        message: RtspRequestMessage {
+            command: RtspCommand::Announce,
+            target: "rtsp://192.168.178.140:48010".to_string(),
+            protocol: RtspProtocol::V1_0,
+        },
+        options: vec![
+            ("Test".to_string(), "1".to_string()),
+            ("Test2".to_string(), "2".to_string()),
+        ],
+        payload: Some("Some Value".to_string()),
+    };
+
+    let mut full_request = request.clone();
+    full_request
+        .options
+        .push(("CSeq".to_string(), "1".to_string()));
+    full_request
+        .options
+        .push(("X-GS-ClientVersion".to_string(), "14".to_string()));
+    full_request
+        .options
+        .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
+
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+
+    rtsp.send_no_response(request).unwrap();
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Connect {
+            addr: SocketAddrV4::new(Ipv4Addr::new(192, 168, 178, 140), 48010).into(),
+        }
+    );
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Write {
+            data: full_request.to_string().into_bytes()
+        }
+    );
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+
+    rtsp.handle_input(RtspInput::Disconnected).unwrap();
+    assert_eq!(
+        rtsp.poll_output().unwrap(),
+        RtspOutput::Response { response: None }
+    );
+    assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
+}
+
+// TODO: rtsp client encrypted?

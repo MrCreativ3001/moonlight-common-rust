@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{Level, debug, debug_span, instrument, trace, warn};
+use tracing::{Level, debug, debug_span, instrument, trace, trace_span, warn};
 
 use crate::{
     ServerVersion,
@@ -320,7 +320,7 @@ impl VideoDepayloader {
         }
 
         // -- Interpret frame
-        let parse_frame_span = debug_span!("parse_frame");
+        let parse_frame_span = trace_span!("parse_frame");
 
         let frame =
             self.interpret_current_frame(frame_index, timestamp, total_data_shards * payload_size);

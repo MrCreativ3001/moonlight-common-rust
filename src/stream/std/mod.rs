@@ -4,14 +4,14 @@ use std::{
     net::{SocketAddr, TcpStream, UdpSocket},
     sync::{
         Arc,
-        mpsc::{Receiver, RecvTimeoutError, Sender, channel},
+        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel},
     },
     thread::spawn,
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tracing::{Level, Span, info, info_span, instrument};
+use tracing::{Level, Span, info, info_span, instrument, trace};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -24,10 +24,10 @@ use crate::{
             MoonlightStreamProto, MoonlightStreamProtoError,
             audio::{AudioStream, AudioStreamInput, AudioStreamOutput},
             control::{
-                ControlMessage, ControlStream, ControlStreamEvent, ControlStreamInput,
-                ControlStreamOutput,
+                ClientInputEvent, ControlMessage, ControlStream, ControlStreamEvent,
+                ControlStreamInput, ControlStreamOutput,
                 packet::ControlPacket,
-                peer::{ControlHostAction, ControlHostInput},
+                peer::{ControlError, ControlHostAction, ControlHostInput},
             },
             crypto::CryptoBackend,
             video::{VideoStream, VideoStreamInput, VideoStreamOutput},
@@ -49,7 +49,9 @@ pub enum MoonlightStreamError {
     Proto(#[from] MoonlightStreamProtoError),
 }
 
-pub struct MoonlightStream {}
+pub struct MoonlightStream {
+    control_stream_sender: Sender<Input>,
+}
 
 impl MoonlightStream {
     pub fn launch_query_parameters() -> &'static str {
@@ -68,11 +70,16 @@ impl MoonlightStream {
         Crypto: CryptoBackend + Clone + 'static,
         Crypto::Error: Error + 'static,
     {
+        // TODO: this should block until it's connected!
+
         let span = info_span!("stream");
         let span2 = span.clone();
         let _enter = span2.enter();
 
         let proto = MoonlightStreamProto::new(Instant::now(), config, settings, crypto_backend)?;
+
+        let (control_stream_sender, control_stream_receiver) = channel();
+        let control_stream_sender2 = control_stream_sender.clone();
 
         let (sender, receiver) = channel();
 
@@ -83,6 +90,7 @@ impl MoonlightStream {
 
             proto_thread(
                 proto,
+                (control_stream_sender2, control_stream_receiver),
                 sender,
                 receiver,
                 send_udp,
@@ -92,7 +100,20 @@ impl MoonlightStream {
             );
         });
 
-        Ok(Self {})
+        Ok(Self {
+            control_stream_sender,
+        })
+    }
+
+    pub fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
+        trace!(input = ?input, "received input from application");
+
+        // TODO: how do i handle the error in here?
+        self.control_stream_sender
+            .send(Input::ControlInput { input })
+            .unwrap();
+
+        Ok(())
     }
 
     pub fn stop(self) {
@@ -114,6 +135,9 @@ enum Input {
     },
     ControlMessage {
         message: ControlMessage,
+    },
+    ControlInput {
+        input: ClientInputEvent,
     },
 }
 
@@ -245,6 +269,7 @@ fn tcp_receive_thread(stream: Arc<TcpStream>, mut sender: Sender<Input>) {
 #[instrument(level = Level::DEBUG, skip_all)]
 fn proto_thread<Crypto>(
     mut proto: MoonlightStreamProto<Crypto>,
+    control_stream: (Sender<Input>, Receiver<Input>),
     sender: Sender<Input>,
     receiver: Receiver<Input>,
     send_udp: Sender<(SocketAddr, Vec<u8>)>,
@@ -257,7 +282,7 @@ fn proto_thread<Crypto>(
     Crypto::Error: Error + 'static,
 {
     let mut send_tcp = None;
-    let (send_control_message, receive_control_message) = channel();
+    let (send_control_message, receive_control_message) = control_stream;
 
     let mut audio_decoder = Some(audio_decoder);
     let mut video_decoder = Some(video_decoder);
@@ -385,9 +410,7 @@ fn proto_thread<Crypto>(
 
         match input {
             Input::TcpConnect(time) => {
-                proto
-                    .handle_input(MoonlightStreamInput::TcpConnect(time))
-                    .unwrap();
+                // TODO. do i need this?
             }
             Input::TcpReceive { now, data } => {
                 proto
@@ -396,7 +419,7 @@ fn proto_thread<Crypto>(
             }
             Input::TcpDisconnect(time) => {
                 proto
-                    .handle_input(MoonlightStreamInput::TcpDisconnect(time))
+                    .handle_input(MoonlightStreamInput::TcpDisconnected(time))
                     .unwrap();
             }
             Input::UdpReceive { now, source, data } => {
@@ -408,7 +431,7 @@ fn proto_thread<Crypto>(
                     })
                     .unwrap();
             }
-            Input::ControlMessage { .. } => unreachable!(),
+            _ => unreachable!(),
         }
     }
 }
@@ -645,17 +668,21 @@ fn control_thread<Crypto>(
             ControlStreamOutput::Action(ControlHostAction::Timeout(timeout)) => timeout,
         };
 
-        let Some(duration) = timeout.checked_duration_since(Instant::now()) else {
-            control_stream
-                .handle_input(ControlStreamInput::Host(ControlHostInput::Timeout(
-                    Instant::now(),
-                )))
-                .unwrap();
-            continue;
+        let received_input = match timeout.checked_duration_since(Instant::now()) {
+            None => receiver.try_recv().map_err(|err| match err {
+                TryRecvError::Disconnected => RecvTimeoutError::Disconnected,
+                TryRecvError::Empty => RecvTimeoutError::Timeout,
+            }),
+            Some(timeout) => receiver.recv_timeout(timeout),
         };
 
-        match receiver.recv_timeout(duration) {
+        match received_input {
             Ok(input) => match input {
+                Input::ControlInput { input } => {
+                    trace!(input = ?input, "control stream thread received input from another thread");
+
+                    control_stream.batch_input(input).unwrap();
+                }
                 Input::ControlMessage { message } => {
                     control_stream
                         .handle_input(ControlStreamInput::Message {

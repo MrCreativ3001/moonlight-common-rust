@@ -11,6 +11,7 @@ use moonlight_common::{
         audio::AudioConfig,
         control::ActiveGamepads,
         debug::DebugListener,
+        proto::control::ClientInputEvent,
         std::MoonlightStream,
         video::{ColorRange, ColorSpace, SupportedVideoFormats},
     },
@@ -128,7 +129,27 @@ fn main() {
     )
     .unwrap();
 
-    // TODO
+    // Wait for connecting
+    sleep(Duration::from_secs(5));
+
+    // Move the cursor from the left side to the right side of the screen
+    for i in 0..100 {
+        // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
+        // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/80
+        // However this is just a simple example so we don't care
+        stream
+            .send_input(ClientInputEvent::MouseMoveAbsolute {
+                x: i,
+                y: 50,
+                reference_width: 100,
+                reference_height: 100,
+            })
+            .unwrap();
+
+        sleep(Duration::from_secs(5) / 100);
+    }
+
+    // Wait some time to stop the stream
     sleep(Duration::from_secs(1000));
 
     // Stop the stream: this will block
