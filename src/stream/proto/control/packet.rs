@@ -744,7 +744,7 @@ pub enum ControlPacket {
         action: KeyAction,
         flags: KeyFlags,
         key_code: KeyCode,
-        modifier: KeyModifiers,
+        modifiers: KeyModifiers,
         zero: i16,
     },
     /// Sends utf8 encoded text to the host.
@@ -1365,7 +1365,7 @@ impl ControlPacket {
                 action,
                 flags,
                 key_code,
-                modifier,
+                modifiers,
                 zero,
             } => {
                 // Ty
@@ -1390,7 +1390,7 @@ impl ControlPacket {
                 // Data
                 buffer[12..13].copy_from_slice(&[flags.bits() as u8]);
                 buffer[13..15].copy_from_slice(&key_code.0.to_le_bytes());
-                buffer[15..16].copy_from_slice(&[modifier.bits() as u8]);
+                buffer[15..16].copy_from_slice(&[modifiers.bits() as u8]);
                 buffer[16..18].copy_from_slice(&zero.to_le_bytes());
 
                 Ok(4 + content_len as usize)
@@ -1975,14 +1975,14 @@ impl ControlPacket {
 
                             let flags = KeyFlags::from_bits_retain(payload[12] as i8);
                             let key_code = KeyCode(i16::from_le_bytes([payload[13], payload[14]]));
-                            let modifier = KeyModifiers::from_bits_retain(payload[15] as i8);
+                            let modifiers = KeyModifiers::from_bits_retain(payload[15] as i8);
                             let zero = i16::from_le_bytes([payload[16], payload[17]]);
 
                             Some(ControlPacket::Keyboard {
                                 action,
                                 flags,
                                 key_code,
-                                modifier,
+                                modifiers,
                                 zero,
                             })
                         }

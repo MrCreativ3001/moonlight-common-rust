@@ -476,7 +476,7 @@ fn keyboard() {
             action: KeyAction::Down,
             flags: KeyFlags::empty(),
             key_code: KeyCode(0x41),
-            modifier: KeyModifiers::CTRL,
+            modifiers: KeyModifiers::CTRL,
             zero: 0,
         },
         &[
@@ -498,7 +498,7 @@ fn keyboard() {
             action: KeyAction::Up,
             flags: KeyFlags::SUNSHINE_NON_NORMALIZED,
             key_code: KeyCode(0x41),
-            modifier: KeyModifiers::SHIFT,
+            modifiers: KeyModifiers::SHIFT,
             zero: 0,
         },
         &[

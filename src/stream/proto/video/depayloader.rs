@@ -161,8 +161,8 @@ impl VideoDepayloader {
         }
     }
 
-    /// This will skip to the next constructable frame that can be produced.
-    pub fn try_skip_frames(&mut self) -> Result<(), VideoQueueError> {
+    /// This will discard the current frame
+    pub fn discard_current_frame(&mut self) -> Result<(), VideoQueueError> {
         todo!()
     }
 
@@ -197,6 +197,7 @@ impl VideoDepayloader {
         }
     }
 
+    // TODO: maybe replace this and the handle_packet fn by a function that'll do both: take a packet and return the state change?
     pub fn poll_output(&mut self) -> Result<VideoDepayloaderOutput, VideoQueueError> {
         let mut output = VideoDepayloaderOutput::None;
 
