@@ -23,6 +23,7 @@ use crate::{
             control::{
                 ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
                 ControlStreamOutput,
+                packet::ControlPacket,
                 peer::{ControlError, ControlHostAction, ControlHostInput},
             },
             crypto::CryptoBackend,
@@ -165,14 +166,14 @@ impl MoonlightStream {
                 error!(error = ?err, "failed to start moonlight stream");
                 info!("cleaning up all threads");
 
-                // stop, wait, then error
+                // stop, wait all threads, then error
                 stop.stop();
 
                 threads.try_join_all(|err| {
                     warn!(error = ?err, "error whilst joining thread");
                 });
 
-                todo!();
+                return Err(err);
             }
         };
 
@@ -204,8 +205,8 @@ impl MoonlightStream {
         let mut recv_buffer = vec![0; 2048];
 
         let mut audio_decoder = Some(audio_decoder);
-
         let mut video_decoder = Some(video_decoder);
+        let mut connection_listener = Some(connection_listener);
 
         let shared_inner = Arc::new(SharedInner {
             control_notify: Condvar::new(),
@@ -323,6 +324,9 @@ impl MoonlightStream {
                         info_span!("control_stream_sender"),
                         stop.clone(),
                         socket.clone(),
+                        connection_listener
+                            .take()
+                            .expect("connection listener was already taken"),
                         shared_inner.clone(),
                     ));
 
@@ -705,7 +709,24 @@ where
                     continue;
                 }
                 VideoStreamOutput::SendControlMessage { message } => {
-                    // TODO: handle this
+                    // grab the control stream and send a packet
+
+                    let mut control_stream = shared_inner
+                        .control_stream
+                        .lock()
+                        .expect("failed to get lock on ControlStream");
+                    let control_stream = control_stream
+                        .as_mut()
+                        .expect("failed to get ControlStream");
+
+                    if let Err(err) = control_stream.handle_input(ControlStreamInput::Message {
+                        now: Instant::now(),
+                        message,
+                    }) {
+                        handle_error(&stop, err.into());
+                        break;
+                    }
+
                     continue;
                 }
                 VideoStreamOutput::Timeout(timeout) => timeout,
@@ -747,6 +768,7 @@ fn control_thread_sender(
     span: Span,
     stop: StopSignal,
     socket: Arc<UdpSocket>,
+    mut connection_listener: impl ConnectionListener + Send + 'static,
     shared_inner: Arc<SharedInner>,
 ) -> JoinHandle<()> {
     spawn(move || {
@@ -834,7 +856,15 @@ fn control_thread_sender(
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Packet(packet)) => {
-                        // TODO: handle packet
+                        match packet {
+                            ControlPacket::HdrMode { enabled, sunshine } => {
+                                connection_listener.set_hdr_mode(enabled, sunshine);
+                            }
+                            // TODO: add other host->client packets
+                            _ => {
+                                debug!(packet = ?packet, "received unrecognized packet by std implementation")
+                            }
+                        }
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Disconnect) => {
