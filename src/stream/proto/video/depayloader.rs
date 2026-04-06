@@ -7,11 +7,15 @@ use tracing::{Level, debug, debug_span, instrument, trace, trace_span, warn};
 use crate::{
     ServerVersion,
     stream::{
-        proto::video::{
-            nal::{h264, h265},
-            packet::{
-                FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION,
-                VideoFrameHeader, VideoHeader, VideoHeaderFlags, fec_percentage_to_parity_shards,
+        proto::{
+            fec::ArrayShard,
+            video::{
+                nal::{h264, h265},
+                packet::{
+                    FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
+                    VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
+                    fec_percentage_to_parity_shards,
+                },
             },
         },
         video::{BufferType, SupportedVideoFormats, VideoFormat, VideoFrameBuffer},
@@ -161,9 +165,13 @@ impl VideoDepayloader {
         }
     }
 
-    /// This will discard the current frame
-    pub fn discard_current_frame(&mut self) -> Result<(), VideoQueueError> {
-        todo!()
+    /// This will discard the frame
+    pub fn discard_frame(&mut self, frame_index: u32) -> Result<(), VideoQueueError> {
+        if self.current_frame_index >= frame_index {
+            self.current_frame_index = frame_index;
+        }
+
+        Ok(())
     }
 
     pub fn status(&self) -> VideoDepayloaderStatus {
@@ -231,11 +239,12 @@ impl VideoDepayloader {
             return Ok(None);
         }
 
-        // Grab data from packets
+        // -- Grab data from packets
         let total_data_shards = packets[0].fec_total_data_shards as usize;
         let fec_percentage = packets[0].fec_percentage;
         let total_parity_shards =
             fec_percentage_to_parity_shards(total_data_shards, fec_percentage as usize);
+        let total_shards = total_data_shards + total_parity_shards;
         let timestamp = packets[0].timestamp;
 
         // Size of the payload of each packet. We checked the size in the handle_packet fn, so this cannot be different
@@ -255,70 +264,50 @@ impl VideoDepayloader {
             }
         }
 
+        // -- Check if a frame can be produced
         if packets.len() < total_data_shards {
             // We currently cannot produce a frame
             return Ok(None);
         }
 
-        // -- Load all data shards into the current frame buffer and keep track of them
-        let mut parity_shards_count = 0;
-        let mut data_shards_count = 0;
-        let mut data_shards = [false; MAX_VIDEO_SHARDS_PER_FEC_BLOCK];
-
-        // Make sure the frame buffer is big enough
+        // -- Create a shard index to packet quick access
+        self.current_frame_buffer.clear();
         self.current_frame_buffer
-            .resize(total_data_shards * payload_size, 0);
+            .resize(total_shards * payload_size, 0);
 
+        let mut quick_shard_to_packet = [None; MAX_VIDEO_SHARDS_PER_FEC_BLOCK];
         for packet in packets.iter() {
-            if packet.fec_shard_index >= total_data_shards as u32 {
-                // this is a fec shard -> we don't need them inside the frame
-                parity_shards_count += 1;
-                continue;
-            }
-
-            let index_start = packet.fec_shard_index as usize * payload_size;
-            let index_end = (packet.fec_shard_index as usize + 1) * payload_size;
-
-            self.current_frame_buffer[index_start..index_end].copy_from_slice(&packet.data);
-
-            data_shards_count += 1;
-            data_shards[packet.fec_shard_index as usize] = true;
+            quick_shard_to_packet[packet.fec_shard_index as usize] = Some(packet);
         }
 
-        // -- Build all shards, if there are parity shards
-        if parity_shards_count > 0 {
-            // TODO: use from_fn when stabilized
-            let mut shards = Vec::with_capacity(total_data_shards + total_parity_shards);
-            for _ in 0..(data_shards_count + total_parity_shards) {}
+        // -- Reconstruct all data using previously generated quick access
+        // TODO: avoid heap alloc?
+        let mut shards = Vec::with_capacity(MAX_VIDEO_SHARDS_PER_FEC_BLOCK);
+        for (shard_index, shard_buffer) in self
+            .current_frame_buffer
+            .chunks_exact_mut(payload_size)
+            .enumerate()
+        {
+            if let Some(packet) = &quick_shard_to_packet[shard_index] {
+                // Shard is present -> copy data from shard, mark as present in len field
+                shard_buffer.copy_from_slice(&packet.data);
 
-            // Insert all data shards
-            for (shard_exists, chunk) in data_shards
-                .iter()
-                .zip(self.current_frame_buffer.chunks_mut(payload_size))
-                .take(total_data_shards)
-            {
-                shards.push((chunk, *shard_exists));
+                shards.push(ArrayShard {
+                    len: Some(payload_size),
+                    array: shard_buffer,
+                });
+            } else {
+                // Shard is absent -> mark as absent in len field
+                shards.push(ArrayShard {
+                    len: None,
+                    array: shard_buffer,
+                });
             }
-
-            // Insert all fec shards
-
-            for packet in packets {
-                // Only accept fec shards
-                if packet.fec_shard_index < total_data_shards as u32 {
-                    continue;
-                }
-
-                shards.resize_with(packet.fec_shard_index as usize, || (&mut [], false));
-                shards[packet.fec_shard_index as usize] = (&mut packet.data, true);
-            }
-
-            // -- Reconstruct
-            let reed_solomon = create_video_reed_solomon(total_data_shards, total_parity_shards);
-
-            // TODO: reconstruct
-            // reed_solomon.reconstruct_data(&mut shards).unwrap();
-            todo!()
         }
+
+        // -- Reconstruct data using all shards
+        let reed_solomon = ReedSolomon::new(total_data_shards, total_parity_shards).unwrap();
+        reed_solomon.reconstruct_data(&mut shards).unwrap();
 
         // -- Interpret frame
         let parse_frame_span = trace_span!("parse_frame");

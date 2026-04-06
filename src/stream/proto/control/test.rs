@@ -214,7 +214,7 @@ fn request_idr() {
     test_packet(
         PacketDirection::ServerBound,
         sunshine_gen_7_config(),
-        ControlPacket::RequestIdr,
+        ControlPacket::StartA,
         &[5, 3, 2, 0, 0, 0],
     );
 }

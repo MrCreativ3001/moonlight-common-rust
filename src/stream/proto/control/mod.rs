@@ -233,7 +233,7 @@ where
         )
         .unwrap();
 
-        let packets = ControlPacketConfig::new(config.server_version, false)
+        let packets = ControlPacketConfig::new(config.server_version, config.encryption.is_some())
             .ok_or(ControlError::VersionNotSupported(config.server_version))?;
 
         // All values that could lead to an error are controlled by us and won't cause errors

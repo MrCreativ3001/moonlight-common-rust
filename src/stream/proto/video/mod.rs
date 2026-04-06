@@ -19,7 +19,7 @@ use crate::stream::{
                 VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
                 VideoDepayloaderReport, VideoFrame,
             },
-            packet::EncryptedVideoHeader,
+            packet::{EncryptedVideoHeader, FrameType},
         },
     },
 };
@@ -63,6 +63,7 @@ pub enum VideoStreamOutput {
 #[derive(Debug, Clone)]
 pub struct VideoStreamConfig {
     pub queue: VideoDepayloaderConfig,
+    pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
     pub sunshine_encryption: Option<AesKey>,
 }
@@ -82,15 +83,12 @@ enum State {
 pub struct VideoStream<Crypto> {
     crypto_backend: Crypto,
     aes_key: Option<AesKey>,
+    frame_rate: u32,
     last_now: Instant,
     state: State,
-    queue: VideoDepayloader,
-    // Only on gfe v3
-    // I don't know who made this, but you just need to connect to a specific port via tcp and then instantly close the connection
-    // Interesting...
-    // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L362-L364
-    // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L266-L275
-    // first_frame_connect: FirstFrame,
+    depayloader: VideoDepayloader,
+    last_frame: Option<Instant>,
+    waiting_for_idr_since: Option<Instant>,
 }
 
 impl<Crypto> VideoStream<Crypto>
@@ -99,8 +97,11 @@ where
 {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: Crypto) -> Self {
+        let depayloader = VideoDepayloader::new(config.queue);
+
         Self {
             crypto_backend,
+            frame_rate: config.fps,
             aes_key: config.sunshine_encryption,
             state: State::SendPing {
                 last_send: None,
@@ -110,8 +111,17 @@ where
                 }),
             },
             last_now: now,
-            queue: VideoDepayloader::new(config.queue),
+            last_frame: None,
+            depayloader,
+            waiting_for_idr_since: Some(now),
         }
+    }
+
+    fn duration_until_frame_drop(&self) -> Option<Duration> {
+        self.last_frame.map(|last_frame| {
+            (Duration::from_secs_f32(1.0 / self.frame_rate as f32) + Duration::from_millis(10))
+                .saturating_sub(self.last_now.saturating_duration_since(last_frame))
+        })
     }
 
     pub fn poll_output(&mut self) -> Result<VideoStreamOutput, VideoStreamError> {
@@ -148,16 +158,63 @@ where
                 if let VideoDepayloaderOutput::Frame {
                     frame,
                     report: fec_report,
-                } = self.queue.poll_output().unwrap()
+                } = self.depayloader.poll_output().unwrap()
                 {
+                    if frame.frame_type == FrameType::Idr {
+                        debug!(now = ?self.last_now, "received idr");
+                        self.waiting_for_idr_since = None;
+                    } else if self.waiting_for_idr_since.is_some() {
+                        debug!(now = ?self.last_now, "dropping received frame because waiting for an idr");
+
+                        return Ok(VideoStreamOutput::Timeout(
+                            self.last_now + Duration::from_secs(1),
+                        ));
+                    }
+
                     self.state = State::SendFecReport { fec_report };
+                    self.last_frame = Some(self.last_now);
 
                     return Ok(VideoStreamOutput::VideoFrame(frame));
                 }
 
+                // Frame dropping logic
+                let duration_until_frame_drop = self.duration_until_frame_drop();
+                if let Some(duration_until_frame_drop) = duration_until_frame_drop
+                    && duration_until_frame_drop.is_zero()
+                {
+                    self.last_frame = Some(self.last_now);
+                    self.depayloader
+                        .discard_frame(self.depayloader.status().current_frame_index)
+                        .unwrap();
+
+                    if self.waiting_for_idr_since.is_none()
+                        || self
+                            .waiting_for_idr_since
+                            .is_some_and(|x| self.last_now - x > Duration::from_secs(1))
+                    {
+                        info!(
+                            now = ?self.last_now,
+                            last_frame = ?self.last_frame,
+                            depayloader_status = ?self.depayloader.status(),
+                            "requesting idr because frame took too long to receive"
+                        );
+
+                        // Request idr if we're not already waiting
+                        self.waiting_for_idr_since = Some(self.last_now);
+                        return Ok(VideoStreamOutput::SendControlMessage {
+                            message: ControlMessage(ControlMessageInner::SendPacket {
+                                packet: ControlPacket::RequestIdr,
+                                force: true,
+                            }),
+                        });
+                    }
+                }
+
                 Ok(VideoStreamOutput::Timeout(
                     // TODO: set video timeout and then do exit
-                    self.last_now + Duration::from_secs(1),
+                    duration_until_frame_drop
+                        .map(|x| self.last_now + x)
+                        .unwrap_or_else(|| self.last_now + Duration::from_secs(1)),
                 ))
             }
             State::SendFecReport { fec_report } => {
@@ -202,10 +259,16 @@ where
                 self.last_now = now;
 
                 if matches!(self.state, State::SendPing { .. }) {
-                    info!("received first video packet");
+                    info!(now = ?self.last_now, "received first video packet");
                 }
 
                 self.state = State::ReceiveVideo;
+
+                // TODO: remove this randomness, just for testing
+                if rand::random_bool(0.03) {
+                    info!("TESTING: dropping packet");
+                    return Ok(());
+                }
 
                 // TODO: move this into the depayloader
                 let data = if let Some(aes_key) = self.aes_key.as_ref() {
@@ -237,7 +300,7 @@ where
                     data.to_vec()
                 };
 
-                self.queue.handle_packet(&data).unwrap();
+                self.depayloader.handle_packet(&data).unwrap();
 
                 Ok(())
             }

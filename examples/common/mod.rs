@@ -28,9 +28,10 @@ pub fn init() {
     let video_directive: Directive = "moonlight_common::stream::proto::video::depayloader=debug"
         .parse()
         .unwrap();
-    let control_directive: Directive = "moonlight_common::stream::proto::control=trace"
+    let control_directive: Directive = "moonlight_common::stream::proto::control=debug"
         .parse()
         .unwrap();
+    let std: Directive = "moonlight_common::stream::std=debug".parse().unwrap();
 
     let venator = Venator::default();
 
@@ -40,10 +41,12 @@ pub fn init() {
         .with(fmt::layer())
         .with(
             EnvFilter::builder()
-                .with_default_directive(Level::INFO.into())
-                .from_env_lossy(), // .add_directive(audio_directive)
-                                   // .add_directive(video_directive)
-                                   // .add_directive(control_directive),
+                .with_default_directive(Level::TRACE.into())
+                .from_env_lossy()
+                .add_directive(audio_directive)
+                .add_directive(video_directive)
+                .add_directive(control_directive)
+                .add_directive(std),
         )
         .init();
 }

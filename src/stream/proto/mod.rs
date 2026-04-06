@@ -65,8 +65,10 @@ pub mod video;
 mod rtsp;
 mod sdp;
 
-mod enet;
 mod packet;
+
+mod enet;
+pub(crate) mod fec;
 
 // TODO: move all defaults ports to some better location
 pub const DEFAULT_RTSP_PORT: u16 = 48010;
@@ -415,6 +417,7 @@ where
                                         packet_size: sdp.client_sdp.packet_size.unwrap() as usize,
                                         format: sdp.video_format,
                                     },
+                                    fps: self.client_settings.fps,
                                     sunshine_ping: video_setup.sunshine_ping.clone(),
                                     sunshine_encryption: None, // TODO <--
                                 },

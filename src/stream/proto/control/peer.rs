@@ -235,7 +235,15 @@ where
         // Avoid spam from some packets
         if matches!(
             packet,
-            ControlPacket::PeriodicPing | ControlPacket::FrameFec { .. }
+            ControlPacket::PeriodicPing
+                | ControlPacket::FrameFec { .. }
+                | ControlPacket::MouseMoveAbsolute { .. }
+                | ControlPacket::MouseMoveRelative { .. }
+                | ControlPacket::MouseButton { .. }
+                | ControlPacket::MouseHorizontalScroll { .. }
+                | ControlPacket::MouseScroll { .. }
+                | ControlPacket::ControllerBattery { .. }
+                | ControlPacket::ControllerState { .. }
         ) {
             trace!(packet = ?packet, "sending packet");
         } else {
