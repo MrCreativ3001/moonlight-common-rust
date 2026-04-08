@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{Level, debug, debug_span, instrument, trace, trace_span, warn};
+use tracing::{Level, debug, instrument, trace, trace_span, warn};
 
 use crate::{
     ServerVersion,
@@ -26,7 +26,7 @@ use crate::{
 // TODO: what happens after frame loss: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/VideoDepacketizer.c#L1128-L1156
 
 #[derive(Debug, Error, Clone, PartialEq)]
-pub enum VideoQueueError {
+pub enum VideoDepayloaderError {
     #[error("a received video rtp packet doesn't have the configured packet size")]
     PacketInvalidSize,
 }
@@ -50,19 +50,41 @@ pub struct VideoDepayloaderConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoDepayloaderStatus {
     /// The number of the current frame.
-    pub current_frame_index: u32,
-    /// The received data packets in the [Self::current_block]
+    ///
+    /// If [None] it's currently searching for the next frame and will produce any frame without any order.
+    pub current_frame_index: Option<u32>,
+    /// The highest seen frame index.
+    pub highest_seen_frame_index: Option<u32>,
+}
+
+pub struct VideoDepayloaderFrameStatus {
+    /// The index of this frame.
+    pub frame_index: u32,
+    /// The timestamp of this frame, if it exists
+    pub timestamp: Duration,
+    /// The received data packets in the [Self::current_block_index]
     pub received_data_packets: usize,
-    /// The received parity packets in the [Self::current_block]
+    /// The received parity packets in the [Self::current_block_index]
     pub received_parity_packets: usize,
-    /// The total data packets in the [Self::current_block]
+    /// The total data packets in the [Self::current_block_index]
     /// None if it's still unknown how many data packets are in this block.
     pub total_data_packets: Option<usize>,
-    /// The current block in this [Self::current_frame_index]
-    pub current_block: usize,
-    /// The total blocks in this [Self::current_frame_index]
-    /// None if it's still unknown how many blocks are in this frame.
-    pub total_blocks: Option<usize>,
+    /// The current block in this [Self::frame_index]
+    pub current_block_index: usize,
+    /// The total blocks in this [Self::frame_index]
+    pub total_blocks: usize,
+}
+
+impl VideoDepayloaderFrameStatus {
+    /// If the frame is constructable by the [VideoDepayloader].
+    pub fn is_constructable(&self) -> bool {
+        let Some(total_data_packets) = self.total_data_packets else {
+            return false;
+        };
+
+        self.current_block_index >= self.total_blocks - 1
+            && self.received_data_packets + self.received_parity_packets >= total_data_packets - 1
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -95,33 +117,12 @@ pub struct VideoFrame {
 
 #[derive(Debug, PartialEq)]
 pub enum VideoDepayloaderOutput {
-    /// The video depayloader cannot produce data in it's current state.
-    /// Submit new data and poll again.
-    None,
     /// The video depayloader produced a frame.
     /// This also contains other information regarding the frame.
     ///
     /// See also:
     /// - moonlight loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
-    Frame {
-        frame: VideoFrame,
-        report: VideoDepayloaderReport,
-    },
-}
-
-#[derive(Debug, PartialEq)]
-pub struct VideoDepayloaderReport {
-    pub frame_index: u32,
-    pub highest_received_sequence_number: u16,
-    pub next_contiguous_sequence_number: u16,
-    pub missing_packets_before_highest_received: u16,
-    pub total_data_packets: u16,
-    pub total_parity_packets: u16,
-    pub received_data_packets: u16,
-    pub received_parity_packets: u16,
-    pub fec_percentage: u8,
-    pub multi_fec_block_index: u8,
-    pub multi_fec_block_count: u8,
+    Frame { frame: VideoFrame },
 }
 
 #[derive(Debug)]
@@ -139,7 +140,7 @@ pub struct VideoDepayloader {
     config: VideoDepayloaderConfig,
     // TODO: try to avoid copying data by directly putting the packets into the correct position in this buffer
     current_frame_buffer: Vec<u8>,
-    current_frame_index: u32,
+    current_frame_index: Option<u32>,
     packets: BTreeMap<u16, Packet>,
 }
 
@@ -159,28 +160,38 @@ impl VideoDepayloader {
         Self {
             config,
             current_frame_buffer: vec![],
-            // Frame Index Starts at 1!
-            current_frame_index: 1,
+            current_frame_index: None,
             packets: Default::default(),
         }
     }
 
-    /// This will discard the frame
-    pub fn discard_frame(&mut self, frame_index: u32) -> Result<(), VideoQueueError> {
-        if self.current_frame_index >= frame_index {
-            self.current_frame_index = frame_index;
-        }
+    /// Sets the state of this depayloader.
+    ///
+    /// # See also
+    /// - [Self::poll_output]
+    pub fn set_current_frame_index(
+        &mut self,
+        current_frame: Option<u32>,
+    ) -> Result<(), VideoDepayloaderError> {
+        self.current_frame_index = current_frame;
 
         Ok(())
     }
 
     pub fn status(&self) -> VideoDepayloaderStatus {
-        self.frame_status(self.current_frame_index)
+        let current_frame_index = self.current_frame_index;
+        let highest_seen_frame_index = self.packets.values().map(|x| x.frame_index).max();
+
+        VideoDepayloaderStatus {
+            current_frame_index,
+            highest_seen_frame_index,
+        }
     }
-    fn frame_status(&self, frame_index: u32) -> VideoDepayloaderStatus {
+    pub fn frame_status(&self, frame_index: u32) -> Option<VideoDepayloaderFrameStatus> {
         let mut received_data_packets = 0;
         let mut received_parity_packets = 0;
         let mut total_data_packets = None;
+        let mut timestamp = None;
 
         for (_, packet) in self
             .packets
@@ -193,32 +204,85 @@ impl VideoDepayloader {
                 received_parity_packets += 1;
             }
             total_data_packets = Some(packet.fec_total_data_shards as usize);
+
+            if timestamp.is_none() {
+                timestamp = Some(rtp_timestamp_to_duration(packet.timestamp));
+            }
+
+            #[cfg(debug_assertions)]
+            if let Some(timestamp) = timestamp {
+                debug_assert_eq!(
+                    timestamp,
+                    rtp_timestamp_to_duration(packet.timestamp),
+                    "all packets of a single video frame must have the same timestamp!"
+                );
+            }
         }
 
-        VideoDepayloaderStatus {
-            current_frame_index: frame_index,
+        Some(VideoDepayloaderFrameStatus {
+            frame_index,
+            timestamp: timestamp?,
             received_data_packets,
             received_parity_packets,
             total_data_packets,
-            current_block: 0,
-            total_blocks: total_data_packets.map(|_| 1),
-        }
+            current_block_index: 0,
+            total_blocks: 1,
+        })
     }
 
-    // TODO: maybe replace this and the handle_packet fn by a function that'll do both: take a packet and return the state change?
-    pub fn poll_output(&mut self) -> Result<VideoDepayloaderOutput, VideoQueueError> {
-        let mut output = VideoDepayloaderOutput::None;
+    /// If [VideoDepayloaderStatus::current_frame_index] is:
+    /// - Present: It'll try to construct the [current_frame_index](VideoDepayloader::current_frame_index) and increment this value automatically on a produced frame.
+    /// - Absent: It'll try to construct any constructable frames in an ascending order. This doesn't mean that frames will be produced in this order (e.g. late frame arrival).
+    ///
+    /// The depayloader itself won't set it's state.
+    /// Use the [set_current_frame_index](Self::set_current_frame_index) function with [Some] to set the depayloader to a synced state to let it produce frames in order.
+    pub fn poll_output(&mut self) -> Result<Option<VideoFrame>, VideoDepayloaderError> {
+        let mut output = None;
 
-        // Check if we can construct a frame
-        if let Some((frame, report)) = self.try_construct_fec_block(self.current_frame_index)? {
-            output = VideoDepayloaderOutput::Frame { frame, report };
+        // TODO: more aggressively remove packets that are likely not being used, especially when unsynced
 
-            self.current_frame_index += 1;
+        // -- Check if we can construct a frame
+        if let Some(current_frame_index) = self.current_frame_index {
+            // If synced try to construct the next frame
+            if let Some(frame) = self.try_construct_fec_block(current_frame_index)? {
+                output = Some(frame);
+
+                #[allow(clippy::unwrap_used)]
+                let current_frame_index = self.current_frame_index.as_mut().unwrap();
+                *current_frame_index += 1;
+            }
+        } else {
+            // If not synced try to produce any frame
+            let known_frames = self.packets.values().fold(Vec::new(), |mut value, packet| {
+                if !value.contains(&packet.frame_index) {
+                    value.push(packet.frame_index);
+                }
+                value
+            });
+
+            // All frames should be sorted because the sequence number and frame_index are both ascending, but at a different rate
+            debug_assert!(
+                known_frames.is_sorted(),
+                "All frames should be sorted because the sequence number and frame_index are both ascending, but at a different rate"
+            );
+
+            for frame_index in known_frames {
+                if let Some(frame) = self.try_construct_fec_block(frame_index)? {
+                    output = Some(frame);
+
+                    // remove frame from packets, the current frame is in the buffer
+                    self.packets
+                        .retain(|_, packet| packet.frame_index != frame_index);
+                    break;
+                }
+            }
         }
 
-        // Clear all old data
-        self.packets
-            .retain(|_, packet| packet.frame_index >= self.current_frame_index);
+        // -- Clear all old data
+        if let Some(current_frame_index) = self.current_frame_index {
+            self.packets
+                .retain(|_, packet| packet.frame_index >= current_frame_index);
+        }
 
         Ok(output)
     }
@@ -226,7 +290,7 @@ impl VideoDepayloader {
     fn try_construct_fec_block(
         &mut self,
         frame_index: u32,
-    ) -> Result<Option<(VideoFrame, VideoDepayloaderReport)>, VideoQueueError> {
+    ) -> Result<Option<VideoFrame>, VideoDepayloaderError> {
         // TODO: handle one frame in multiple fec blocks?
 
         let packets = self
@@ -317,88 +381,7 @@ impl VideoDepayloader {
 
         drop(parse_frame_span);
 
-        // -- Create fec report
-
-        let frame_packets: Vec<(&u16, &Packet)> = self
-            .packets
-            .iter()
-            .filter(|(_, p)| p.frame_index == self.current_frame_index)
-            .collect();
-
-        let highest_received_sequence_number = *frame_packets.last().unwrap().0;
-
-        let mut next_contiguous_sequence_number = 0u16;
-        let mut missing_packets_before_highest_received = 0u16;
-
-        let mut expected = *frame_packets.first().unwrap().0;
-        let mut found_gap = false;
-
-        for (seq, _) in &frame_packets {
-            if **seq != expected {
-                if !found_gap {
-                    next_contiguous_sequence_number = expected;
-                    found_gap = true;
-                }
-
-                missing_packets_before_highest_received += seq.wrapping_sub(expected);
-                expected = **seq;
-            }
-
-            expected = expected.wrapping_add(1);
-        }
-
-        if !found_gap {
-            next_contiguous_sequence_number = expected;
-        }
-
-        // shard stats
-
-        let mut total_data_packets = 0u16;
-        let mut total_parity_packets = 0u16;
-        let mut received_data_packets = 0u16;
-        let mut received_parity_packets = 0u16;
-        let mut fec_percentage = 0u8;
-
-        if let Some((_, first_packet)) = frame_packets.first() {
-            let data_shards = first_packet.fec_total_data_shards as u16;
-            let parity_shards = fec_percentage_to_parity_shards(
-                data_shards as usize,
-                first_packet.fec_percentage as usize,
-            ) as u16;
-
-            total_data_packets = data_shards;
-            total_parity_packets = parity_shards;
-            fec_percentage = first_packet.fec_percentage as u8;
-
-            for (_, p) in &frame_packets {
-                if p.fec_shard_index < p.fec_total_data_shards {
-                    received_data_packets += 1;
-                } else {
-                    received_parity_packets += 1;
-                }
-            }
-        }
-
-        // multi block (not implemented yet)
-
-        let multi_fec_block_index = 0;
-        let multi_fec_block_count = 1;
-
-        let report = VideoDepayloaderReport {
-            frame_index,
-            highest_received_sequence_number,
-            next_contiguous_sequence_number,
-            missing_packets_before_highest_received,
-            total_data_packets,
-            total_parity_packets,
-            received_data_packets,
-            received_parity_packets,
-            fec_percentage,
-            multi_fec_block_index,
-            multi_fec_block_count,
-        };
-
-        Ok(Some((frame, report)))
+        Ok(Some(frame))
     }
 
     /// Interprets the [Self::current_frame_buffer] and returns a VideoFrame
@@ -630,7 +613,7 @@ impl VideoDepayloader {
         }
     }
 
-    pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoQueueError> {
+    pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoDepayloaderError> {
         // Wolf impl: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L234-L268
 
         // TODO: for encrypted packets we should first verify the packet and then do any errors
@@ -640,7 +623,7 @@ impl VideoDepayloader {
                 expected_len = self.config.packet_size,
                 "received packet with invalid size"
             );
-            return Err(VideoQueueError::PacketInvalidSize);
+            return Err(VideoDepayloaderError::PacketInvalidSize);
         }
 
         #[allow(clippy::unwrap_used)]
@@ -657,7 +640,9 @@ impl VideoDepayloader {
                 .unwrap(),
         );
 
-        if video_header.frame_index < self.current_frame_index {
+        if let Some(current_frame_index) = self.current_frame_index
+            && video_header.frame_index < current_frame_index
+        {
             // Drop this packet because we already skipped it
             return Ok(());
         }

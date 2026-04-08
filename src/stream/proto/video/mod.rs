@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt::{self, Debug, Formatter},
     time::{Duration, Instant},
 };
@@ -16,8 +17,8 @@ use crate::stream::{
         rtsp::moonlight::SunshinePing,
         video::{
             depayloader::{
-                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
-                VideoDepayloaderReport, VideoFrame,
+                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError,
+                VideoDepayloaderOutput, VideoFrame,
             },
             packet::{EncryptedVideoHeader, FrameType},
         },
@@ -35,8 +36,17 @@ mod test;
 
 const PING_RETRY: Duration = Duration::from_millis(500);
 
+/// The time window a frame has for all packets to be received
+const FULL_FRAME_RECEIVE_TIMEOUT: Duration = Duration::from_millis(100);
+/// A final timeout that is used when nothing happened
+const STALL_TIMEOUT: Duration = Duration::from_millis(2000);
+/// The time between each idr request
+const IDR_REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+
 #[derive(Debug, Error)]
 pub enum VideoStreamError {
+    #[error("depayloader: {0}")]
+    Depayloader(#[from] VideoDepayloaderError),
     #[error("crypto: {0}")]
     Crypto(#[from] CryptoError),
 }
@@ -74,20 +84,18 @@ enum State {
         sunshine_ping: Option<SunshinePingPacket>,
     },
     ReceiveVideo,
-    SendFecReport {
-        fec_report: VideoDepayloaderReport,
-    },
 }
 
 // TODO: maybe rename this into video stream proto?
 pub struct VideoStream<Crypto> {
     crypto_backend: Crypto,
     aes_key: Option<AesKey>,
-    frame_rate: u32,
     last_now: Instant,
     state: State,
     depayloader: VideoDepayloader,
-    last_frame: Option<Instant>,
+    first_frame: Option<Instant>,
+    last_frame: Instant,
+    frames_first_seen: HashMap<u32, Instant>,
     waiting_for_idr_since: Option<Instant>,
 }
 
@@ -101,7 +109,6 @@ where
 
         Self {
             crypto_backend,
-            frame_rate: config.fps,
             aes_key: config.sunshine_encryption,
             state: State::SendPing {
                 last_send: None,
@@ -111,17 +118,87 @@ where
                 }),
             },
             last_now: now,
-            last_frame: None,
+            first_frame: None,
+            frames_first_seen: Default::default(),
             depayloader,
+            last_frame: now,
             waiting_for_idr_since: Some(now),
         }
     }
 
-    fn duration_until_frame_drop(&self) -> Option<Duration> {
-        self.last_frame.map(|last_frame| {
-            (Duration::from_secs_f32(1.0 / self.frame_rate as f32) + Duration::from_millis(10))
-                .saturating_sub(self.last_now.saturating_duration_since(last_frame))
-        })
+    fn do_request_idr(&mut self) -> Result<Option<VideoStreamOutput>, VideoStreamError> {
+        // request an idr if needed
+        let timeout = self.wait_until_idr();
+
+        let mut request_idr = false;
+
+        if timeout.is_zero() {
+            if let Some(last_idr_request) = self.waiting_for_idr_since {
+                if self.last_now - last_idr_request >= IDR_REQUEST_TIMEOUT {
+                    request_idr = true;
+                }
+            } else {
+                request_idr = true;
+            }
+        }
+
+        if request_idr {
+            self.waiting_for_idr_since = Some(self.last_now);
+
+            info!(time_until_idr = ?timeout, now = ?self.last_now, waiting_for_idr_since = ?self.waiting_for_idr_since, "requesting idr and unsyncing depayloader");
+
+            self.depayloader.set_current_frame_index(None)?;
+
+            return Ok(Some(VideoStreamOutput::SendControlMessage {
+                message: ControlMessage(ControlMessageInner::SendPacket {
+                    packet: ControlPacket::RequestIdr,
+                    force: true,
+                }),
+            }));
+        }
+
+        Ok(Some(VideoStreamOutput::Timeout(self.last_now + timeout)))
+    }
+    fn wait_until_idr(&self) -> Duration {
+        let status = self.depayloader.status();
+
+        let current = match status.current_frame_index {
+            Some(current) => current,
+            None => return Duration::ZERO,
+        };
+
+        let highest = status.highest_seen_frame_index.unwrap_or(0);
+
+        let frame = self.depayloader.frame_status(current);
+
+        let current_frame_first_seen = self.frames_first_seen.get(&current);
+
+        // Default when we're stuck
+        let mut timeout = STALL_TIMEOUT.saturating_sub(self.last_now - self.last_frame);
+
+        // After which time the frame can be seen as lost based on current time
+        let current_frame_until_dropped =
+            current_frame_first_seen.map(|current_frame_first_seen| {
+                FULL_FRAME_RECEIVE_TIMEOUT.saturating_sub(self.last_now - *current_frame_first_seen)
+            });
+
+        // likely skipped frame
+        if highest > current
+            && let Some(current_frame_dropped) = current_frame_until_dropped
+        {
+            timeout = timeout.min(current_frame_dropped);
+        }
+
+        // incomplete frame
+        if let Some(frame) = frame
+            && let Some(total) = frame.total_data_packets
+            && frame.received_data_packets < total
+            && let Some(current_frame_until_dropped) = current_frame_until_dropped
+        {
+            timeout = timeout.min(current_frame_until_dropped);
+        }
+
+        timeout
     }
 
     pub fn poll_output(&mut self) -> Result<VideoStreamOutput, VideoStreamError> {
@@ -155,95 +232,43 @@ where
                 Ok(VideoStreamOutput::Send { data: packet })
             }
             State::ReceiveVideo => {
-                if let VideoDepayloaderOutput::Frame {
-                    frame,
-                    report: fec_report,
-                } = self.depayloader.poll_output().unwrap()
-                {
+                if let Some(frame) = self.depayloader.poll_output()? {
+                    if self.first_frame.is_none() {
+                        self.first_frame = Some(self.last_now);
+                    }
+
+                    let mut should_return_frame = false;
+
                     if frame.frame_type == FrameType::Idr {
                         debug!(now = ?self.last_now, "received idr");
                         self.waiting_for_idr_since = None;
-                    } else if self.waiting_for_idr_since.is_some() {
-                        debug!(now = ?self.last_now, "dropping received frame because waiting for an idr");
 
-                        return Ok(VideoStreamOutput::Timeout(
-                            self.last_now + Duration::from_secs(1),
-                        ));
+                        // We're synced
+                        self.depayloader
+                            .set_current_frame_index(Some(frame.frame_index.wrapping_add(1)))?;
+
+                        should_return_frame = true;
+                    } else if self.waiting_for_idr_since.is_some() {
+                        // TODO: keep some frames because the idr might arrive late
+                        debug!(now = ?self.last_now, "dropping received frame because waiting for an idr");
+                    } else {
+                        should_return_frame = true;
                     }
 
-                    self.state = State::SendFecReport { fec_report };
-                    self.last_frame = Some(self.last_now);
+                    if should_return_frame {
+                        self.last_frame = self.last_now;
 
-                    return Ok(VideoStreamOutput::VideoFrame(frame));
+                        return Ok(VideoStreamOutput::VideoFrame(frame));
+                    }
                 }
 
-                // Frame dropping logic
-                let duration_until_frame_drop = self.duration_until_frame_drop();
-                if let Some(duration_until_frame_drop) = duration_until_frame_drop
-                    && duration_until_frame_drop.is_zero()
-                {
-                    self.last_frame = Some(self.last_now);
-                    self.depayloader
-                        .discard_frame(self.depayloader.status().current_frame_index)
-                        .unwrap();
-
-                    if self.waiting_for_idr_since.is_none()
-                        || self
-                            .waiting_for_idr_since
-                            .is_some_and(|x| self.last_now - x > Duration::from_secs(1))
-                    {
-                        info!(
-                            now = ?self.last_now,
-                            last_frame = ?self.last_frame,
-                            depayloader_status = ?self.depayloader.status(),
-                            "requesting idr because frame took too long to receive"
-                        );
-
-                        // Request idr if we're not already waiting
-                        self.waiting_for_idr_since = Some(self.last_now);
-                        return Ok(VideoStreamOutput::SendControlMessage {
-                            message: ControlMessage(ControlMessageInner::SendPacket {
-                                packet: ControlPacket::RequestIdr,
-                                force: true,
-                            }),
-                        });
-                    }
+                if let Some(timeout) = self.do_request_idr()? {
+                    return Ok(timeout);
                 }
 
                 Ok(VideoStreamOutput::Timeout(
-                    // TODO: set video timeout and then do exit
-                    duration_until_frame_drop
-                        .map(|x| self.last_now + x)
-                        .unwrap_or_else(|| self.last_now + Duration::from_secs(1)),
+                    self.last_now + Duration::from_secs(1),
                 ))
-            }
-            State::SendFecReport { fec_report } => {
-                let message = ControlMessageInner::SendPacket {
-                    force: false,
-                    packet: ControlPacket::FrameFec {
-                        frame_index: fec_report.frame_index,
-                        highest_received_sequence_number: fec_report
-                            .highest_received_sequence_number,
-                        next_contiguous_sequence_number: fec_report.next_contiguous_sequence_number,
-                        missing_packets_before_highest_received: fec_report
-                            .missing_packets_before_highest_received,
-                        total_data_packets: fec_report.total_data_packets,
-                        total_parity_packets: fec_report.total_parity_packets,
-                        received_data_packets: fec_report.received_data_packets,
-                        received_parity_packets: fec_report.received_parity_packets,
-                        fec_percentage: fec_report.fec_percentage,
-                        multi_fec_block_index: fec_report.multi_fec_block_index,
-                        multi_fec_block_count: fec_report.multi_fec_block_count,
-                    },
-                };
-
-                self.state = State::ReceiveVideo;
-
-                // TODO: for some reason sunshine doesn't support this??!?
-                // Ok(VideoStreamOutput::SendControlMessage {
-                //     message: ControlMessage(message),
-                // })
-                Ok(VideoStreamOutput::Timeout(self.last_now))
             }
         }
     }
@@ -265,10 +290,10 @@ where
                 self.state = State::ReceiveVideo;
 
                 // TODO: remove this randomness, just for testing
-                if rand::random_bool(0.03) {
-                    info!("TESTING: dropping packet");
-                    return Ok(());
-                }
+                // if rand::random_bool(0.07) {
+                //     info!("TESTING: dropping packet");
+                //     return Ok(());
+                // }
 
                 // TODO: move this into the depayloader
                 let data = if let Some(aes_key) = self.aes_key.as_ref() {
@@ -319,3 +344,5 @@ impl<Crypto> Drop for VideoStream<Crypto> {
         info!("terminated video stream");
     }
 }
+
+// TODO: test idr requesting logic?

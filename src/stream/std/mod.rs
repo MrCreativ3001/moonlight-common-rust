@@ -581,7 +581,7 @@ where
             let mut timeout = timeout.saturating_duration_since(Instant::now());
 
             // Will likely never happen, but we need to regularly check on the stop signal
-            timeout = timeout.max(Duration::from_secs(1));
+            timeout = timeout.min(Duration::from_secs(1));
 
             let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
                 None => AudioStreamInput::Timeout(Instant::now()),
@@ -735,7 +735,7 @@ where
             let mut timeout = timeout.saturating_duration_since(Instant::now());
 
             // Will likely never happen, but we need to regularly check on the stop signal
-            timeout = timeout.max(Duration::from_secs(1));
+            timeout = timeout.min(Duration::from_secs(1));
 
             let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
                 None => VideoStreamInput::Timeout(Instant::now()),
@@ -880,7 +880,7 @@ fn control_thread_sender(
             timeout = deadline.saturating_duration_since(Instant::now());
 
             // Will likely never happen, but we need to regularly check on the stop signal
-            timeout = timeout.max(Duration::from_secs(1));
+            timeout = timeout.min(Duration::from_secs(1));
         }
 
         debug!("stopped control_thread_sender");
