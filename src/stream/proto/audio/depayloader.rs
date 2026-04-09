@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, VecDeque},
-    error::Error,
     mem::swap,
     time::Duration,
 };
@@ -12,7 +11,7 @@ use crate::{
     crypto::round_to_pkcs7_padded_len,
     stream::{
         AesIv, AesKey,
-        audio::AudioSample,
+        audio::AudioFrame,
         proto::{
             audio::{
                 create_audio_reed_solomon,
@@ -22,12 +21,12 @@ use crate::{
                     RtpAudioHeader,
                 },
             },
-            crypto::{CipherAlgorithm, CryptoBackend},
+            crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
         },
     },
 };
 
-use tracing::{Level, instrument, warn};
+use tracing::{Level, info, instrument, warn};
 
 #[derive(Debug, Error)]
 pub enum AudioDepayloaderError {
@@ -35,14 +34,11 @@ pub enum AudioDepayloaderError {
     BufferTooSmall,
     #[error("reed solomon: {0}")]
     ReedSolomon(#[from] fec_rs::Error),
-    // TODO: use anyhow?
     #[error("crypto: {0}")]
-    Crypto(Box<dyn Error + Send>),
+    Crypto(#[from] CryptoError),
 }
 
 // TODO: make a cap for the amount of fec packets and the amount of packets that can be buffered
-// TODO: maybe warn if this happens? https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/RtpAudioQueue.c#L269-L271
-// TODO: rename poll_sample and other fns into poll_frame
 
 #[derive(Debug)]
 pub struct AudioDepayloaderConfig {
@@ -59,8 +55,8 @@ struct DataPacket {
 }
 
 impl DataPacket {
-    fn to_sample(&self) -> AudioSample {
-        AudioSample {
+    fn to_frame(&self) -> AudioFrame<Vec<u8>> {
+        AudioFrame {
             timestamp: Duration::from_millis(self.timestamp as u64),
             buffer: self.payload.clone(),
         }
@@ -109,7 +105,7 @@ where
     }
 
     /// Will try to construct the next sample using the internal buffers
-    pub fn poll_sample(&mut self) -> Result<Option<AudioSample>, AudioDepayloaderError> {
+    pub fn poll_frame(&mut self) -> Result<Option<AudioFrame<Vec<u8>>>, AudioDepayloaderError> {
         let mut output = None;
 
         let sequence_number = self.current_sequence_number;
@@ -121,7 +117,7 @@ where
             // We've received a packet
             let packet = &self.data_packets[&self.current_sequence_number];
 
-            output = Some(packet.to_sample());
+            output = Some(packet.to_frame());
             self.current_sequence_number = self.current_sequence_number.wrapping_add(1);
         }
         // All fec reconstruction is done in handle packet
@@ -155,17 +151,14 @@ where
                 .resize(round_to_pkcs7_padded_len(output.buffer.len()) + 16, 0);
 
             // Decrypt
-            let len = self
-                .crypto_backend
-                .decrypt(
-                    CipherAlgorithm::Aes128Cbc,
-                    &aes_key,
-                    &iv,
-                    None,
-                    &output.buffer,
-                    &mut self.unencrypt_buffer,
-                )
-                .map_err(|err| AudioDepayloaderError::Crypto(Box::new(err)))?;
+            let len = self.crypto_backend.decrypt(
+                CipherAlgorithm::Aes128Cbc,
+                &aes_key,
+                &iv,
+                None,
+                &output.buffer,
+                &mut self.unencrypt_buffer,
+            )?;
 
             // Swap buffers
             self.unencrypt_buffer.truncate(len);
@@ -319,11 +312,14 @@ where
         );
 
         if rtp_header.header != RTP_AUDIO_HEADER {
-            warn!("Received packet on audio port without standard audio header!");
+            warn!("received packet on audio port without standard audio header!");
         }
 
         if rtp_header.packet_type == INVALID_OPUS_HEADER {
-            // TODO: warn?
+            warn!(
+                got_ty = rtp_header.packet_type,
+                "dropping packet because it has an invalid opus header"
+            );
             return Ok(());
         }
 
@@ -387,6 +383,27 @@ where
                     .unwrap(),
             );
 
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/RtpAudioQueue.c#L267-L278
+            // The FEC blocks must start on a RTPA_DATA_SHARDS boundary for our queuing logic to work. This isn't
+            // the case for older versions of GeForce Experience (at least 3.13). Disable the FEC logic if this
+            // invariant is validated.
+            if !fec_header
+                .base_sequence_number
+                .is_multiple_of(RTP_AUDIO_DATA_SHARDS as u16)
+            {
+                warn!(
+                    got = fec_header.base_sequence_number,
+                    expected = (fec_header.base_sequence_number / RTP_AUDIO_DATA_SHARDS as u16)
+                        * RTP_AUDIO_DATA_SHARDS as u16,
+                    "Invalid FEC block base sequence number"
+                );
+
+                self.fec_decoder = None;
+                info!(
+                    "Audio FEC has been disabled due to an incompatibility with your host's old software!"
+                );
+            }
+
             let base_sequence_number = fec_header.base_sequence_number;
             if self.current_sequence_number
                 > (base_sequence_number.saturating_add(RTP_AUDIO_TOTAL_SHARDS as u16))
@@ -423,7 +440,10 @@ where
             // Try to reconstruct data packets using fec
             self.try_reconstruct_fec_block(base_sequence_number)?;
         } else {
-            // TODO: warn?
+            warn!(
+                got_ty = rtp_header.packet_type,
+                "received unknown audio packet type"
+            );
         }
 
         Ok(())

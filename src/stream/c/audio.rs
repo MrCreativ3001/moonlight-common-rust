@@ -10,7 +10,7 @@ use moonlight_common_sys::limelight::{_AUDIO_RENDERER_CALLBACKS, POPUS_MULTISTRE
 
 use crate::stream::{
     AudioConfig,
-    audio::{AudioDecoder, AudioSample, OpusMultistreamConfig},
+    audio::{AudioDecoder, AudioFrame, OpusMultistreamConfig},
     c::bindings::Capabilities,
 };
 
@@ -117,9 +117,9 @@ unsafe extern "C" fn decode_and_play_sample(data: *mut c_char, len: c_int) {
 
         // TODO: remove clone
 
-        decoder.decode_and_play_sample(AudioSample {
+        decoder.decode_and_play_sample(AudioFrame {
             timestamp,
-            buffer: data.to_vec(),
+            buffer: data,
         });
     })
 }

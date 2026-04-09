@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
 use crate::stream::bindings::AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT;
 use thiserror::Error;
@@ -108,9 +108,8 @@ impl AudioConfig {
     }
 }
 
-// TODO: make this use a lifetime instead of owning the vec
 #[derive(Debug, PartialEq)]
-pub struct AudioSample {
+pub struct AudioFrame<Buf> {
     /// Timestamps are in milliseconds
     ///
     /// When using moonlight common c timestamps are simulated because the library doesn't provide.
@@ -120,7 +119,7 @@ pub struct AudioSample {
     /// - Sunshine https://github.com/LizardByte/Sunshine/blob/d157bb1d1eb7b0731cbf4caa7287bc7d715c5612/src/stream.cpp#L1646 and https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp#L971
     /// - Also see [crate::stream::proto::sdp::client::ClientSdp::audio_packet_duration]
     pub timestamp: Duration,
-    pub buffer: Vec<u8>,
+    pub buffer: Buf,
 }
 
 pub trait AudioDecoder {
@@ -136,7 +135,7 @@ pub trait AudioDecoder {
     fn stop(&mut self);
 
     /// This callback provides Opus audio data to be decoded and played. sampleLength is in bytes.
-    fn decode_and_play_sample(&mut self, sample: AudioSample);
+    fn decode_and_play_sample(&mut self, sample: AudioFrame<&[u8]>);
 
     fn config(&self) -> AudioConfig;
 }

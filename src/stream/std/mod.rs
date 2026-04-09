@@ -14,7 +14,7 @@ use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
         MoonlightStreamConfig, MoonlightStreamSettings,
-        audio::{AudioConfig, AudioDecoder},
+        audio::{AudioConfig, AudioDecoder, AudioFrame},
         connection::ConnectionListener,
         proto::{
             MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
@@ -559,7 +559,7 @@ where
                     audio_decoder.setup(AudioConfig::STEREO, opus_config);
                     continue;
                 }
-                AudioStreamOutput::AudioSample(sample) => {
+                AudioStreamOutput::AudioFrame(frame) => {
                     if !started {
                         let mut first_frame = shared_inner
                             .first_frame
@@ -572,7 +572,10 @@ where
                         started = true;
                     }
 
-                    audio_decoder.decode_and_play_sample(sample);
+                    audio_decoder.decode_and_play_sample(AudioFrame {
+                        buffer: &frame.buffer,
+                        timestamp: frame.timestamp,
+                    });
                     continue;
                 }
                 AudioStreamOutput::Timeout(timeout) => timeout,

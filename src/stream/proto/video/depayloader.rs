@@ -22,13 +22,14 @@ use crate::{
     },
 };
 
-// TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
 // TODO: what happens after frame loss: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/VideoDepacketizer.c#L1128-L1156
 
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoDepayloaderError {
     #[error("a received video rtp packet doesn't have the configured packet size")]
     PacketInvalidSize,
+    #[error("reed solomon: {0}")]
+    ReedSolomon(#[from] fec_rs::Error),
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +58,7 @@ pub struct VideoDepayloaderStatus {
     pub highest_seen_frame_index: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct VideoDepayloaderFrameStatus {
     /// The index of this frame.
     pub frame_index: u32,
@@ -156,6 +158,10 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
 // TODO: encryption? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
 
 impl VideoDepayloader {
+    /// Creates a new VideoDepayloader
+    ///
+    /// Our FEC recovery code doesn't work properly until Gen 5
+    /// https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
     pub fn new(config: VideoDepayloaderConfig) -> Self {
         Self {
             config,
@@ -345,6 +351,9 @@ impl VideoDepayloader {
         }
 
         // -- Reconstruct all data using previously generated quick access
+        let mut data_shards_count = 0;
+        let mut parity_shards_count = 0;
+
         // TODO: avoid heap alloc?
         let mut shards = Vec::with_capacity(MAX_VIDEO_SHARDS_PER_FEC_BLOCK);
         for (shard_index, shard_buffer) in self
@@ -353,6 +362,12 @@ impl VideoDepayloader {
             .enumerate()
         {
             if let Some(packet) = &quick_shard_to_packet[shard_index] {
+                if packet.fec_shard_index < packet.fec_total_data_shards {
+                    data_shards_count += 1;
+                } else {
+                    parity_shards_count += 1;
+                }
+
                 // Shard is present -> copy data from shard, mark as present in len field
                 shard_buffer.copy_from_slice(&packet.data);
 
@@ -369,9 +384,12 @@ impl VideoDepayloader {
             }
         }
 
-        // -- Reconstruct data using all shards
-        let reed_solomon = ReedSolomon::new(total_data_shards, total_parity_shards).unwrap();
-        reed_solomon.reconstruct_data(&mut shards).unwrap();
+        // See if fec reconstruction is needed?
+        if parity_shards_count > 0 {
+            // -- Reconstruct data using all shards
+            let reed_solomon = ReedSolomon::new(total_data_shards, total_parity_shards)?;
+            reed_solomon.reconstruct_data(&mut shards)?;
+        }
 
         // -- Interpret frame
         let parse_frame_span = trace_span!("parse_frame");

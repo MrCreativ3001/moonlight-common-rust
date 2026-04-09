@@ -1,15 +1,14 @@
 use std::{array, time::Duration};
 
 use crate::{
-    ServerVersion, init_test,
+    ServerVersion,
     stream::{
         proto::video::{
             depayloader::{
-                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderOutput,
-                VideoDepayloaderReport, VideoDepayloaderStatus, VideoFrame,
+                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderFrameStatus,
+                VideoDepayloaderOutput, VideoDepayloaderStatus, VideoFrame,
                 create_video_reed_solomon,
             },
-            nal::{h264, h265},
             packet::{
                 FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
                 VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_from,
@@ -1108,12 +1107,17 @@ fn depayloader_nofec_noparse() {
     assert_eq!(
         depayloader.status(),
         VideoDepayloaderStatus {
-            current_frame_index: 1,
-            received_data_packets: 0,
-            received_parity_packets: 0,
-            total_data_packets: None,
-            current_block: 0,
-            total_blocks: None,
+            current_frame_index: None,
+            highest_seen_frame_index: None,
+        }
+    );
+
+    depayloader.set_current_frame_index(Some(1)).unwrap();
+    assert_eq!(
+        depayloader.status(),
+        VideoDepayloaderStatus {
+            current_frame_index: Some(1),
+            highest_seen_frame_index: None,
         }
     );
 
@@ -1123,18 +1127,23 @@ fn depayloader_nofec_noparse() {
     assert_eq!(
         depayloader.status(),
         VideoDepayloaderStatus {
-            current_frame_index: 1,
+            current_frame_index: Some(1),
+            highest_seen_frame_index: Some(1),
+        }
+    );
+    assert_eq!(
+        depayloader.frame_status(1).unwrap(),
+        VideoDepayloaderFrameStatus {
+            frame_index: 1,
+            timestamp: Duration::ZERO,
             received_data_packets: 1,
             received_parity_packets: 0,
             total_data_packets: Some(3),
-            current_block: 0,
-            total_blocks: Some(1),
+            current_block_index: 0,
+            total_blocks: 1,
         }
     );
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
-    );
+    assert_eq!(depayloader.poll_output().unwrap(), None);
 
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
@@ -1142,18 +1151,23 @@ fn depayloader_nofec_noparse() {
     assert_eq!(
         depayloader.status(),
         VideoDepayloaderStatus {
-            current_frame_index: 1,
+            current_frame_index: Some(1),
+            highest_seen_frame_index: Some(1),
+        }
+    );
+    assert_eq!(
+        depayloader.frame_status(1).unwrap(),
+        VideoDepayloaderFrameStatus {
+            frame_index: 1,
+            timestamp: Duration::ZERO,
             received_data_packets: 2,
             received_parity_packets: 0,
             total_data_packets: Some(3),
-            current_block: 0,
-            total_blocks: Some(1),
+            current_block_index: 0,
+            total_blocks: 1,
         }
     );
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
-    );
+    assert_eq!(depayloader.poll_output().unwrap(), None);
 
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
@@ -1161,26 +1175,30 @@ fn depayloader_nofec_noparse() {
     assert_eq!(
         depayloader.status(),
         VideoDepayloaderStatus {
-            current_frame_index: 1,
+            current_frame_index: Some(1),
+            highest_seen_frame_index: Some(1),
+        }
+    );
+    assert_eq!(
+        depayloader.frame_status(1).unwrap(),
+        VideoDepayloaderFrameStatus {
+            frame_index: 1,
+            timestamp: Duration::ZERO,
             received_data_packets: 3,
             received_parity_packets: 0,
             total_data_packets: Some(3),
-            current_block: 0,
-            total_blocks: Some(1),
+            current_block_index: 0,
+            total_blocks: 1,
         }
     );
     trace!("{:#?}", depayloader);
-    let VideoDepayloaderOutput::Frame {
-        frame:
-            VideoFrame {
-                frame_index,
-                frame_type,
-                timestamp,
-                host_processing_latency,
-                buffers,
-            },
-        report: fec_report,
-    } = depayloader.poll_output().unwrap()
+    let Some(VideoFrame {
+        frame_index,
+        frame_type,
+        timestamp,
+        host_processing_latency,
+        buffers,
+    }) = depayloader.poll_output().unwrap()
     else {
         panic!("expected Frame");
     };
@@ -1199,23 +1217,6 @@ fn depayloader_nofec_noparse() {
         buffer.extend_from_slice(&data);
     }
     assert_eq!(buffer.as_slice(), expected_frame.as_slice());
-
-    assert_eq!(
-        fec_report,
-        VideoDepayloaderReport {
-            frame_index: 1,
-            highest_received_sequence_number: 2,
-            next_contiguous_sequence_number: 3,
-            missing_packets_before_highest_received: 0,
-            total_data_packets: 3,
-            total_parity_packets: 0,
-            received_data_packets: 3,
-            received_parity_packets: 0,
-            fec_percentage: 0,
-            multi_fec_block_index: 0,
-            multi_fec_block_count: 1
-        }
-    );
 }
 
 #[test]
@@ -1230,6 +1231,7 @@ fn depayloader_nofec_h264() {
         format: VideoFormat::H264,
         server_version: sunshine_gen_7_431(),
     });
+    depayloader.set_current_frame_index(Some(1)).unwrap();
 
     let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
         VideoFrameBuffer {
@@ -1264,46 +1266,25 @@ fn depayloader_nofec_h264() {
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
-    );
+    assert_eq!(depayloader.poll_output().unwrap(), None);
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(depayloader.poll_output().unwrap(), None);
 
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
     assert_eq!(
         depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
-    );
-
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::Frame {
-            frame: VideoFrame {
-                frame_type: FrameType::Idr,
-                frame_index: 1,
-                timestamp: Duration::from_millis(0),
-                host_processing_latency: None,
-                buffers: expected_buffers,
-            },
-            report: VideoDepayloaderReport {
-                frame_index: 1,
-                highest_received_sequence_number: 2,
-                next_contiguous_sequence_number: 3,
-                missing_packets_before_highest_received: 0,
-                total_data_packets: 3,
-                total_parity_packets: 0,
-                received_data_packets: 3,
-                received_parity_packets: 0,
-                fec_percentage: 0,
-                multi_fec_block_index: 0,
-                multi_fec_block_count: 1
-            }
-        }
+        Some(VideoFrame {
+            frame_type: FrameType::Idr,
+            frame_index: 1,
+            timestamp: Duration::from_millis(0),
+            host_processing_latency: None,
+            buffers: expected_buffers,
+        })
     );
 }
 
@@ -1319,6 +1300,7 @@ fn depayloader_nofec_h265() {
         format: VideoFormat::H265,
         server_version: sunshine_gen_7_431(),
     });
+    depayloader.set_current_frame_index(Some(1)).unwrap();
 
     let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
         VideoFrameBuffer {
@@ -1357,45 +1339,24 @@ fn depayloader_nofec_h265() {
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
-    );
+    assert_eq!(depayloader.poll_output().unwrap(), None);
+
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert_eq!(depayloader.poll_output().unwrap(), None);
 
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
     assert_eq!(
         depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::None
-    );
-
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
-    assert_eq!(
-        depayloader.poll_output().unwrap(),
-        VideoDepayloaderOutput::Frame {
-            frame: VideoFrame {
-                frame_type: FrameType::Idr,
-                frame_index: 1,
-                timestamp: Duration::from_millis(0),
-                host_processing_latency: None,
-                buffers: expected_buffers,
-            },
-            report: VideoDepayloaderReport {
-                frame_index: 1,
-                highest_received_sequence_number: 2,
-                next_contiguous_sequence_number: 3,
-                missing_packets_before_highest_received: 0,
-                total_data_packets: 3,
-                total_parity_packets: 0,
-                received_data_packets: 3,
-                received_parity_packets: 0,
-                fec_percentage: 0,
-                multi_fec_block_index: 0,
-                multi_fec_block_count: 1
-            }
-        }
+        Some(VideoFrame {
+            frame_type: FrameType::Idr,
+            frame_index: 1,
+            timestamp: Duration::from_millis(0),
+            host_processing_latency: None,
+            buffers: expected_buffers,
+        })
     );
 }

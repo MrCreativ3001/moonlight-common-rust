@@ -2,7 +2,7 @@ use tracing::info;
 
 use crate::stream::{
     AudioConfig, SupportedVideoFormats,
-    audio::{AudioDecoder, AudioSample, OpusMultistreamConfig},
+    audio::{AudioDecoder, AudioFrame, OpusMultistreamConfig},
     connection::ConnectionListener,
     video::{
         DecodeResult, SunshineHdrMetadata, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
@@ -46,7 +46,7 @@ impl AudioDecoder for NullListener {
     }
 
     fn start(&mut self) {}
-    fn decode_and_play_sample(&mut self, sample: AudioSample) {
+    fn decode_and_play_sample(&mut self, sample: AudioFrame<&[u8]>) {
         let _ = sample;
     }
 

@@ -232,6 +232,8 @@ where
                 Ok(VideoStreamOutput::Send { data: packet })
             }
             State::ReceiveVideo => {
+                // TODO: Delete old frame first packet receive
+
                 if let Some(frame) = self.depayloader.poll_output()? {
                     if self.first_frame.is_none() {
                         self.first_frame = Some(self.last_now);

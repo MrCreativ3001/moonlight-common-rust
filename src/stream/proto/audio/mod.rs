@@ -12,7 +12,7 @@ use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
         AesIv, AesKey,
-        audio::{AudioSample, OpusMultistreamConfig},
+        audio::{AudioFrame, OpusMultistreamConfig},
         proto::{
             audio::{
                 depayloader::{AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError},
@@ -66,7 +66,7 @@ pub enum AudioStreamInput<'a> {
 pub enum AudioStreamOutput {
     Send { data: Vec<u8> },
     Setup { opus_config: OpusMultistreamConfig },
-    AudioSample(AudioSample),
+    AudioFrame(AudioFrame<Vec<u8>>),
     Timeout(Instant),
 }
 
@@ -158,10 +158,10 @@ where
                 })
             }
             State::ReceiveAudio => {
-                if let Some(data) = self.queue.poll_sample()? {
+                if let Some(data) = self.queue.poll_frame()? {
                     self.last_sample = self.last_now;
 
-                    return Ok(AudioStreamOutput::AudioSample(data));
+                    return Ok(AudioStreamOutput::AudioFrame(data));
                 } else if self.last_sample + MAXIMUM_SAMPLE_WAIT < self.last_now {
                     // TODO: use the timestamp to better estimate when we should skip samples
                     debug!(
@@ -172,8 +172,8 @@ where
                     self.queue.try_skip_samples()?;
 
                     self.last_sample = self.last_now;
-                    if let Some(data) = self.queue.poll_sample()? {
-                        return Ok(AudioStreamOutput::AudioSample(data));
+                    if let Some(data) = self.queue.poll_frame()? {
+                        return Ok(AudioStreamOutput::AudioFrame(data));
                     }
                 }
 

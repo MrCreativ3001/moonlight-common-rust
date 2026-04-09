@@ -4,7 +4,7 @@ use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
         AesIv, AesKey,
-        audio::AudioSample,
+        audio::AudioFrame,
         proto::{
             audio::{
                 create_audio_reed_solomon,
@@ -568,7 +568,6 @@ pub fn test_audio_payloader_sunshine() {
     let frame3 = &SUNSHINE_PACKET3[RtpAudioHeader::SIZE..];
     let frame4 = &SUNSHINE_PACKET4[RtpAudioHeader::SIZE..];
 
-    // TODO: frame len?
     let mut payloader = AudioPayloader::new(AudioPayloaderConfig {
         fec: true,
         frame_len: frame1.len(),
@@ -595,7 +594,20 @@ pub fn test_audio_payloader_sunshine() {
     assert_eq!(payloader.poll_packet(), Ok(None));
 }
 
-// TODO: add audio payloader encryption tests
+fn audio_payloader_encrypted_sunshine<Crypto>(crypto: Crypto)
+where
+    Crypto: CryptoBackend + Clone,
+{
+    // TODO: add audio payloader encryption tests
+    todo!()
+}
+
+#[test]
+fn audio_payloader_encrypted_sunshine_openssl() {
+    use crate::crypto::openssl::OpenSSLCryptoBackend;
+
+    audio_payloader_encrypted_sunshine(OpenSSLCryptoBackend);
+}
 
 #[test]
 pub fn test_audio_depayloader_no_fec() {
@@ -612,7 +624,7 @@ pub fn test_audio_depayloader_no_fec() {
     let third_data = &[8, 9, 10, 11];
     let fourth_data = &[12, 13, 14, 15];
 
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -627,13 +639,13 @@ pub fn test_audio_depayloader_no_fec() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec()
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -648,13 +660,13 @@ pub fn test_audio_depayloader_no_fec() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -669,13 +681,13 @@ pub fn test_audio_depayloader_no_fec() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -690,13 +702,13 @@ pub fn test_audio_depayloader_no_fec() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -726,7 +738,7 @@ fn test_audio_depayloader_no_fec_reorder() {
             fourth_data,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -740,7 +752,7 @@ fn test_audio_depayloader_no_fec_reorder() {
             second_data,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -755,20 +767,20 @@ fn test_audio_depayloader_no_fec_reorder() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -783,20 +795,20 @@ fn test_audio_depayloader_no_fec_reorder() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -827,7 +839,7 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
             fourth_data,
         ))
         .unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -842,7 +854,7 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
         ))
         .unwrap();
 
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader
         .handle_packet(&construct_data_packet(
@@ -857,30 +869,30 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.try_skip_samples().unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     // Receive another packet skipping packet 2
     depayloader
@@ -896,13 +908,13 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
         ))
         .unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(20),
             buffer: fifth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -928,53 +940,53 @@ fn test_audio_depayloader() {
         [first_data, second_data, third_data, fourth_data],
     );
 
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[0]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[1]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[2]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[3]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[4]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[5]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     let first_data = &[3, 2, 1, 0];
     let second_data = &[7, 6, 5, 4];
@@ -991,48 +1003,48 @@ fn test_audio_depayloader() {
 
     depayloader.handle_packet(&fec_block2[0]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(20),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[1]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(25),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[2]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(30),
             buffer: third_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[3]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(35),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[4]).unwrap();
     depayloader.handle_packet(&fec_block2[5]).unwrap();
 
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1072,84 +1084,84 @@ fn test_audio_depayloader_reorder() {
     );
 
     depayloader.handle_packet(&fec_block1[2]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[0]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data1.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[2]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[1]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data1.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data1.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[0]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[3]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data1.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(20),
             buffer: first_data2.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[3]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[1]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(25),
             buffer: second_data2.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(30),
             buffer: third_data2.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(35),
             buffer: fourth_data2.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1176,13 +1188,13 @@ fn test_audio_depayloader_packet_loss_no_recover() {
     );
 
     depayloader.handle_packet(&fec_block1[1]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[3]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[5]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     let fec_block2 = construct_fec_block(
         4,
@@ -1193,34 +1205,34 @@ fn test_audio_depayloader_packet_loss_no_recover() {
     );
 
     depayloader.handle_packet(&fec_block2[0]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.try_skip_samples().unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.try_skip_samples().unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(20),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1247,44 +1259,44 @@ fn test_audio_depayloader_packet_loss_recover() {
     );
 
     depayloader.handle_packet(&fec_block1[1]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[2]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[3]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[5]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1312,45 +1324,45 @@ fn test_audio_depayloader_packet_loss_recover_use_polled_packet() {
 
     depayloader.handle_packet(&fec_block1[0]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[2]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block1[3]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     println!("depayloader before last packet: {depayloader:#?}");
     depayloader.handle_packet(&fec_block1[5]).unwrap();
     println!("depayloader after last packet: {depayloader:#?}");
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1378,43 +1390,43 @@ fn test_audio_depayloader_late_data_packet_fec_recovery() {
 
     depayloader.handle_packet(&fec_block[0]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block[4]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block[5]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block[1]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: second_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: third_data.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: fourth_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1444,13 +1456,13 @@ fn test_audio_depayloader_big_packet_loss() {
 
     depayloader.handle_packet(&fec_block1[0]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     let fec_block2 = construct_fec_block(
         100,
@@ -1461,27 +1473,27 @@ fn test_audio_depayloader_big_packet_loss() {
     );
 
     depayloader.handle_packet(&fec_block2[0]).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.try_skip_samples().unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(20),
             buffer: first_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(&fec_block2[1]).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(25),
             buffer: second_data.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[test]
@@ -1504,43 +1516,43 @@ fn test_audio_depayloader_sunshine() {
     depayloader.handle_packet(SUNSHINE_PACKET1).unwrap();
     depayloader.try_skip_samples().unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(460),
             buffer: expected1.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_PACKET2).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(465),
             buffer: expected2.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_PACKET3).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(470),
             buffer: expected3.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_PACKET4).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(475),
             buffer: expected4.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     // Make sure that fec is also working because of the reed solomon parity matrix
     let mut depayloader = AudioDepayloader::new(
@@ -1554,43 +1566,43 @@ fn test_audio_depayloader_sunshine() {
     depayloader.handle_packet(SUNSHINE_PACKET1).unwrap();
     depayloader.try_skip_samples().unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(460),
             buffer: expected1.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_PACKET3).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_PACKET6).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_PACKET5).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(465),
             buffer: expected2.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(470),
             buffer: expected3.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(475),
             buffer: expected4.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 fn audio_depayloader_encrypted_sunshine<Crypto>(crypto: Crypto)
@@ -1612,43 +1624,43 @@ where
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET1).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: expected1.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET2).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: expected2.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET3).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: expected3.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET4).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: expected4.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     // Make sure that fec is also working because of the reed solomon parity matrix
     let mut depayloader = AudioDepayloader::new(
@@ -1661,43 +1673,43 @@ where
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET1).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(0),
             buffer: expected1.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET3).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET6).unwrap();
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 
     depayloader.handle_packet(SUNSHINE_ENC_PACKET5).unwrap();
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(5),
             buffer: expected2.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(10),
             buffer: expected3.to_vec(),
         })
     );
     assert_eq!(
-        depayloader.poll_sample().unwrap(),
-        Some(AudioSample {
+        depayloader.poll_frame().unwrap(),
+        Some(AudioFrame {
             timestamp: Duration::from_millis(15),
             buffer: expected4.to_vec(),
         })
     );
-    assert_eq!(depayloader.poll_sample().unwrap(), None);
+    assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
 #[cfg(feature = "openssl")]
