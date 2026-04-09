@@ -12,9 +12,9 @@ use crate::{
             video::{
                 nal::{h264, h265},
                 packet::{
-                    FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
-                    VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
-                    fec_percentage_to_parity_shards,
+                    FrameType, MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader,
+                    VideoHeaderFlags, fec_percentage_to_parity_shards,
                 },
             },
         },
@@ -145,16 +145,16 @@ struct Packet {
 /// For efficiency received data packets will directly be copied into the buffer if the received packet is the same block.
 /// If it's not the same buffer it'll wait until that block is complete because it might still be unknown how big this previous block is.
 ///
-/// The is finished if [Self::total_blocks] >= [Self::current_block]
+/// The is finished if [Self::last_block_index] > [Self::current_block]
 #[derive(Debug)]
 struct Frame {
-    current_block: usize,
+    current_block: u8,
     current_block_buffer_offset: usize,
     current_block_available_shards: [bool; MAX_VIDEO_SHARDS_PER_FEC_BLOCK],
     current_block_total_data_shards: Option<usize>,
     /// if [Self::current_block_total_data_shards] is present is this present too
     current_block_fec_percentage: Option<usize>,
-    total_blocks: usize,
+    last_block_index: u8,
     timestamp: u32,
     buffer: Vec<u8>,
 }
@@ -210,18 +210,18 @@ impl VideoDepayloader {
     pub fn available_frames(&self) -> impl Iterator<Item = FrameIndex> {
         self.frames
             .iter()
-            .filter(|(_, frame)| frame.current_block >= frame.total_blocks)
+            .filter(|(_, frame)| frame.current_block > frame.last_block_index)
             .map(|(frame_index, _)| *frame_index)
     }
 
-    fn constructed_frame(&self, frame_index: FrameIndex) -> Option<&[u8]> {
+    fn constructed_frame(&self, frame_index: FrameIndex) -> Option<&Frame> {
         let frame = self.frames.get(&frame_index)?;
 
-        if frame.current_block < frame.total_blocks {
+        if frame.current_block <= frame.last_block_index {
             return None;
         }
 
-        Some(&frame.buffer)
+        Some(frame)
     }
     /// Get frame metadata about the frame.
     /// This will only return metadata after the frame was fully received.
@@ -231,14 +231,16 @@ impl VideoDepayloader {
         &self,
         frame_index: FrameIndex,
     ) -> Result<Option<VideoFrameMetadata>, VideoDepayloaderError> {
-        let full_frame = match self.constructed_frame(frame_index) {
+        let frame = match self.constructed_frame(frame_index) {
             Some(frame) => frame,
             None => return Ok(None),
         };
 
-        // TODO: timestamp
-
-        let (metadata, _) = self.parse_frame_header(frame_index, Duration::ZERO, full_frame);
+        let (metadata, _) = self.parse_frame_header(
+            frame_index,
+            rtp_timestamp_to_duration(frame.timestamp),
+            &frame.buffer,
+        );
 
         Ok(Some(metadata))
     }
@@ -247,17 +249,15 @@ impl VideoDepayloader {
         &self,
         frame_index: FrameIndex,
     ) -> Result<Option<VideoFrame<&[u8]>>, VideoDepayloaderError> {
-        let full_frame = match self.constructed_frame(frame_index) {
+        let frame = match self.constructed_frame(frame_index) {
             Some(frame) => frame,
             None => return Ok(None),
         };
 
-        // TODO: timestamp
-
         Ok(Some(self.parse_frame(
             frame_index,
-            Duration::ZERO,
-            &full_frame,
+            rtp_timestamp_to_duration(frame.timestamp),
+            &frame.buffer,
         )))
     }
 
@@ -312,7 +312,7 @@ impl VideoDepayloader {
             .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
         {
             let payload_len = self.payload_len();
-            let last_payload_start = ((payload_len / full_frame.len()) - 1) * payload_len;
+            let last_payload_start = full_frame.len().saturating_sub(payload_len);
 
             full_frame =
                 &full_frame[0..last_payload_start + frame_header.last_payload_len as usize];
@@ -386,7 +386,7 @@ impl VideoDepayloader {
 
         self.parse_frame_data(&mut metadata, frame_data);
 
-        return (metadata, frame_data);
+        (metadata, frame_data)
     }
 
     /// Mostly the functionality of https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L743-L1156
@@ -547,9 +547,7 @@ impl VideoDepayloader {
                     current_block_available_shards: [false; _],
                     current_block_total_data_shards: None,
                     current_block_fec_percentage: None,
-                    total_blocks: frame_packet.video_header.multi_fec_blocks.last_block_index
-                        as usize
-                        + 1,
+                    last_block_index: frame_packet.video_header.multi_fec_blocks.last_block_index,
                     buffer: Vec::new(),
                 },
             );
@@ -559,8 +557,13 @@ impl VideoDepayloader {
             self.frames.get_mut(&frame_index).unwrap()
         };
 
+        // this frame would already be finished
+        if block_index > frame.last_block_index {
+            return Ok(false);
+        }
+
         // The block index will always be incremented after a full block
-        if block_index as usize != frame.current_block {
+        if block_index != frame.current_block {
             return Ok(false);
         }
 
@@ -572,6 +575,17 @@ impl VideoDepayloader {
             }
             if packet.video_header.multi_fec_blocks.current_block != block_index {
                 return true;
+            }
+
+            if packet.video_header.multi_fec_blocks.last_block_index >= MAX_VIDEO_FEC_BLOCKS as u8 {
+                warn!(
+                    rtp_header = ?packet.rtp_header,
+                    video_header = ?packet.video_header,
+                    got_last_block_index = packet.video_header.multi_fec_blocks.last_block_index,
+                    max_blocks = MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    "dropping invalid video packet: last block index is higher than maximum allowed"
+                );
+                return false;
             }
 
             debug_assert_eq!(
@@ -611,7 +625,10 @@ impl VideoDepayloader {
                     "all packets in one block must have the total_data_shards"
                 );
                 debug_assert_eq!(
-                    frame.current_block_fec_percentage.unwrap(),
+                    {
+                        #[allow(clippy::unwrap_used)]
+                        frame.current_block_fec_percentage.unwrap()
+                    },
                     packet.video_header.fec_info.fec_percentage as usize,
                     "all packets in one block must have the total_data_shards"
                 );
@@ -690,18 +707,15 @@ impl VideoDepayloader {
             });
 
             // fill all data shards
-            for (shard_index, chunk) in frame
+            for ((shard_index, present), chunk) in frame
                 .current_block_available_shards
                 .iter()
                 .take(total_data_shards)
                 .enumerate()
                 .zip(frame.buffer[frame.current_block_buffer_offset..].chunks_mut(payload_len))
-                .filter_map(|((shard_index, present), chunk)| {
-                    present.then_some((shard_index, chunk))
-                })
             {
                 shards[shard_index] = ArrayShard {
-                    len: Some(chunk.len()),
+                    len: present.then_some(chunk.len()),
                     array: chunk,
                 };
             }
@@ -731,6 +745,7 @@ impl VideoDepayloader {
         frame.current_block_buffer_offset += total_data_shards * payload_len;
 
         // drop all packets related to this frame
+        // TODO
 
         Ok(true)
     }
@@ -779,6 +794,9 @@ impl VideoDepayloader {
             return Ok(());
         }
 
+        let frame_index = video_header.frame_index;
+        let mut block_index = video_header.multi_fec_blocks.current_block;
+
         self.packets.insert(
             rtp_header.sequence_number,
             Packet {
@@ -789,6 +807,13 @@ impl VideoDepayloader {
         );
 
         // try to construct blocks with the new packet
+        if let Some(frame) = self.frames.get(&FrameIndex(frame_index)) {
+            block_index = block_index.min(frame.current_block);
+        }
+
+        while let Ok(true) = self.try_construct_fec_block(FrameIndex(frame_index), block_index) {
+            block_index = block_index.saturating_add(1);
+        }
 
         Ok(())
     }
