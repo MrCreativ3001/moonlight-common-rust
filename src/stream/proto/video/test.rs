@@ -114,7 +114,7 @@ fn header_serialization() {
             reserved: 5,
             multi_fec_flags: 10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 1,
+                last_block_index: 1,
                 current_block: 2,
                 unused: 0,
             },
@@ -136,7 +136,7 @@ fn header_serialization() {
             reserved: 0,
             multi_fec_flags: 0,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },
@@ -293,7 +293,7 @@ fn payloader_nofec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -328,7 +328,7 @@ fn payloader_nofec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -363,7 +363,7 @@ fn payloader_nofec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -398,7 +398,7 @@ fn payloader_nofec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -433,7 +433,7 @@ fn payloader_nofec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -537,7 +537,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -572,7 +572,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -607,7 +607,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -642,7 +642,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -677,7 +677,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -712,7 +712,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -747,7 +747,7 @@ fn payloader_fec() {
                     reserved: 0,
                     multi_fec_flags: 0x10,
                     multi_fec_blocks: VideoMultiFecBlocks {
-                        block_index: 0,
+                        last_block_index: 0,
                         current_block: 0,
                         unused: 0
                     },
@@ -800,7 +800,7 @@ fn payloader_nofec_packet_size_8() {
             reserved: 0,
             multi_fec_flags: 0x10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },
@@ -829,7 +829,7 @@ fn payloader_nofec_packet_size_8() {
             reserved: 0,
             multi_fec_flags: 0x10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },
@@ -902,7 +902,7 @@ fn payloader_nofec_packet_size_9() {
             reserved: 0,
             multi_fec_flags: 0x10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },
@@ -931,7 +931,7 @@ fn payloader_nofec_packet_size_9() {
             reserved: 0,
             multi_fec_flags: 0x10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },
@@ -1005,7 +1005,7 @@ fn payloader_nofec_packet_size_10() {
             reserved: 0,
             multi_fec_flags: 0x10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },
@@ -1034,7 +1034,7 @@ fn payloader_nofec_packet_size_10() {
             reserved: 0,
             multi_fec_flags: 0x10,
             multi_fec_blocks: VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },

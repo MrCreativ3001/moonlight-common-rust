@@ -1,8 +1,8 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{array, collections::BTreeMap, ops::Deref, time::Duration};
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{Level, debug, instrument, trace, trace_span, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -38,7 +38,7 @@ pub struct VideoDepayloaderConfig {
     /// Each packet will have size [Self::packet_size] + 16.
     ///
     /// The actual packet consists of RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
-    /// This means PAYLOAD_SIZE = PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = PACKET_SIZE - 32.
+    /// This means PAYLOAD_SIZE = ACTUAL_PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = ACTUAL_PACKET_SIZE - 32.
     ///
     /// References:
     /// - Games on Whales docs: https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
@@ -48,20 +48,21 @@ pub struct VideoDepayloaderConfig {
     pub server_version: ServerVersion,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct VideoDepayloaderStatus {
-    /// The number of the current frame.
-    ///
-    /// If [None] it's currently searching for the next frame and will produce any frame without any order.
-    pub current_frame_index: Option<u32>,
-    /// The highest seen frame index.
-    pub highest_seen_frame_index: Option<u32>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FrameIndex(pub u32);
+
+impl Deref for FrameIndex {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoDepayloaderFrameStatus {
     /// The index of this frame.
-    pub frame_index: u32,
+    pub frame_index: FrameIndex,
     /// The timestamp of this frame, if it exists
     pub timestamp: Duration,
     /// The received data packets in the [Self::current_block_index]
@@ -79,7 +80,7 @@ pub struct VideoDepayloaderFrameStatus {
 
 impl VideoDepayloaderFrameStatus {
     /// If the frame is constructable by the [VideoDepayloader].
-    pub fn is_constructable(&self) -> bool {
+    pub fn is_frame_constructed(&self) -> bool {
         let Some(total_data_packets) = self.total_data_packets else {
             return false;
         };
@@ -89,9 +90,10 @@ impl VideoDepayloaderFrameStatus {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct VideoFrame {
-    pub frame_index: u32,
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoFrameMetadata {
+    /// The index of the frame
+    pub frame_index: FrameIndex,
     /// Type of this frame.
     /// - For H264 and H265 this will be parsed using the nalus from the bitstream.
     /// - For other codecs (Av1) this will be the value from the server
@@ -107,14 +109,19 @@ pub struct VideoFrame {
     /// References:
     /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L151-L155
     pub host_processing_latency: Option<Duration>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct VideoFrame<Buf> {
+    /// Metadata of a video frame.
+    pub metadata: VideoFrameMetadata,
     /// The buffers this frame consists of.
     ///
     /// Different codecs split buffers differently:
     /// - H264: each buffer starts with an annex b start code followed by a h264 nalu.
     /// - H265: each buffer starts with an annex b start code followed by a h265 nalu.
     /// - Av1: no specific point where they're being split
-    // TODO: fix the lifetime
-    pub buffers: Vec<VideoFrameBuffer<Vec<u8>>>,
+    pub buffers: Vec<VideoFrameBuffer<Buf>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -124,26 +131,39 @@ pub enum VideoDepayloaderOutput {
     ///
     /// See also:
     /// - moonlight loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
-    Frame { frame: VideoFrame },
+    Frame { frame: VideoFrame<Vec<u8>> },
 }
 
 #[derive(Debug)]
 struct Packet {
-    frame_index: u32,
-    timestamp: u32,
-    fec_shard_index: u32,
-    fec_total_data_shards: u32,
-    fec_percentage: u32,
+    rtp_header: RtpVideoHeader,
+    video_header: VideoHeader,
     data: Vec<u8>,
+}
+
+/// A frame will be constructed block by block.
+/// For efficiency received data packets will directly be copied into the buffer if the received packet is the same block.
+/// If it's not the same buffer it'll wait until that block is complete because it might still be unknown how big this previous block is.
+///
+/// The is finished if [Self::total_blocks] >= [Self::current_block]
+#[derive(Debug)]
+struct Frame {
+    current_block: usize,
+    current_block_buffer_offset: usize,
+    current_block_available_shards: [bool; MAX_VIDEO_SHARDS_PER_FEC_BLOCK],
+    current_block_total_data_shards: Option<usize>,
+    /// if [Self::current_block_total_data_shards] is present is this present too
+    current_block_fec_percentage: Option<usize>,
+    total_blocks: usize,
+    timestamp: u32,
+    buffer: Vec<u8>,
 }
 
 #[derive(Debug)]
 pub struct VideoDepayloader {
     config: VideoDepayloaderConfig,
-    // TODO: try to avoid copying data by directly putting the packets into the correct position in this buffer
-    current_frame_buffer: Vec<u8>,
-    current_frame_index: Option<u32>,
     packets: BTreeMap<u16, Packet>,
+    frames: BTreeMap<FrameIndex, Frame>,
 }
 
 pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize) -> ReedSolomon {
@@ -151,7 +171,6 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
     ReedSolomon::new(data_shards, parity_shards).unwrap()
 }
 
-// TODO: this looks funny: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoDepacketizer.c#L849-L1124
 // TODO: this should also handle decryption
 
 // TODO: how to handle fec? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L455-L469
@@ -165,263 +184,124 @@ impl VideoDepayloader {
     pub fn new(config: VideoDepayloaderConfig) -> Self {
         Self {
             config,
-            current_frame_buffer: vec![],
-            current_frame_index: None,
             packets: Default::default(),
+            frames: Default::default(),
         }
     }
 
-    /// Sets the state of this depayloader.
+    fn payload_len(&self) -> usize {
+        self.config.packet_size - VideoHeader::SIZE
+    }
+
+    pub fn is_frame_available(&self, frame_index: FrameIndex) -> bool {
+        self.constructed_frame(frame_index).is_some()
+    }
+
+    /// Iterates over all known frames of this depayloader.
+    /// This will also contain non constructable frames.
+    pub fn known_frames(&self) -> impl Iterator<Item = FrameIndex> {
+        // TODO
+        todo!();
+
+        [].into_iter()
+    }
+    /// Return all currently constructed and available frames.
+    /// Every returned frame can query [Self::frame_metadata] or [Self::frame] without an error.
+    pub fn available_frames(&self) -> impl Iterator<Item = FrameIndex> {
+        // TODO
+        todo!();
+
+        [].into_iter()
+    }
+
+    fn constructed_frame(&self, frame_index: FrameIndex) -> Option<&[u8]> {
+        let frame = self.frames.get(&frame_index)?;
+
+        if frame.current_block < frame.total_blocks {
+            return None;
+        }
+
+        Some(&frame.buffer)
+    }
+    /// Get frame metadata about the frame.
+    /// This will only return metadata after the frame was fully received.
     ///
-    /// # See also
-    /// - [Self::poll_output]
-    pub fn set_current_frame_index(
-        &mut self,
-        current_frame: Option<u32>,
-    ) -> Result<(), VideoDepayloaderError> {
-        self.current_frame_index = current_frame;
+    /// You should prefer this over [Self::frame] if you only need the [VideoFrameMetadata].
+    pub fn frame_metadata(
+        &self,
+        frame_index: FrameIndex,
+    ) -> Result<Option<VideoFrameMetadata>, VideoDepayloaderError> {
+        let full_frame = match self.constructed_frame(frame_index) {
+            Some(frame) => frame,
+            None => return Ok(None),
+        };
 
-        Ok(())
+        // TODO: timestamp
+
+        let (metadata, _) = self.parse_frame_header(frame_index, Duration::ZERO, &full_frame);
+
+        Ok(Some(metadata))
     }
+    /// Get the fully parsed and finished frame if it is fully reconstructible.
+    pub fn frame(
+        &self,
+        frame_index: FrameIndex,
+    ) -> Result<Option<VideoFrame<&[u8]>>, VideoDepayloaderError> {
+        let full_frame = match self.constructed_frame(frame_index) {
+            Some(frame) => frame,
+            None => return Ok(None),
+        };
 
-    pub fn status(&self) -> VideoDepayloaderStatus {
-        let current_frame_index = self.current_frame_index;
-        let highest_seen_frame_index = self.packets.values().map(|x| x.frame_index).max();
+        // TODO: timestamp
 
-        VideoDepayloaderStatus {
-            current_frame_index,
-            highest_seen_frame_index,
-        }
-    }
-    pub fn frame_status(&self, frame_index: u32) -> Option<VideoDepayloaderFrameStatus> {
-        let mut received_data_packets = 0;
-        let mut received_parity_packets = 0;
-        let mut total_data_packets = None;
-        let mut timestamp = None;
-
-        for (_, packet) in self
-            .packets
-            .iter()
-            .filter(|packet| packet.1.frame_index == frame_index)
-        {
-            if packet.fec_shard_index < packet.fec_total_data_shards {
-                received_data_packets += 1;
-            } else {
-                received_parity_packets += 1;
-            }
-            total_data_packets = Some(packet.fec_total_data_shards as usize);
-
-            if timestamp.is_none() {
-                timestamp = Some(rtp_timestamp_to_duration(packet.timestamp));
-            }
-
-            #[cfg(debug_assertions)]
-            if let Some(timestamp) = timestamp {
-                debug_assert_eq!(
-                    timestamp,
-                    rtp_timestamp_to_duration(packet.timestamp),
-                    "all packets of a single video frame must have the same timestamp!"
-                );
-            }
-        }
-
-        Some(VideoDepayloaderFrameStatus {
+        Ok(Some(self.parse_frame(
             frame_index,
-            timestamp: timestamp?,
-            received_data_packets,
-            received_parity_packets,
-            total_data_packets,
-            current_block_index: 0,
-            total_blocks: 1,
-        })
+            Duration::ZERO,
+            &full_frame,
+        )))
     }
 
-    /// If [VideoDepayloaderStatus::current_frame_index] is:
-    /// - Present: It'll try to construct the [current_frame_index](VideoDepayloader::current_frame_index) and increment this value automatically on a produced frame.
-    /// - Absent: It'll try to construct any constructable frames in an ascending order. This doesn't mean that frames will be produced in this order (e.g. late frame arrival).
-    ///
-    /// The depayloader itself won't set it's state.
-    /// Use the [set_current_frame_index](Self::set_current_frame_index) function with [Some] to set the depayloader to a synced state to let it produce frames in order.
-    pub fn poll_output(&mut self) -> Result<Option<VideoFrame>, VideoDepayloaderError> {
-        let mut output = None;
+    /// Discard everything that is currently known about the frame.
+    /// This can be called for frames that are in construction or already constructed frames.
+    pub fn discard_frame(&mut self, frame_index: FrameIndex) {
+        self.frames.remove(&frame_index);
 
-        // TODO: more aggressively remove packets that are likely not being used, especially when unsynced
-
-        // -- Check if we can construct a frame
-        if let Some(current_frame_index) = self.current_frame_index {
-            // If synced try to construct the next frame
-            if let Some(frame) = self.try_construct_fec_block(current_frame_index)? {
-                output = Some(frame);
-
-                #[allow(clippy::unwrap_used)]
-                let current_frame_index = self.current_frame_index.as_mut().unwrap();
-                *current_frame_index += 1;
-            }
-        } else {
-            // If not synced try to produce any frame
-            let known_frames = self.packets.values().fold(Vec::new(), |mut value, packet| {
-                if !value.contains(&packet.frame_index) {
-                    value.push(packet.frame_index);
-                }
-                value
-            });
-
-            // All frames should be sorted because the sequence number and frame_index are both ascending, but at a different rate
-            debug_assert!(
-                known_frames.is_sorted(),
-                "All frames should be sorted because the sequence number and frame_index are both ascending, but at a different rate"
-            );
-
-            for frame_index in known_frames {
-                if let Some(frame) = self.try_construct_fec_block(frame_index)? {
-                    output = Some(frame);
-
-                    // remove frame from packets, the current frame is in the buffer
-                    self.packets
-                        .retain(|_, packet| packet.frame_index != frame_index);
-                    break;
-                }
-            }
-        }
-
-        // -- Clear all old data
-        if let Some(current_frame_index) = self.current_frame_index {
-            self.packets
-                .retain(|_, packet| packet.frame_index >= current_frame_index);
-        }
-
-        Ok(output)
+        self.packets
+            .retain(|_, packet| packet.video_header.frame_index != *frame_index);
     }
 
-    fn try_construct_fec_block(
-        &mut self,
-        frame_index: u32,
-    ) -> Result<Option<VideoFrame>, VideoDepayloaderError> {
-        // TODO: handle one frame in multiple fec blocks?
+    fn parse_frame<'a>(
+        &self,
+        frame_index: FrameIndex,
+        timestamp: Duration,
+        full_frame: &'a [u8],
+    ) -> VideoFrame<&'a [u8]> {
+        let (mut metadata, frame_data) =
+            self.parse_frame_header(frame_index, timestamp, full_frame);
 
-        let packets = self
-            .packets
-            .values_mut()
-            .filter(|packet| packet.frame_index == frame_index)
-            .collect::<Vec<_>>();
+        let buffers = self.parse_frame_data(&mut metadata, frame_data);
 
-        if packets.is_empty() {
-            return Ok(None);
-        }
-
-        // -- Grab data from packets
-        let total_data_shards = packets[0].fec_total_data_shards as usize;
-        let fec_percentage = packets[0].fec_percentage;
-        let total_parity_shards =
-            fec_percentage_to_parity_shards(total_data_shards, fec_percentage as usize);
-        let total_shards = total_data_shards + total_parity_shards;
-        let timestamp = packets[0].timestamp;
-
-        // Size of the payload of each packet. We checked the size in the handle_packet fn, so this cannot be different
-        // TODO: this might get influenced by encryption??
-        let payload_size = self.config.packet_size - VideoHeader::SIZE;
-
-        #[cfg(debug_assertions)]
-        {
-            // Check the fec blocks for correctness
-            for packet in packets.iter() {
-                debug_assert_eq!(packet.fec_total_data_shards, total_data_shards as u32);
-                debug_assert_eq!(packet.fec_percentage, fec_percentage);
-                debug_assert_eq!(packet.timestamp, timestamp);
-                debug_assert!(
-                    (packet.fec_shard_index as usize) < total_data_shards + total_parity_shards
-                );
-            }
-        }
-
-        // -- Check if a frame can be produced
-        if packets.len() < total_data_shards {
-            // We currently cannot produce a frame
-            return Ok(None);
-        }
-
-        // -- Create a shard index to packet quick access
-        self.current_frame_buffer.clear();
-        self.current_frame_buffer
-            .resize(total_shards * payload_size, 0);
-
-        let mut quick_shard_to_packet = [None; MAX_VIDEO_SHARDS_PER_FEC_BLOCK];
-        for packet in packets.iter() {
-            quick_shard_to_packet[packet.fec_shard_index as usize] = Some(packet);
-        }
-
-        // -- Reconstruct all data using previously generated quick access
-        let mut data_shards_count = 0;
-        let mut parity_shards_count = 0;
-
-        // TODO: avoid heap alloc?
-        let mut shards = Vec::with_capacity(MAX_VIDEO_SHARDS_PER_FEC_BLOCK);
-        for (shard_index, shard_buffer) in self
-            .current_frame_buffer
-            .chunks_exact_mut(payload_size)
-            .enumerate()
-        {
-            if let Some(packet) = &quick_shard_to_packet[shard_index] {
-                if packet.fec_shard_index < packet.fec_total_data_shards {
-                    data_shards_count += 1;
-                } else {
-                    parity_shards_count += 1;
-                }
-
-                // Shard is present -> copy data from shard, mark as present in len field
-                shard_buffer.copy_from_slice(&packet.data);
-
-                shards.push(ArrayShard {
-                    len: Some(payload_size),
-                    array: shard_buffer,
-                });
-            } else {
-                // Shard is absent -> mark as absent in len field
-                shards.push(ArrayShard {
-                    len: None,
-                    array: shard_buffer,
-                });
-            }
-        }
-
-        // See if fec reconstruction is needed?
-        if parity_shards_count > 0 {
-            // -- Reconstruct data using all shards
-            let reed_solomon = ReedSolomon::new(total_data_shards, total_parity_shards)?;
-            reed_solomon.reconstruct_data(&mut shards)?;
-        }
-
-        // -- Interpret frame
-        let parse_frame_span = trace_span!("parse_frame");
-
-        let frame =
-            self.interpret_current_frame(frame_index, timestamp, total_data_shards * payload_size);
-
-        drop(parse_frame_span);
-
-        Ok(Some(frame))
+        VideoFrame { metadata, buffers }
     }
 
-    /// Interprets the [Self::current_frame_buffer] and returns a VideoFrame
+    /// Parses the frame header and returns the [VideoFrameMetadata] and the actual frame data.
     ///
     /// Mostly the functionality of https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L743-L1156
-    #[instrument(level = Level::TRACE, skip(self), fields(buffer_len = self.current_frame_buffer.len()))]
-    fn interpret_current_frame(
-        &mut self,
-        frame_number: u32,
-        timestamp: u32,
-        last_payload_start: usize,
-    ) -> VideoFrame {
+    fn parse_frame_header<'a>(
+        &self,
+        frame_index: FrameIndex,
+        timestamp: Duration,
+        mut full_frame: &'a [u8],
+    ) -> (VideoFrameMetadata, &'a [u8]) {
         // parse the frame header
         // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L855-L972
 
-        if self.current_frame_buffer.len() < 8 {
+        if full_frame.len() < 8 {
             // TODO: what now?
             todo!();
         }
         #[allow(clippy::unwrap_used)]
-        let frame_header =
-            VideoFrameHeader::deserialize(self.current_frame_buffer[0..8].try_into().unwrap());
+        let frame_header = VideoFrameHeader::deserialize(full_frame[0..8].try_into().unwrap());
 
         // Truncate the buffer to the len if we're not using H264 / H265.
         // This is required for non H264 / H265.
@@ -431,8 +311,11 @@ impl VideoDepayloader {
             .format
             .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
         {
-            self.current_frame_buffer
-                .truncate(last_payload_start + frame_header.last_payload_len as usize);
+            let payload_len = self.payload_len();
+            let last_payload_start = ((payload_len / full_frame.len()) - 1) * payload_len;
+
+            full_frame =
+                &full_frame[0..last_payload_start + frame_header.last_payload_len as usize];
         }
 
         // Skip the rest of the header
@@ -488,147 +371,368 @@ impl VideoDepayloader {
             Duration::from_micros(frame_header.host_processing_latency as u64 * 100),
         );
 
-        debug_assert!(self.current_frame_buffer.len() > frame_header_len);
+        debug_assert!(full_frame.len() > frame_header_len);
 
         // Make sure to skip frame header
-        let frame_data = &self.current_frame_buffer[frame_header_len..];
+        let frame_data = &full_frame[frame_header_len..];
 
-        // TODO: what about the other frame types?
-        let mut frame_type = frame_header.frame_type;
+        // TODO: h264 and h265 use bitstream parsing, cache that data for quicker access
+        let mut metadata = VideoFrameMetadata {
+            frame_index,
+            frame_type: frame_header.frame_type,
+            host_processing_latency,
+            timestamp,
+        };
 
-        // only h264 and h265 bitstreams are parsed
-        if !self
+        self.parse_frame_data(&mut metadata, frame_data);
+
+        return (metadata, frame_data);
+    }
+
+    /// Mostly the functionality of https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L743-L1156
+    fn parse_frame_data<'a>(
+        &self,
+        metadata: &mut VideoFrameMetadata,
+        frame_data: &'a [u8],
+    ) -> Vec<VideoFrameBuffer<&'a [u8]>> {
+        if self
             .config
             .format
             .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
         {
-            return VideoFrame {
-                frame_index: frame_number,
-                // Trust the server frame type
-                frame_type,
-                timestamp: rtp_timestamp_to_duration(timestamp),
-                host_processing_latency,
-                buffers: vec![VideoFrameBuffer {
-                    buffer_type: BufferType::PicData,
-                    data: frame_data.to_vec(),
-                }],
-            };
-        } else {
+            // -- H264 and H265
+            // only h264 and h265 bitstreams are parsed
+
             // parse the frame type ourselves
             // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L311-L339
-            frame_type = FrameType::PFrame;
-        }
 
-        // -- H264 and H265
+            // Use a two to avoid conflicts with first byte being a one which would trigger a start code
+            let mut start_code_window = [2u8; 4];
 
-        // Use a two to avoid conflicts with first byte being a one which would trigger a start code
-        let mut start_code_window = [2u8; 4];
+            let mut last_start_code = None;
+            let mut buffers = Vec::new();
 
-        let mut last_start_code = None;
-        let mut buffers = Vec::new();
+            // Add a buffer to the video frame buffer and finds out the buffer type
+            let mut add_buffer = |nalu_start: usize, buffer: &'a [u8]| {
+                let buffer_type = {
+                    if self
+                        .config
+                        .format
+                        .contained_in(SupportedVideoFormats::MASK_H264)
+                    {
+                        if buffer.len() < nalu_start + 1 {
+                            warn!("Couldn't read nal header because nalu is too short!");
+                            trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
 
-        // Add a buffer to the video frame buffer and finds out the buffer type
-        let mut add_buffer = |nalu_start: usize, buffer: &[u8]| {
-            let buffer_type = {
-                if self
-                    .config
-                    .format
-                    .contained_in(SupportedVideoFormats::MASK_H264)
-                {
-                    if buffer.len() < nalu_start + 1 {
-                        warn!("Couldn't read nal header because nalu is too short!");
-                        trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
+                            BufferType::PicData
+                        } else {
+                            // H264 specific filtering
+                            let nal_header = h264::NalHeader::parse([buffer[nalu_start]]);
 
-                        BufferType::PicData
-                    } else {
-                        // H264 specific filtering
-                        let nal_header = h264::NalHeader::parse([buffer[nalu_start]]);
+                            // See frame type definition for info
+                            if matches!(nal_header.nal_unit_type, h264::NalUnitType::CodedSliceIDR)
+                            {
+                                metadata.frame_type = FrameType::Idr;
+                            }
 
-                        // See frame type definition for info
-                        if matches!(nal_header.nal_unit_type, h264::NalUnitType::CodedSliceIDR) {
-                            frame_type = FrameType::Idr;
+                            nal_header.nal_unit_type.to_buffer_type()
                         }
+                    } else if self
+                        .config
+                        .format
+                        .contained_in(SupportedVideoFormats::MASK_H265)
+                    {
+                        if buffer.len() < nalu_start + 2 {
+                            warn!("Couldn't read nal header because nalu is too short!");
+                            trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
 
-                        nal_header.nal_unit_type.to_buffer_type()
-                    }
-                } else if self
-                    .config
-                    .format
-                    .contained_in(SupportedVideoFormats::MASK_H265)
-                {
-                    if buffer.len() < nalu_start + 2 {
-                        warn!("Couldn't read nal header because nalu is too short!");
-                        trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
+                            BufferType::PicData
+                        } else {
+                            // H265 specific filtering
+                            let nal_header = h265::NalHeader::parse([
+                                buffer[nalu_start],
+                                buffer[nalu_start + 1],
+                            ]);
 
-                        BufferType::PicData
-                    } else {
-                        // H265 specific filtering
-                        let nal_header =
-                            h265::NalHeader::parse([buffer[nalu_start], buffer[nalu_start + 1]]);
+                            // See frame type definition for info
+                            if matches!(
+                                nal_header.nal_unit_type,
+                                h265::NalUnitType::BlaWLp
+                                    | h265::NalUnitType::BlaWRadl
+                                    | h265::NalUnitType::BlaNLp
+                                    | h265::NalUnitType::IdrWRadl
+                                    | h265::NalUnitType::IdrNLp
+                                    | h265::NalUnitType::CraNut
+                            ) {
+                                metadata.frame_type = FrameType::Idr;
+                            }
 
-                        // See frame type definition for info
-                        if matches!(
-                            nal_header.nal_unit_type,
-                            h265::NalUnitType::BlaWLp
-                                | h265::NalUnitType::BlaWRadl
-                                | h265::NalUnitType::BlaNLp
-                                | h265::NalUnitType::IdrWRadl
-                                | h265::NalUnitType::IdrNLp
-                                | h265::NalUnitType::CraNut
-                        ) {
-                            frame_type = FrameType::Idr;
+                            nal_header.nal_unit_type.to_buffer_type()
                         }
-
-                        nal_header.nal_unit_type.to_buffer_type()
+                    } else {
+                        unreachable!()
                     }
-                } else {
-                    unreachable!()
-                }
+                };
+
+                buffers.push(VideoFrameBuffer {
+                    buffer_type,
+                    data: buffer,
+                });
             };
 
-            buffers.push(VideoFrameBuffer {
-                buffer_type,
-                data: buffer.to_owned(),
-            });
+            // Find annex b start codes
+            for i in 0..frame_data.len() {
+                start_code_window.rotate_left(1);
+                start_code_window[3] = frame_data[i];
+
+                let mut buffer = None;
+
+                let mut nalu_offset = 0;
+                if matches!(start_code_window, [_, 0, 0, 1]) {
+                    let new_start_code_len = if start_code_window[0] == 0 { 4 } else { 3 };
+
+                    let new_start_code_begin = i - (new_start_code_len - 1);
+                    if let Some((last_start_code_begin, last_start_code_len)) = last_start_code {
+                        nalu_offset = last_start_code_len;
+                        buffer = Some(&frame_data[last_start_code_begin..new_start_code_begin]);
+                    }
+                    last_start_code = Some((new_start_code_begin, new_start_code_len));
+                }
+
+                if let Some(buffer) = buffer {
+                    debug_assert_ne!(nalu_offset, 0);
+
+                    add_buffer(nalu_offset, buffer);
+                }
+            }
+
+            if let Some((start_code_begin, start_code_len)) = last_start_code {
+                add_buffer(start_code_len, &frame_data[start_code_begin..]);
+            }
+
+            buffers
+        } else {
+            // -- AV1
+            vec![VideoFrameBuffer {
+                buffer_type: BufferType::PicData,
+                data: frame_data,
+            }]
+        }
+    }
+
+    fn try_construct_fec_block(
+        &mut self,
+        frame_index: FrameIndex,
+        block_index: u8,
+    ) -> Result<bool, VideoDepayloaderError> {
+        let payload_len = self.payload_len();
+
+        let frame = if let Some(frame) = self.frames.get_mut(&frame_index) {
+            frame
+        } else {
+            let Some(frame_packet) = self
+                .packets
+                .values()
+                .find(|packet| packet.video_header.frame_index == *frame_index)
+            else {
+                return Ok(false);
+            };
+
+            self.frames.insert(
+                frame_index,
+                Frame {
+                    timestamp: frame_packet.rtp_header.timestamp,
+                    current_block: 0,
+                    current_block_buffer_offset: 0,
+                    current_block_available_shards: [false; _],
+                    current_block_total_data_shards: None,
+                    current_block_fec_percentage: None,
+                    total_blocks: frame_packet.video_header.multi_fec_blocks.last_block_index
+                        as usize
+                        + 1,
+                    buffer: Vec::new(),
+                },
+            );
+
+            // This cannot fail because this element was just inserted
+            #[allow(clippy::unwrap_used)]
+            self.frames.get_mut(&frame_index).unwrap()
         };
 
-        // Find annex b start codes
-        for i in 0..frame_data.len() {
-            start_code_window.rotate_left(1);
-            start_code_window[3] = frame_data[i];
+        // The block index will always be incremented after a full block
+        if block_index as usize != frame.current_block {
+            return Ok(false);
+        }
 
-            let mut buffer = None;
-
-            let mut nalu_offset = 0;
-            if matches!(start_code_window, [_, 0, 0, 1]) {
-                let new_start_code_len = if start_code_window[0] == 0 { 4 } else { 3 };
-
-                let new_start_code_begin = i - (new_start_code_len - 1);
-                if let Some((last_start_code_begin, last_start_code_len)) = last_start_code {
-                    nalu_offset = last_start_code_len;
-                    buffer = Some(&frame_data[last_start_code_begin..new_start_code_begin]);
-                }
-                last_start_code = Some((new_start_code_begin, new_start_code_len));
+        // -- iterate over all packets to find data and fec packets of this block
+        self.packets.retain(|_, packet| {
+            // filter for frame index and block index
+            if packet.video_header.frame_index != *frame_index {
+                return true;
+            }
+            if packet.video_header.multi_fec_blocks.current_block != block_index {
+                return true;
             }
 
-            if let Some(buffer) = buffer {
-                debug_assert_ne!(nalu_offset, 0);
+            debug_assert_eq!(
+                packet.rtp_header.timestamp, frame.timestamp,
+                "timestamps of packets in one frame must match be always equal!"
+            );
 
-                add_buffer(nalu_offset, buffer);
+            // mark shard as available if it's in the valid shard range
+            if packet.video_header.fec_info.shard_index as usize >= MAX_VIDEO_SHARDS_PER_FEC_BLOCK {
+                warn!(
+                    rtp_header = ?packet.rtp_header,
+                    video_header = ?packet.video_header,
+                    got_shard_index = packet.video_header.fec_info.shard_index,
+                    max_shards = MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    "dropping invalid video packet: fec shard index is higher than maximum allowed"
+                );
+                return false;
+            }
+
+            // update available shards
+            if frame.current_block_available_shards
+                [packet.video_header.fec_info.shard_index as usize]
+            {
+                debug!(
+                    rtp_header = ?packet.rtp_header,
+                    video_header = ?packet.video_header,
+                    "received shard twice"
+                );
+            }
+            frame.current_block_available_shards
+                [packet.video_header.fec_info.shard_index as usize] = true;
+
+            // update total data shards
+            if let Some(total_data_shards) = frame.current_block_total_data_shards {
+                debug_assert_eq!(
+                    total_data_shards, packet.video_header.fec_info.data_shards_total as usize,
+                    "all packets in one block must have the total_data_shards"
+                );
+                debug_assert_eq!(
+                    frame.current_block_fec_percentage.unwrap(),
+                    packet.video_header.fec_info.fec_percentage as usize,
+                    "all packets in one block must have the total_data_shards"
+                );
+            } else {
+                frame.current_block_total_data_shards =
+                    Some(packet.video_header.fec_info.data_shards_total as usize);
+                frame.current_block_fec_percentage =
+                    Some(packet.video_header.fec_info.fec_percentage as usize);
+            }
+
+            if packet.video_header.fec_info.shard_index
+                >= packet.video_header.fec_info.data_shards_total
+            {
+                // fec shard, those must be retained for reconstruction
+                return true;
+            }
+
+            // copy data shard into the frame buffer
+            let data = &packet.data;
+
+            let block_shard_offset =
+                payload_len * packet.video_header.fec_info.shard_index as usize;
+
+            let shard_start = frame.current_block_buffer_offset + block_shard_offset;
+            let shard_end = shard_start + payload_len;
+
+            if frame.buffer.len() < shard_end {
+                frame.buffer.resize(shard_end, 0);
+            }
+            frame.buffer[shard_start..shard_end].copy_from_slice(data);
+
+            false
+        });
+
+        // -- try to finish the block by either having it already or reconstructing it using reed solomon
+        let Some(total_data_shards) = frame.current_block_total_data_shards else {
+            return Ok(false);
+        };
+        let fec_percentage = frame.current_block_fec_percentage.expect("frame.current_block_total_shards is present but frame.current_block_fec_percentage is absent. This should be impossible!");
+        let total_parity_shards =
+            fec_percentage_to_parity_shards(total_data_shards, fec_percentage);
+
+        // see how many shards we have
+        let mut data_shards = 0;
+        let mut parity_shards = 0;
+        for shard_index in frame
+            .current_block_available_shards
+            .iter()
+            .enumerate()
+            .filter_map(|(shard_index, present)| present.then_some(shard_index))
+        {
+            if shard_index < total_data_shards {
+                // data shard
+                data_shards += 1;
+            } else {
+                // fec shard
+                parity_shards += 1;
+            }
+
+            if data_shards + parity_shards >= total_data_shards {
+                // it's possible to construct a block, no need to continue
+                break;
             }
         }
 
-        if let Some((start_code_begin, start_code_len)) = last_start_code {
-            add_buffer(start_code_len, &frame_data[start_code_begin..]);
+        if data_shards + parity_shards < total_data_shards {
+            // cannot construct a block currently
+            return Ok(false);
         }
 
-        VideoFrame {
-            frame_index: frame_number,
-            frame_type,
-            timestamp: rtp_timestamp_to_duration(timestamp),
-            host_processing_latency,
-            buffers,
+        // -- use reed solomon reconstruction if required
+        if parity_shards > 0 {
+            let mut shards: [_; MAX_VIDEO_SHARDS_PER_FEC_BLOCK] = array::from_fn(|_| ArrayShard {
+                len: None,
+                array: &mut [],
+            });
+
+            // fill all data shards
+            for (shard_index, chunk) in frame
+                .current_block_available_shards
+                .iter()
+                .take(total_data_shards)
+                .enumerate()
+                .zip(frame.buffer[frame.current_block_buffer_offset..].chunks_mut(payload_len))
+                .filter_map(|((shard_index, present), chunk)| {
+                    present.then_some((shard_index, chunk))
+                })
+            {
+                shards[shard_index] = ArrayShard {
+                    len: Some(chunk.len()),
+                    array: chunk,
+                };
+            }
+
+            // fill all required parity shards
+            for (_, packet) in self.packets.iter_mut().filter(|(_, packet)| {
+                packet.video_header.frame_index == *frame_index
+                    && packet.video_header.multi_fec_blocks.current_block == block_index
+            }) {
+                // all packets that are data shards or have invalid shard index should already be filtered out, see retain above
+                shards[packet.video_header.fec_info.shard_index as usize] = ArrayShard {
+                    len: Some(packet.data.len()),
+                    array: &mut packet.data,
+                };
+            }
+
+            // reconstruct
+            let reed_solomon = create_video_reed_solomon(total_data_shards, total_parity_shards);
+
+            reed_solomon.reconstruct_data(&mut shards)?;
         }
+
+        // prepare frame for next block
+        frame.current_block += 1;
+        frame.current_block_available_shards = [false; _];
+        frame.current_block_total_data_shards = None;
+        frame.current_block_buffer_offset += total_data_shards * payload_len;
+
+        // drop all packets related to this frame
+
+        Ok(true)
     }
 
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoDepayloaderError> {
@@ -658,12 +762,7 @@ impl VideoDepayloader {
                 .unwrap(),
         );
 
-        if let Some(current_frame_index) = self.current_frame_index
-            && video_header.frame_index < current_frame_index
-        {
-            // Drop this packet because we already skipped it
-            return Ok(());
-        }
+        // TODO: auto drop packets that have a higher frame index that we have
 
         let data = &packet[(RtpVideoHeader::SIZE + VideoHeader::SIZE)..];
 
@@ -683,14 +782,13 @@ impl VideoDepayloader {
         self.packets.insert(
             rtp_header.sequence_number,
             Packet {
-                frame_index: video_header.frame_index,
-                timestamp: rtp_header.timestamp,
-                fec_shard_index: video_header.fec_info.shard_index,
-                fec_total_data_shards: video_header.fec_info.data_shards_total,
-                fec_percentage: video_header.fec_info.fec_percentage,
+                rtp_header,
+                video_header,
                 data: data.to_vec(),
             },
         );
+
+        // try to construct blocks with the new packet
 
         Ok(())
     }

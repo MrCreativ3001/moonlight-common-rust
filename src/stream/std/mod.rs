@@ -693,18 +693,18 @@ where
                         .iter()
                         .map(|x| VideoFrameBuffer {
                             buffer_type: x.buffer_type,
-                            data: x.data.as_slice(),
+                            data: x.data,
                         })
                         .collect::<Vec<_>>();
 
                     let decode_unit = VideoDecodeUnit {
-                        frame_number: frame.frame_index as i32,
+                        frame_number: *frame.metadata.frame_index as i32,
                         color_space: ColorSpace::Rec709,
                         // TODO
                         frame_type: FrameType::PFrame,
-                        frame_processing_latency: frame.host_processing_latency,
+                        frame_processing_latency: frame.metadata.host_processing_latency,
                         hdr_active: false,
-                        timestamp: frame.timestamp,
+                        timestamp: frame.metadata.timestamp,
                         buffers: &buffers,
                     };
 

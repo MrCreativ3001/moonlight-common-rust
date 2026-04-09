@@ -208,16 +208,16 @@ impl VideoHeader {
     }
 }
 
-// TODO: this always seems to be zero in the video queue, why?
+/// The block this packet is in.
 ///
 /// References:
 /// - Sunshine: https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L1435
 /// - Wolf: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L153
-/// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpVideoQueue.c#L584
+/// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L765-L766
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VideoMultiFecBlocks {
     /// Bits 6..8 (exclusive), 2 Bits
-    pub block_index: u8,
+    pub last_block_index: u8,
     /// Bits 4..6 (exclusive), 2 Bits
     pub current_block: u8,
     /// Bits 0..4 (exclusive), 4 Bits
@@ -226,23 +226,23 @@ pub struct VideoMultiFecBlocks {
 
 impl VideoMultiFecBlocks {
     pub fn deserialize(value: u8) -> Self {
-        let block_index = (value >> 6) & 0b11;
+        let last_block_index = (value >> 6) & 0b11;
         let current_block = (value >> 4) & 0b11;
         let unused = value & 0b1111;
 
         Self {
-            block_index,
+            last_block_index,
             current_block,
             unused,
         }
     }
 
     pub fn serialize(&self) -> u8 {
-        debug_assert_eq!(self.block_index & !0b11, 0);
+        debug_assert_eq!(self.last_block_index & !0b11, 0);
         debug_assert_eq!(self.current_block & !0b11, 0);
         debug_assert_eq!(self.unused & !0b1111, 0);
 
-        ((self.block_index & 0b11) << 6)
+        ((self.last_block_index & 0b11) << 6)
             | ((self.current_block & 0b11) << 4)
             | (self.unused & 0b1111)
     }
@@ -400,6 +400,7 @@ impl VideoFrameHeader {
 /// References:
 /// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L22-L27
 /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L858-L886
+// TODO: how is this integrated into the depayloader?? how should it transform it into the output frame type?
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameType {
     /// Normal P-frame

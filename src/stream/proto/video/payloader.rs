@@ -127,7 +127,7 @@ impl VideoPayloader {
             self.sequence_number,
             Some(frame_header),
             VideoMultiFecBlocks {
-                block_index: 0,
+                last_block_index: 0,
                 current_block: 0,
                 unused: 0,
             },

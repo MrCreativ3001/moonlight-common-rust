@@ -17,7 +17,7 @@ use crate::stream::{
         rtsp::moonlight::SunshinePing,
         video::{
             depayloader::{
-                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError,
+                FrameIndex, VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError,
                 VideoDepayloaderOutput, VideoFrame,
             },
             packet::{EncryptedVideoHeader, FrameType},
@@ -58,11 +58,11 @@ pub enum VideoStreamInput<'a> {
 }
 
 #[derive(Debug)]
-pub enum VideoStreamOutput {
+pub enum VideoStreamOutput<'a> {
     Send {
         data: Vec<u8>,
     },
-    VideoFrame(VideoFrame),
+    VideoFrame(VideoFrame<&'a [u8]>),
     /// Send a control message to the [ControlStream](super::control::ControlStream).
     SendControlMessage {
         message: ControlMessage,
@@ -147,7 +147,7 @@ where
 
             info!(time_until_idr = ?timeout, now = ?self.last_now, waiting_for_idr_since = ?self.waiting_for_idr_since, "requesting idr and unsyncing depayloader");
 
-            self.depayloader.set_current_frame_index(None)?;
+            todo!();
 
             return Ok(Some(VideoStreamOutput::SendControlMessage {
                 message: ControlMessage(ControlMessageInner::SendPacket {
@@ -160,45 +160,40 @@ where
         Ok(Some(VideoStreamOutput::Timeout(self.last_now + timeout)))
     }
     fn wait_until_idr(&self) -> Duration {
-        let status = self.depayloader.status();
+        todo!();
 
-        let current = match status.current_frame_index {
-            Some(current) => current,
-            None => return Duration::ZERO,
-        };
+        // let highest = status.highest_seen_frame_index.unwrap_or(0);
 
-        let highest = status.highest_seen_frame_index.unwrap_or(0);
+        // let frame = self.depayloader.is_frame_available(FrameIndex(0));
 
-        let frame = self.depayloader.frame_status(current);
+        // let current_frame_first_seen = self.frames_first_seen.get(&current);
 
-        let current_frame_first_seen = self.frames_first_seen.get(&current);
+        // // Default when we're stuck
+        // let mut timeout = STALL_TIMEOUT.saturating_sub(self.last_now - self.last_frame);
 
-        // Default when we're stuck
-        let mut timeout = STALL_TIMEOUT.saturating_sub(self.last_now - self.last_frame);
+        // // After which time the frame can be seen as lost based on current time
+        // let current_frame_until_dropped =
+        //     current_frame_first_seen.map(|current_frame_first_seen| {
+        //         FULL_FRAME_RECEIVE_TIMEOUT.saturating_sub(self.last_now - *current_frame_first_seen)
+        //     });
 
-        // After which time the frame can be seen as lost based on current time
-        let current_frame_until_dropped =
-            current_frame_first_seen.map(|current_frame_first_seen| {
-                FULL_FRAME_RECEIVE_TIMEOUT.saturating_sub(self.last_now - *current_frame_first_seen)
-            });
+        // // likely skipped frame
+        // if highest > current
+        //     && let Some(current_frame_dropped) = current_frame_until_dropped
+        // {
+        //     timeout = timeout.min(current_frame_dropped);
+        // }
 
-        // likely skipped frame
-        if highest > current
-            && let Some(current_frame_dropped) = current_frame_until_dropped
-        {
-            timeout = timeout.min(current_frame_dropped);
-        }
+        // // incomplete frame
+        // if let Some(frame) = frame
+        //     && let Some(total) = frame.total_data_packets
+        //     && frame.received_data_packets < total
+        //     && let Some(current_frame_until_dropped) = current_frame_until_dropped
+        // {
+        //     timeout = timeout.min(current_frame_until_dropped);
+        // }
 
-        // incomplete frame
-        if let Some(frame) = frame
-            && let Some(total) = frame.total_data_packets
-            && frame.received_data_packets < total
-            && let Some(current_frame_until_dropped) = current_frame_until_dropped
-        {
-            timeout = timeout.min(current_frame_until_dropped);
-        }
-
-        timeout
+        // timeout
     }
 
     pub fn poll_output(&mut self) -> Result<VideoStreamOutput, VideoStreamError> {
@@ -234,20 +229,19 @@ where
             State::ReceiveVideo => {
                 // TODO: Delete old frame first packet receive
 
-                if let Some(frame) = self.depayloader.poll_output()? {
+                // TODO: implement this
+                if let Some(frame) = self.depayloader.frame(FrameIndex(0))? {
                     if self.first_frame.is_none() {
                         self.first_frame = Some(self.last_now);
                     }
 
                     let mut should_return_frame = false;
 
-                    if frame.frame_type == FrameType::Idr {
+                    if frame.metadata.frame_type == FrameType::Idr {
                         debug!(now = ?self.last_now, "received idr");
                         self.waiting_for_idr_since = None;
 
-                        // We're synced
-                        self.depayloader
-                            .set_current_frame_index(Some(frame.frame_index.wrapping_add(1)))?;
+                        todo!();
 
                         should_return_frame = true;
                     } else if self.waiting_for_idr_since.is_some() {
@@ -264,13 +258,13 @@ where
                     }
                 }
 
-                if let Some(timeout) = self.do_request_idr()? {
-                    return Ok(timeout);
-                }
+                // TODO: fix
+                // if let Some(timeout) = self.do_request_idr()? {
+                //     return Ok(timeout);
+                // }
 
-                Ok(VideoStreamOutput::Timeout(
-                    self.last_now + Duration::from_secs(1),
-                ))
+                // TODO: fix
+                Ok(VideoStreamOutput::Timeout(Instant::now()))
             }
         }
     }
