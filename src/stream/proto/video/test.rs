@@ -5,9 +5,8 @@ use crate::{
     stream::{
         proto::video::{
             depayloader::{
-                VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderFrameStatus,
-                VideoDepayloaderOutput, VideoDepayloaderStatus, VideoFrame,
-                create_video_reed_solomon,
+                FrameIndex, VideoDepayloader, VideoDepayloaderConfig, VideoFrame,
+                VideoFrameMetadata, create_video_reed_solomon,
             },
             packet::{
                 FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
@@ -1104,110 +1103,63 @@ fn depayloader_nofec_noparse() {
         server_version: sunshine_gen_7_431(),
     });
 
-    assert_eq!(
-        depayloader.status(),
-        VideoDepayloaderStatus {
-            current_frame_index: None,
-            highest_seen_frame_index: None,
-        }
-    );
+    // assert empty
+    assert!(!depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
 
-    depayloader.set_current_frame_index(Some(1)).unwrap();
-    assert_eq!(
-        depayloader.status(),
-        VideoDepayloaderStatus {
-            current_frame_index: Some(1),
-            highest_seen_frame_index: None,
-        }
-    );
-
+    // assert 1 packet
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(
-        depayloader.status(),
-        VideoDepayloaderStatus {
-            current_frame_index: Some(1),
-            highest_seen_frame_index: Some(1),
-        }
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
     );
-    assert_eq!(
-        depayloader.frame_status(1).unwrap(),
-        VideoDepayloaderFrameStatus {
-            frame_index: 1,
-            timestamp: Duration::ZERO,
-            received_data_packets: 1,
-            received_parity_packets: 0,
-            total_data_packets: Some(3),
-            current_block_index: 0,
-            total_blocks: 1,
-        }
-    );
-    assert_eq!(depayloader.poll_output().unwrap(), None);
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
 
+    // assert 2 packet
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(
-        depayloader.status(),
-        VideoDepayloaderStatus {
-            current_frame_index: Some(1),
-            highest_seen_frame_index: Some(1),
-        }
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
     );
-    assert_eq!(
-        depayloader.frame_status(1).unwrap(),
-        VideoDepayloaderFrameStatus {
-            frame_index: 1,
-            timestamp: Duration::ZERO,
-            received_data_packets: 2,
-            received_parity_packets: 0,
-            total_data_packets: Some(3),
-            current_block_index: 0,
-            total_blocks: 1,
-        }
-    );
-    assert_eq!(depayloader.poll_output().unwrap(), None);
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
 
+    // assert 3 packet, receive
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(
-        depayloader.status(),
-        VideoDepayloaderStatus {
-            current_frame_index: Some(1),
-            highest_seen_frame_index: Some(1),
-        }
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(0)]
     );
     assert_eq!(
-        depayloader.frame_status(1).unwrap(),
-        VideoDepayloaderFrameStatus {
-            frame_index: 1,
-            timestamp: Duration::ZERO,
-            received_data_packets: 3,
-            received_parity_packets: 0,
-            total_data_packets: Some(3),
-            current_block_index: 0,
-            total_blocks: 1,
-        }
+        depayloader.available_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
     );
     trace!("{:#?}", depayloader);
-    let Some(VideoFrame {
-        frame_index,
-        frame_type,
-        timestamp,
-        host_processing_latency,
-        buffers,
-    }) = depayloader.poll_output().unwrap()
-    else {
+    let Some(VideoFrame { metadata, buffers }) = depayloader.frame(FrameIndex(1)).unwrap() else {
         panic!("expected Frame");
     };
 
-    assert_eq!(frame_index, 1);
-    assert_eq!(frame_type, FrameType::Idr);
-    assert_eq!(timestamp, Duration::from_millis(0));
+    assert_eq!(metadata.frame_index, FrameIndex(1));
+    assert_eq!(metadata.frame_type, FrameType::Idr);
+    assert_eq!(metadata.timestamp, Duration::from_millis(0));
     assert_eq!(
-        host_processing_latency,
+        metadata.host_processing_latency,
         Some(expected_host_processing_latency)
     );
 
@@ -1217,6 +1169,15 @@ fn depayloader_nofec_noparse() {
         buffer.extend_from_slice(&data);
     }
     assert_eq!(buffer.as_slice(), expected_frame.as_slice());
+
+    // test discard
+    depayloader.discard_frame(FrameIndex(1));
+
+    assert!(!depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
 }
 
 #[test]
@@ -1231,30 +1192,27 @@ fn depayloader_nofec_h264() {
         format: VideoFormat::H264,
         server_version: sunshine_gen_7_431(),
     });
-    depayloader.set_current_frame_index(Some(1)).unwrap();
 
-    let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
+    let expected_buffers: Vec<VideoFrameBuffer<&[u8]>> = vec![
         VideoFrameBuffer {
             buffer_type: BufferType::Sps,
-            data: vec![0, 0, 1, 0x67, 3, 4],
+            data: &[0, 0, 1, 0x67, 3, 4],
         },
         VideoFrameBuffer {
             buffer_type: BufferType::Pps,
-            data: vec![0, 0, 1, 0x68, 9, 9, 8, 7, 6, 5],
+            data: &[0, 0, 1, 0x68, 9, 9, 8, 7, 6, 5],
         },
         VideoFrameBuffer {
             // idr
             buffer_type: BufferType::PicData,
-            data: vec![0, 0, 1, 0x65, 0, 1],
+            data: &[0, 0, 1, 0x65, 0, 1],
         },
     ];
     let expected_frame = expected_buffers
         .iter()
-        .flat_map(|buf| &buf.data)
+        .flat_map(|buf| buf.data)
         .copied()
         .collect::<Vec<_>>();
-
-    assert_eq!(expected_frame.len(), 30 - VideoFrameHeader::SIZE);
 
     let mut payloader = VideoPayloader::new(VideoPayloaderConfig {
         server_version,
@@ -1263,26 +1221,62 @@ fn depayloader_nofec_h264() {
     });
     payloader.push_frame(0, None, FrameType::Idr, &expected_frame);
 
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
-    assert_eq!(depayloader.poll_output().unwrap(), None);
+    // assert empty
+    assert!(!depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
 
+    // assert 1 packet
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
-    assert_eq!(depayloader.poll_output().unwrap(), None);
-
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(
-        depayloader.poll_output().unwrap(),
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
+    );
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+
+    // assert 2 packet
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
+    );
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+
+    // assert 3 packet
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
+    );
+    assert_eq!(
+        depayloader.available_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
+    );
+    assert_eq!(
+        depayloader.frame(FrameIndex(1)).unwrap(),
         Some(VideoFrame {
-            frame_type: FrameType::Idr,
-            frame_index: 1,
-            timestamp: Duration::from_millis(0),
-            host_processing_latency: None,
+            metadata: VideoFrameMetadata {
+                frame_type: FrameType::Idr,
+                frame_index: FrameIndex(1),
+                timestamp: Duration::from_millis(0),
+                host_processing_latency: None,
+            },
             buffers: expected_buffers,
         })
     );
@@ -1300,30 +1294,29 @@ fn depayloader_nofec_h265() {
         format: VideoFormat::H265,
         server_version: sunshine_gen_7_431(),
     });
-    depayloader.set_current_frame_index(Some(1)).unwrap();
 
-    let expected_buffers: Vec<VideoFrameBuffer<Vec<u8>>> = vec![
+    let expected_buffers: Vec<VideoFrameBuffer<&[u8]>> = vec![
         VideoFrameBuffer {
             buffer_type: BufferType::Vps,
-            data: vec![0, 0, 1, 0x40, 1, 4, 1, 2, 3, 58, 67],
+            data: &[0, 0, 1, 0x40, 1, 4, 1, 2, 3, 58, 67],
         },
         VideoFrameBuffer {
             buffer_type: BufferType::Sps,
-            data: vec![0, 0, 1, 0x42, 1, 4, 5, 56],
+            data: &[0, 0, 1, 0x42, 1, 4, 5, 56],
         },
         VideoFrameBuffer {
             buffer_type: BufferType::Pps,
-            data: vec![0, 0, 1, 0x44, 1, 6, 7, 33],
+            data: &[0, 0, 1, 0x44, 1, 6, 7, 33],
         },
         VideoFrameBuffer {
             // idr
             buffer_type: BufferType::PicData,
-            data: vec![0, 0, 1, 0x28, 1, 1, 8, 5, 38, 120],
+            data: &[0, 0, 1, 0x28, 1, 1, 8, 5, 38, 120],
         },
     ];
     let expected_frame = expected_buffers
         .iter()
-        .flat_map(|buf| &buf.data)
+        .flat_map(|buf| buf.data)
         .copied()
         .collect::<Vec<_>>();
 
@@ -1336,26 +1329,49 @@ fn depayloader_nofec_h265() {
     });
     payloader.push_frame(0, None, FrameType::Idr, &expected_frame);
 
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
-    assert_eq!(depayloader.poll_output().unwrap(), None);
+    // assert empty
+    assert!(!depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
 
+    // assert 1 packet
     depayloader
         .handle_packet(payloader.poll_packet().unwrap().unwrap())
         .unwrap();
-    assert_eq!(depayloader.poll_output().unwrap(), None);
-
-    depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
-        .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(
-        depayloader.poll_output().unwrap(),
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
+    );
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+
+    // assert 2 packet
+    depayloader
+        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .unwrap();
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(!depayloader.is_frame_available(FrameIndex(1)));
+    assert_eq!(
+        depayloader.known_frames().collect::<Vec<_>>(),
+        vec![FrameIndex(1)]
+    );
+    assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
+    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+
+    // assert 3 packet
+    assert_eq!(
+        depayloader.frame(FrameIndex(1)).unwrap(),
         Some(VideoFrame {
-            frame_type: FrameType::Idr,
-            frame_index: 1,
-            timestamp: Duration::from_millis(0),
-            host_processing_latency: None,
+            metadata: VideoFrameMetadata {
+                frame_type: FrameType::Idr,
+                frame_index: FrameIndex(1),
+                timestamp: Duration::from_millis(0),
+                host_processing_latency: None,
+            },
             buffers: expected_buffers,
         })
     );

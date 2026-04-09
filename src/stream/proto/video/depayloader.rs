@@ -193,6 +193,9 @@ impl VideoDepayloader {
         self.config.packet_size - VideoHeader::SIZE
     }
 
+    pub fn is_frame_known(&self, frame_index: FrameIndex) -> bool {
+        self.frames.contains_key(&frame_index)
+    }
     pub fn is_frame_available(&self, frame_index: FrameIndex) -> bool {
         self.constructed_frame(frame_index).is_some()
     }
@@ -200,18 +203,15 @@ impl VideoDepayloader {
     /// Iterates over all known frames of this depayloader.
     /// This will also contain non constructable frames.
     pub fn known_frames(&self) -> impl Iterator<Item = FrameIndex> {
-        // TODO
-        todo!();
-
-        [].into_iter()
+        self.frames.keys().cloned()
     }
     /// Return all currently constructed and available frames.
     /// Every returned frame can query [Self::frame_metadata] or [Self::frame] without an error.
     pub fn available_frames(&self) -> impl Iterator<Item = FrameIndex> {
-        // TODO
-        todo!();
-
-        [].into_iter()
+        self.frames
+            .iter()
+            .filter(|(_, frame)| frame.current_block >= frame.total_blocks)
+            .map(|(frame_index, _)| *frame_index)
     }
 
     fn constructed_frame(&self, frame_index: FrameIndex) -> Option<&[u8]> {
@@ -238,7 +238,7 @@ impl VideoDepayloader {
 
         // TODO: timestamp
 
-        let (metadata, _) = self.parse_frame_header(frame_index, Duration::ZERO, &full_frame);
+        let (metadata, _) = self.parse_frame_header(frame_index, Duration::ZERO, full_frame);
 
         Ok(Some(metadata))
     }
