@@ -48,7 +48,7 @@ pub struct VideoDepayloaderConfig {
     pub server_version: ServerVersion,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FrameIndex(pub u32);
 
 impl Deref for FrameIndex {
@@ -121,6 +121,7 @@ pub struct VideoFrame<Buf> {
     /// - H264: each buffer starts with an annex b start code followed by a h264 nalu.
     /// - H265: each buffer starts with an annex b start code followed by a h265 nalu.
     /// - Av1: no specific point where they're being split
+    // TODO: use some SmallVec or something for stack alloc?
     pub buffers: Vec<VideoFrameBuffer<Buf>>,
 }
 
@@ -202,12 +203,12 @@ impl VideoDepayloader {
 
     /// Iterates over all known frames of this depayloader.
     /// This will also contain non constructable frames.
-    pub fn known_frames(&self) -> impl Iterator<Item = FrameIndex> {
+    pub fn known_frames(&self) -> impl Iterator<Item = FrameIndex> + use<'_> {
         self.frames.keys().cloned()
     }
     /// Return all currently constructed and available frames.
     /// Every returned frame can query [Self::frame_metadata] or [Self::frame] without an error.
-    pub fn available_frames(&self) -> impl Iterator<Item = FrameIndex> {
+    pub fn available_frames(&self) -> impl Iterator<Item = FrameIndex> + use<'_> {
         self.frames
             .iter()
             .filter(|(_, frame)| frame.current_block > frame.last_block_index)
@@ -376,7 +377,6 @@ impl VideoDepayloader {
         // Make sure to skip frame header
         let frame_data = &full_frame[frame_header_len..];
 
-        // TODO: h264 and h265 use bitstream parsing, cache that data for quicker access
         let mut metadata = VideoFrameMetadata {
             frame_index,
             frame_type: frame_header.frame_type,
@@ -384,6 +384,7 @@ impl VideoDepayloader {
             timestamp,
         };
 
+        // TODO: h264 and h265 use bitstream parsing, cache that data for quicker access, for now we're just also using the parse_frame_data
         self.parse_frame_data(&mut metadata, frame_data);
 
         (metadata, frame_data)
@@ -606,15 +607,6 @@ impl VideoDepayloader {
             }
 
             // update available shards
-            if frame.current_block_available_shards
-                [packet.video_header.fec_info.shard_index as usize]
-            {
-                debug!(
-                    rtp_header = ?packet.rtp_header,
-                    video_header = ?packet.video_header,
-                    "received shard twice"
-                );
-            }
             frame.current_block_available_shards
                 [packet.video_header.fec_info.shard_index as usize] = true;
 
@@ -701,6 +693,8 @@ impl VideoDepayloader {
 
         // -- use reed solomon reconstruction if required
         if parity_shards > 0 {
+            trace!(frame_index = ?frame_index, block_index = block_index, "reconstructing frame with reed solomon");
+
             let mut shards: [_; MAX_VIDEO_SHARDS_PER_FEC_BLOCK] = array::from_fn(|_| ArrayShard {
                 len: None,
                 array: &mut [],

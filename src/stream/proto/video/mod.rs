@@ -5,7 +5,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument};
+use tracing::{Level, debug, info, instrument, trace, trace_span};
 
 use crate::stream::{
     AesKey,
@@ -86,7 +86,6 @@ enum State {
     ReceiveVideo,
 }
 
-// TODO: maybe rename this into video stream proto?
 pub struct VideoStream<Crypto> {
     crypto_backend: Crypto,
     aes_key: Option<AesKey>,
@@ -95,7 +94,8 @@ pub struct VideoStream<Crypto> {
     depayloader: VideoDepayloader,
     first_frame: Option<Instant>,
     last_frame: Instant,
-    frames_first_seen: HashMap<u32, Instant>,
+    current_frame: Option<FrameIndex>,
+    frames_first_seen: HashMap<FrameIndex, Instant>,
     waiting_for_idr_since: Option<Instant>,
 }
 
@@ -121,12 +121,14 @@ where
             first_frame: None,
             frames_first_seen: Default::default(),
             depayloader,
+            // the stream starts at frame index 1
+            current_frame: None,
             last_frame: now,
             waiting_for_idr_since: Some(now),
         }
     }
 
-    fn do_request_idr(&mut self) -> Result<Option<VideoStreamOutput>, VideoStreamError> {
+    fn do_request_idr(&mut self) -> Result<VideoStreamOutput<'static>, VideoStreamError> {
         // request an idr if needed
         let timeout = self.wait_until_idr();
 
@@ -147,56 +149,51 @@ where
 
             info!(time_until_idr = ?timeout, now = ?self.last_now, waiting_for_idr_since = ?self.waiting_for_idr_since, "requesting idr and unsyncing depayloader");
 
-            todo!();
-
-            return Ok(Some(VideoStreamOutput::SendControlMessage {
+            return Ok(VideoStreamOutput::SendControlMessage {
                 message: ControlMessage(ControlMessageInner::SendPacket {
                     packet: ControlPacket::RequestIdr,
                     force: true,
                 }),
-            }));
+            });
         }
 
-        Ok(Some(VideoStreamOutput::Timeout(self.last_now + timeout)))
+        Ok(VideoStreamOutput::Timeout(self.last_now + timeout))
     }
     fn wait_until_idr(&self) -> Duration {
-        todo!();
+        // Default when we're stuck
+        let mut timeout = STALL_TIMEOUT.saturating_sub(self.last_now - self.last_frame);
 
-        // let highest = status.highest_seen_frame_index.unwrap_or(0);
+        let Some(current) = self.current_frame else {
+            return timeout;
+        };
+        let highest = self.depayloader.known_frames().max().unwrap_or(current);
 
-        // let frame = self.depayloader.is_frame_available(FrameIndex(0));
+        let frame_known = self.depayloader.is_frame_known(FrameIndex(0));
 
-        // let current_frame_first_seen = self.frames_first_seen.get(&current);
+        let current_frame_first_seen = self.frames_first_seen.get(&current);
 
-        // // Default when we're stuck
-        // let mut timeout = STALL_TIMEOUT.saturating_sub(self.last_now - self.last_frame);
+        // After which time the frame can be seen as lost based on current time
+        let current_frame_until_dropped =
+            current_frame_first_seen.map(|current_frame_first_seen| {
+                FULL_FRAME_RECEIVE_TIMEOUT.saturating_sub(self.last_now - *current_frame_first_seen)
+            });
 
-        // // After which time the frame can be seen as lost based on current time
-        // let current_frame_until_dropped =
-        //     current_frame_first_seen.map(|current_frame_first_seen| {
-        //         FULL_FRAME_RECEIVE_TIMEOUT.saturating_sub(self.last_now - *current_frame_first_seen)
-        //     });
+        // likely skipped frame
+        if highest > current
+            && let Some(current_frame_dropped) = current_frame_until_dropped
+        {
+            timeout = timeout.min(current_frame_dropped);
+        }
 
-        // // likely skipped frame
-        // if highest > current
-        //     && let Some(current_frame_dropped) = current_frame_until_dropped
-        // {
-        //     timeout = timeout.min(current_frame_dropped);
-        // }
+        // incomplete frame
+        if frame_known && let Some(current_frame_until_dropped) = current_frame_until_dropped {
+            timeout = timeout.min(current_frame_until_dropped);
+        }
 
-        // // incomplete frame
-        // if let Some(frame) = frame
-        //     && let Some(total) = frame.total_data_packets
-        //     && frame.received_data_packets < total
-        //     && let Some(current_frame_until_dropped) = current_frame_until_dropped
-        // {
-        //     timeout = timeout.min(current_frame_until_dropped);
-        // }
-
-        // timeout
+        timeout
     }
 
-    pub fn poll_output(&mut self) -> Result<VideoStreamOutput, VideoStreamError> {
+    pub fn poll_output(&mut self) -> Result<VideoStreamOutput<'_>, VideoStreamError> {
         match &mut self.state {
             State::SendPing {
                 last_send,
@@ -227,44 +224,79 @@ where
                 Ok(VideoStreamOutput::Send { data: packet })
             }
             State::ReceiveVideo => {
-                // TODO: Delete old frame first packet receive
+                let mut frame_to_return = None;
 
-                // TODO: implement this
-                if let Some(frame) = self.depayloader.frame(FrameIndex(0))? {
+                // Add the first seen numbers
+                for frame_index in self.depayloader.known_frames() {
+                    self.frames_first_seen
+                        .entry(frame_index)
+                        .or_insert(self.last_now);
+                }
+
+                if let Some(current_frame) = self.current_frame {
+                    // discard the old frame
+                    {
+                        // TODO: maybe add a lower bound in the depayloader directly?
+                        let mut known_frames_len = 0;
+                        let mut known_frames: [FrameIndex; 200] = [FrameIndex(0); _];
+                        let mut known_frames_iter = self.depayloader.known_frames();
+                        for known_frame in known_frames_iter.by_ref() {
+                            if known_frames.len() <= known_frames_len {
+                                break;
+                            }
+
+                            known_frames[known_frames_len] = known_frame;
+                            known_frames_len += 1;
+                        }
+                        drop(known_frames_iter);
+
+                        for known_frame in known_frames[0..known_frames_len].iter() {
+                            if *known_frame < current_frame {
+                                self.depayloader.discard_frame(*known_frame);
+                            }
+                        }
+                    }
+
+                    // If we're synced just use the current frame
+                    if self.depayloader.is_frame_available(current_frame) {
+                        frame_to_return = Some(current_frame);
+                    }
+                }
+
+                if self.waiting_for_idr_since.is_some() || self.current_frame.is_none() {
+                    // Search for idrs, if we're waiting for one, or we're not in sync
+                    for frame_index in self.depayloader.available_frames() {
+                        let frame = self
+                            .depayloader
+                            .frame_metadata(frame_index)?
+                            .expect("frame is available but couldn't be produced");
+
+                        if frame.frame_type == FrameType::Idr {
+                            debug!(now = ?self.last_now, frame_metadata = ?frame, "received idr");
+                            self.waiting_for_idr_since = None;
+
+                            frame_to_return = Some(frame.frame_index);
+                        }
+                    }
+                }
+
+                if let Some(frame_index) = frame_to_return {
                     if self.first_frame.is_none() {
                         self.first_frame = Some(self.last_now);
                     }
 
-                    let mut should_return_frame = false;
+                    let frame = self
+                        .depayloader
+                        .frame(frame_index)?
+                        .expect("failed to get frame");
 
-                    if frame.metadata.frame_type == FrameType::Idr {
-                        debug!(now = ?self.last_now, "received idr");
-                        self.waiting_for_idr_since = None;
+                    self.current_frame = Some(FrameIndex(*frame_index + 1));
+                    self.last_frame = self.last_now;
 
-                        todo!();
-
-                        should_return_frame = true;
-                    } else if self.waiting_for_idr_since.is_some() {
-                        // TODO: keep some frames because the idr might arrive late
-                        debug!(now = ?self.last_now, "dropping received frame because waiting for an idr");
-                    } else {
-                        should_return_frame = true;
-                    }
-
-                    if should_return_frame {
-                        self.last_frame = self.last_now;
-
-                        return Ok(VideoStreamOutput::VideoFrame(frame));
-                    }
+                    return Ok(VideoStreamOutput::VideoFrame(frame));
                 }
 
-                // TODO: fix
-                // if let Some(timeout) = self.do_request_idr()? {
-                //     return Ok(timeout);
-                // }
-
-                // TODO: fix
-                Ok(VideoStreamOutput::Timeout(Instant::now()))
+                self.do_request_idr()
             }
         }
     }
@@ -284,12 +316,6 @@ where
                 }
 
                 self.state = State::ReceiveVideo;
-
-                // TODO: remove this randomness, just for testing
-                // if rand::random_bool(0.07) {
-                //     info!("TESTING: dropping packet");
-                //     return Ok(());
-                // }
 
                 // TODO: move this into the depayloader
                 let data = if let Some(aes_key) = self.aes_key.as_ref() {
@@ -321,7 +347,7 @@ where
                     data.to_vec()
                 };
 
-                self.depayloader.handle_packet(&data).unwrap();
+                self.depayloader.handle_packet(&data)?;
 
                 Ok(())
             }
@@ -340,5 +366,3 @@ impl<Crypto> Drop for VideoStream<Crypto> {
         info!("terminated video stream");
     }
 }
-
-// TODO: test idr requesting logic?
