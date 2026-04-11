@@ -908,11 +908,11 @@ fn control_thread_receiver(
 
             // Receive data and create input
             let input = match socket.recv_from(&mut recv_buffer) {
-                Ok((len, addr)) => ControlStreamInput::Host(ControlHostInput::Receive {
+                Ok((len, addr)) => ControlStreamInput::Receive {
                     now: Instant::now(),
                     addr,
                     data: &mut recv_buffer[0..len],
-                }),
+                },
                 Err(err)
                     if matches!(
                         err.kind(),
@@ -920,7 +920,7 @@ fn control_thread_receiver(
                     ) =>
                 {
                     // handles read timeout
-                    ControlStreamInput::Host(ControlHostInput::Timeout(Instant::now()))
+                    ControlStreamInput::Timeout(Instant::now())
                 }
                 Err(err) => {
                     handle_error(&stop, err.into());
