@@ -155,8 +155,12 @@ pub struct ControlStreamConfig {
 
 #[derive(Debug)]
 pub enum ControlStreamInput<'a> {
-    // TODO: don't use the host input, but put this into the enum or another new enum
-    Host(ControlHostInput<'a>),
+    Receive {
+        now: Instant,
+        addr: SocketAddr,
+        data: &'a [u8],
+    },
+    Timeout(Instant),
     /// A message received from the main [MoonlightStreamProto](super::MoonlightStreamProto) or the [VideoStream](super::video::VideoStream)
     Message {
         now: Instant,
@@ -767,12 +771,16 @@ where
 
     pub fn handle_input(&mut self, input: ControlStreamInput) -> Result<(), ControlError> {
         match input {
-            ControlStreamInput::Host(input) => {
-                let (ControlHostInput::Timeout(now) | ControlHostInput::Receive { now, .. }) =
-                    &input;
-                self.last_now = *now;
+            ControlStreamInput::Timeout(now) => {
+                self.last_now = now;
 
-                self.host.handle_input(input)?;
+                self.host.handle_input(ControlHostInput::Timeout(now))?;
+            }
+            ControlStreamInput::Receive { now, addr, data } => {
+                self.last_now = now;
+
+                self.host
+                    .handle_input(ControlHostInput::Receive { now, addr, data })?;
             }
             ControlStreamInput::Message { now, message } => {
                 self.last_now = now;

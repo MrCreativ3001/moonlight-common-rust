@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, net::SocketAddr, time::Instant};
+use std::{collections::HashMap, net::SocketAddr, time::Instant};
 
 use rusty_enet::{Packet, PacketKind, PeerID, PeerState};
 use thiserror::Error;
