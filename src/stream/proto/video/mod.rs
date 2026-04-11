@@ -317,37 +317,7 @@ where
 
                 self.state = State::ReceiveVideo;
 
-                // TODO: move this into the depayloader
-                let data = if let Some(aes_key) = self.aes_key.as_ref() {
-                    // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/VideoStream.c#L213-L220
-
-                    // TODO: check size before access
-                    let encryption_header = EncryptedVideoHeader::deserialize(
-                        data[0..EncryptedVideoHeader::SIZE]
-                            .as_array::<{ EncryptedVideoHeader::SIZE }>()
-                            .unwrap(),
-                    );
-
-                    // TODO: store this buffer inside ourself's struct because the size is known, but check just to be careful beforehand!: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/VideoStream.c#L96
-                    let mut decrypted = vec![0; data.len() - EncryptedVideoHeader::SIZE];
-
-                    // TODO: fix unwrap
-                    let size = self.crypto_backend.decrypt(
-                        CipherAlgorithm::Aes128Gcm,
-                        &aes_key, // TODO: get key <---
-                        &encryption_header.iv,
-                        Some(&encryption_header.tag),
-                        &data[32..],
-                        &mut decrypted,
-                    )?;
-                    decrypted.resize(size, 0);
-
-                    decrypted
-                } else {
-                    data.to_vec()
-                };
-
-                self.depayloader.handle_packet(&data)?;
+                self.depayloader.handle_packet(data)?;
 
                 Ok(())
             }

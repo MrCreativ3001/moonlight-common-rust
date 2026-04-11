@@ -154,10 +154,8 @@ pub struct VideoHeader {
     pub frame_index: u32,
     /// See the struct for more info
     pub flags: VideoHeaderFlags,
-    // TODO: The LTR PR adds this as extraFlags: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/Video.h#L25
-    // https://github.com/moonlight-stream/moonlight-common-c/blob/305993b01322aeb7710a5443960774ecd391c55c/src/Video.h#L31
-    /// Usually just zero
-    pub reserved: u8,
+    /// See [VideoHeaderExtraFlags] for more info
+    pub extra_flags: VideoHeaderExtraFlags,
     /// Should contain 0x10
     ///
     /// References:
@@ -172,6 +170,22 @@ pub struct VideoHeader {
     pub fec_info: VideoFecInfo,
 }
 
+bitflags! {
+    /// Extra Flags for each packet.
+    ///
+    /// References:
+    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/305993b01322aeb7710a5443960774ecd391c55c/src/Video.h#L31
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub struct VideoHeaderExtraFlags: u8 {
+        /// Used for LTR frames.
+        ///
+        /// References:
+        /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/Video.h#L25
+        /// - PR: https://github.com/moonlight-stream/moonlight-common-c/pull/122
+        const LTR_FRAME = 0x01;
+    }
+}
+
 impl VideoHeader {
     pub const SIZE: usize = 16;
 
@@ -179,7 +193,7 @@ impl VideoHeader {
         let stream_packet_index = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
         let frame_index = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
         let flags = VideoHeaderFlags::from_bits_retain(buffer[8]);
-        let reserved = buffer[9];
+        let extra_flags = VideoHeaderExtraFlags::from_bits_retain(buffer[9]);
         let multi_fec_flags = buffer[10];
         let multi_fec_blocks = VideoMultiFecBlocks::deserialize(buffer[11]);
         let fec_info = VideoFecInfo::deserialize(u32::from_le_bytes([
@@ -190,7 +204,7 @@ impl VideoHeader {
             stream_packet_index,
             frame_index,
             flags,
-            reserved,
+            extra_flags,
             multi_fec_flags,
             multi_fec_blocks,
             fec_info,
@@ -201,7 +215,7 @@ impl VideoHeader {
         buffer[0..4].copy_from_slice(&self.stream_packet_index.to_le_bytes());
         buffer[4..8].copy_from_slice(&self.frame_index.to_le_bytes());
         buffer[8] = self.flags.bits();
-        buffer[9] = self.reserved;
+        buffer[9] = self.extra_flags.bits();
         buffer[10] = self.multi_fec_flags;
         buffer[11] = self.multi_fec_blocks.serialize();
         buffer[12..16].copy_from_slice(&self.fec_info.serialize().to_le_bytes());

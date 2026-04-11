@@ -45,7 +45,9 @@ fn main() {
     let crypto_backend = OpenSSLCryptoBackend;
 
     // -- Load identity
-    let (client_identifier, client_secret, server_identifier) = try_load_identity().unwrap();
+    let Some((client_identifier, client_secret, server_identifier)) = try_load_identity() else {
+        panic!("Please firstly use the pair example to pair to a host.");
+    };
 
     client
         .set_identity(client_identifier, client_secret, server_identifier)

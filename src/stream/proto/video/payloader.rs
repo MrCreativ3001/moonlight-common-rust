@@ -13,8 +13,8 @@ use crate::{
         depayloader::create_video_reed_solomon,
         packet::{
             FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION,
-            VideoFecInfo, VideoFrameHeader, VideoHeader, VideoHeaderFlags, VideoMultiFecBlocks,
-            fec_percentage_from, fec_percentage_to_parity_shards,
+            VideoFecInfo, VideoFrameHeader, VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags,
+            VideoMultiFecBlocks, fec_percentage_from, fec_percentage_to_parity_shards,
         },
     },
 };
@@ -206,7 +206,7 @@ impl VideoPayloader {
                 stream_packet_index: (current_sequence_number as u32) << 8,
                 frame_index: self.frame_index,
                 flags: VideoHeaderFlags::from_index(current_packet_count, data_shards_count, true),
-                reserved: 0,
+                extra_flags: VideoHeaderExtraFlags::empty(),
                 multi_fec_flags: 0x10,
                 multi_fec_blocks,
                 fec_info: VideoFecInfo {
@@ -326,8 +326,9 @@ impl VideoPayloader {
                 let video_header = VideoHeader {
                     stream_packet_index: (current_sequence_number as u32) << 8,
                     frame_index: self.frame_index,
-                    flags: VideoHeaderFlags::empty(),
-                    reserved: 0,
+                    // all fec packets have CONTAINS_VIDEO_DATA: https://github.com/LizardByte/Sunshine/blob/4ea331e541d57bb8c4827a717c708cdc1b34eadb/src/stream.cpp#L1440
+                    flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA,
+                    extra_flags: VideoHeaderExtraFlags::empty(),
                     multi_fec_flags: 0x10,
                     multi_fec_blocks,
                     fec_info: VideoFecInfo {

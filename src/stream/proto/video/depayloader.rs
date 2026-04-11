@@ -22,8 +22,6 @@ use crate::{
     },
 };
 
-// TODO: what happens after frame loss: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/VideoDepacketizer.c#L1128-L1156
-
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoDepayloaderError {
     #[error("a received video rtp packet doesn't have the configured packet size")]
@@ -172,10 +170,7 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
     ReedSolomon::new(data_shards, parity_shards).unwrap()
 }
 
-// TODO: this should also handle decryption
-
 // TODO: how to handle fec? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L455-L469
-// TODO: encryption? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
 
 impl VideoDepayloader {
     /// Creates a new VideoDepayloader
@@ -646,10 +641,10 @@ impl VideoDepayloader {
 
             let shard_start = frame.current_block_buffer_offset + block_shard_offset;
             let shard_end = shard_start + payload_len;
-
             if frame.buffer.len() < shard_end {
                 frame.buffer.resize(shard_end, 0);
             }
+
             frame.buffer[shard_start..shard_end].copy_from_slice(data);
 
             false
@@ -693,7 +688,14 @@ impl VideoDepayloader {
 
         // -- use reed solomon reconstruction if required
         if parity_shards > 0 {
-            trace!(frame_index = ?frame_index, block_index = block_index, "reconstructing frame with reed solomon");
+            trace!(frame_index = ?frame_index, block_index = block_index, data_shards = data_shards, parity_shards = parity_shards, total_data_shards = total_data_shards, total_parity_shards = total_parity_shards, "reconstructing frame with reed solomon");
+
+            // make sure the frame buffer is big enough to fit all data shards in this block into it, this is important for fec reconstruction later
+            let full_block_len = total_data_shards * payload_len;
+            let required_buffer_len = frame.current_block_buffer_offset + full_block_len;
+            if frame.buffer.len() < required_buffer_len {
+                frame.buffer.resize(required_buffer_len, 0);
+            }
 
             let mut shards: [_; MAX_VIDEO_SHARDS_PER_FEC_BLOCK] = array::from_fn(|_| ArrayShard {
                 len: None,
@@ -726,10 +728,13 @@ impl VideoDepayloader {
                 };
             }
 
+            trace!(shards = ?shards[0..(total_data_shards + total_parity_shards)], "data shard");
+
             // reconstruct
             let reed_solomon = create_video_reed_solomon(total_data_shards, total_parity_shards);
 
-            reed_solomon.reconstruct_data(&mut shards)?;
+            reed_solomon
+                .reconstruct_data(&mut shards[0..(total_data_shards + total_parity_shards)])?;
         }
 
         // prepare frame for next block
@@ -738,14 +743,44 @@ impl VideoDepayloader {
         frame.current_block_total_data_shards = None;
         frame.current_block_buffer_offset += total_data_shards * payload_len;
 
-        // drop all packets related to this frame
-        // TODO
+        // drop all packets related to this frame, if the frame is complete
+        if frame.last_block_index > frame.current_block {
+            self.packets
+                .retain(|_, packet| packet.video_header.frame_index != *frame_index);
+        }
 
         Ok(true)
     }
 
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoDepayloaderError> {
         // Wolf impl: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L234-L268
+
+        // TODO: encryption support?
+        // let data = if let Some(aes_key) = self.aes_key.as_ref() {
+        //     // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
+
+        //     let encryption_header = EncryptedVideoHeader::deserialize(
+        //         data[0..EncryptedVideoHeader::SIZE]
+        //             .as_array::<{ EncryptedVideoHeader::SIZE }>()
+        //             .unwrap(),
+        //     );
+
+        //     let mut decrypted = vec![0; data.len() - EncryptedVideoHeader::SIZE];
+
+        //     let size = self.crypto_backend.decrypt(
+        //         CipherAlgorithm::Aes128Gcm,
+        //         &aes_key,
+        //         &encryption_header.iv,
+        //         Some(&encryption_header.tag),
+        //         &data[32..],
+        //         &mut decrypted,
+        //     )?;
+        //     decrypted.resize(size, 0);
+
+        //     decrypted
+        // } else {
+        //     data.to_vec()
+        // };
 
         // TODO: for encrypted packets we should first verify the packet and then do any errors
         if packet.len() != RtpVideoHeader::SIZE + self.config.packet_size {
@@ -805,7 +840,7 @@ impl VideoDepayloader {
             block_index = block_index.min(frame.current_block);
         }
 
-        while let Ok(true) = self.try_construct_fec_block(FrameIndex(frame_index), block_index) {
+        while self.try_construct_fec_block(FrameIndex(frame_index), block_index)? {
             block_index = block_index.saturating_add(1);
         }
 
