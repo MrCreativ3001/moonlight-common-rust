@@ -30,7 +30,7 @@ use crate::{
             video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
         },
         std::{ringbuffer::RingBuffer, signal::StopSignal},
-        video::{ColorSpace, FrameType, VideoDecodeUnit, VideoDecoder, VideoFrameBuffer},
+        video::VideoDecoder,
     },
 };
 
@@ -653,86 +653,68 @@ where
         let mut started = false;
 
         loop {
-            let poll_output = match video_stream.poll_output() {
-                Ok(value) => value,
-                Err(err) => {
-                    handle_error(&stop, err.into());
-                    break;
-                }
-            };
-
-            let timeout = match poll_output {
-                VideoStreamOutput::Send { data } => {
-                    if let Err(err) = socket.send(&data) {
+            let timeout = {
+                let poll_output = match video_stream.poll_output() {
+                    Ok(value) => value,
+                    Err(err) => {
                         handle_error(&stop, err.into());
                         break;
                     }
-                    continue;
-                }
-                // TODO: setup?
-                // VideoStreamOutput::Setup => {
-                //     // TODO: audio config
-                //
-                //     continue;
-                // }
-                VideoStreamOutput::VideoFrame(frame) => {
-                    if !started {
-                        let mut first_frame = shared_inner
-                            .first_frame
+                };
+
+                match poll_output {
+                    VideoStreamOutput::Send { data } => {
+                        if let Err(err) = socket.send(&data) {
+                            handle_error(&stop, err.into());
+                            break;
+                        }
+                        continue;
+                    }
+                    // TODO: setup?
+                    // VideoStreamOutput::Setup => {
+                    //     // TODO: audio config
+                    //
+                    //     continue;
+                    // }
+                    VideoStreamOutput::VideoFrame(decode_unit) => {
+                        if !started {
+                            let mut first_frame = shared_inner
+                                .first_frame
+                                .lock()
+                                .expect("failed to get FirstFrame");
+                            first_frame.has_video = true;
+
+                            video_decoder.start();
+
+                            started = true;
+                        }
+
+                        video_decoder.submit_decode_unit(decode_unit);
+                        continue;
+                    }
+                    VideoStreamOutput::SendControlMessage { message } => {
+                        // grab the control stream and send a packet
+
+                        let mut control_stream = shared_inner
+                            .control_stream
                             .lock()
-                            .expect("failed to get FirstFrame");
-                        first_frame.has_video = true;
+                            .expect("failed to get lock on ControlStream");
+                        let control_stream = control_stream
+                            .as_mut()
+                            .expect("failed to get ControlStream");
 
-                        video_decoder.start();
+                        if let Err(err) = control_stream.handle_input(ControlStreamInput::Message {
+                            now: Instant::now(),
+                            message,
+                        }) {
+                            handle_error(&stop, err.into());
+                            break;
+                        }
 
-                        started = true;
+                        continue;
                     }
-
-                    let buffers = frame
-                        .buffers
-                        .iter()
-                        .map(|x| VideoFrameBuffer {
-                            buffer_type: x.buffer_type,
-                            data: x.data,
-                        })
-                        .collect::<Vec<_>>();
-
-                    let decode_unit = VideoDecodeUnit {
-                        frame_number: *frame.metadata.frame_index as i32,
-                        color_space: ColorSpace::Rec709,
-                        // TODO
-                        frame_type: FrameType::PFrame,
-                        frame_processing_latency: frame.metadata.host_processing_latency,
-                        hdr_active: false,
-                        timestamp: frame.metadata.timestamp,
-                        buffers: &buffers,
-                    };
-
-                    video_decoder.submit_decode_unit(decode_unit);
-                    continue;
+                    VideoStreamOutput::Timeout(timeout) => timeout,
                 }
-                VideoStreamOutput::SendControlMessage { message } => {
-                    // grab the control stream and send a packet
-
-                    let mut control_stream = shared_inner
-                        .control_stream
-                        .lock()
-                        .expect("failed to get lock on ControlStream");
-                    let control_stream = control_stream
-                        .as_mut()
-                        .expect("failed to get ControlStream");
-
-                    if let Err(err) = control_stream.handle_input(ControlStreamInput::Message {
-                        now: Instant::now(),
-                        message,
-                    }) {
-                        handle_error(&stop, err.into());
-                        break;
-                    }
-
-                    continue;
-                }
-                VideoStreamOutput::Timeout(timeout) => timeout,
             };
 
             let mut timeout = timeout.saturating_duration_since(Instant::now());

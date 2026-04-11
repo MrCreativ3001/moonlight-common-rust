@@ -5,8 +5,8 @@ use crate::{
     stream::{
         proto::video::{
             depayloader::{
-                FrameIndex, VideoDepayloader, VideoDepayloaderConfig, VideoFrame,
-                VideoFrameMetadata, create_video_reed_solomon,
+                VideoDepayloader, VideoDepayloaderConfig, VideoFrame, VideoFrameMetadata,
+                create_video_reed_solomon,
             },
             packet::{
                 FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
@@ -15,7 +15,9 @@ use crate::{
             },
             payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
         },
-        video::{BufferType, VideoFormat, VideoFrameBuffer},
+        video::{
+            self, BufferType, FrameIndex, VideoDecodeUnitBuffers, VideoFormat, VideoFrameBuffer,
+        },
     },
     test::init_test,
 };
@@ -1309,13 +1311,19 @@ fn depayloader_nofec_noparse() {
         vec![FrameIndex(1)]
     );
     trace!("{:#?}", depayloader);
-    let Some(VideoFrame { metadata, buffers }) = depayloader.frame(FrameIndex(1)).unwrap() else {
+    let Some(VideoFrame {
+        metadata,
+        parsed_frame_type,
+        buffers,
+    }) = depayloader.frame(FrameIndex(1)).unwrap()
+    else {
         panic!("expected Frame");
     };
     trace!(metadata = ?metadata, buffers = ?buffers);
 
     assert_eq!(metadata.frame_index, FrameIndex(1));
     assert_eq!(metadata.frame_type, FrameType::Idr);
+    assert_eq!(parsed_frame_type, video::FrameType::Idr);
     assert_eq!(metadata.timestamp, Duration::from_millis(0));
     assert_eq!(
         metadata.host_processing_latency,
@@ -1352,10 +1360,10 @@ fn depayloader_nofec_h264() {
         server_version: sunshine_gen_7_431(),
     });
 
-    let expected_buffers: Vec<VideoFrameBuffer<&[u8]>> = vec![
-        VideoFrameBuffer {
+    let expected_buffers = VideoDecodeUnitBuffers::from(vec![
+        VideoFrameBuffer::<&[u8]> {
             buffer_type: BufferType::Sps,
-            data: &[0, 0, 1, 0x67, 3, 4],
+            data: &[0u8, 0, 1, 0x67, 3, 4],
         },
         VideoFrameBuffer {
             buffer_type: BufferType::Pps,
@@ -1366,7 +1374,7 @@ fn depayloader_nofec_h264() {
             buffer_type: BufferType::PicData,
             data: &[0, 0, 1, 0x65, 0, 1],
         },
-    ];
+    ]);
     let expected_frame = expected_buffers
         .iter()
         .flat_map(|buf| buf.data)
@@ -1436,6 +1444,7 @@ fn depayloader_nofec_h264() {
                 timestamp: Duration::from_millis(0),
                 host_processing_latency: None,
             },
+            parsed_frame_type: video::FrameType::Idr,
             buffers: expected_buffers,
         })
     );
@@ -1454,8 +1463,8 @@ fn depayloader_nofec_h265() {
         server_version: sunshine_gen_7_431(),
     });
 
-    let expected_buffers: Vec<VideoFrameBuffer<&[u8]>> = vec![
-        VideoFrameBuffer {
+    let expected_buffers = VideoDecodeUnitBuffers::from(vec![
+        VideoFrameBuffer::<&[u8]> {
             buffer_type: BufferType::Vps,
             data: &[0, 0, 1, 0x40, 1, 4, 1, 2, 3, 58, 67],
         },
@@ -1472,7 +1481,7 @@ fn depayloader_nofec_h265() {
             buffer_type: BufferType::PicData,
             data: &[0, 0, 1, 0x28, 1, 1, 8, 5, 38, 120],
         },
-    ];
+    ]);
     let expected_frame = expected_buffers
         .iter()
         .flat_map(|buf| buf.data)
@@ -1544,6 +1553,7 @@ fn depayloader_nofec_h265() {
                 timestamp: Duration::from_millis(0),
                 host_processing_latency: None,
             },
+            parsed_frame_type: video::FrameType::Idr,
             buffers: expected_buffers,
         })
     );
@@ -1635,13 +1645,19 @@ fn depayloader_fec_noparse() {
         depayloader.available_frames().collect::<Vec<_>>(),
         vec![FrameIndex(1)]
     );
-    let Some(VideoFrame { metadata, buffers }) = depayloader.frame(FrameIndex(1)).unwrap() else {
+    let Some(VideoFrame {
+        metadata,
+        parsed_frame_type,
+        buffers,
+    }) = depayloader.frame(FrameIndex(1)).unwrap()
+    else {
         panic!("expected Frame");
     };
     trace!(metadata = ?metadata, buffers = ?buffers);
 
     assert_eq!(metadata.frame_index, FrameIndex(1));
     assert_eq!(metadata.frame_type, FrameType::Idr);
+    assert_eq!(parsed_frame_type, video::FrameType::Idr);
     assert_eq!(metadata.timestamp, Duration::from_millis(0));
     assert_eq!(
         metadata.host_processing_latency,

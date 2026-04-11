@@ -1,6 +1,7 @@
-use std::{array, collections::BTreeMap, ops::Deref, time::Duration};
+use std::{array, collections::BTreeMap, time::Duration};
 
 use fec_rs::ReedSolomon;
+use smallvec::{SmallVec, smallvec};
 use thiserror::Error;
 use tracing::{debug, trace, warn};
 
@@ -18,7 +19,10 @@ use crate::{
                 },
             },
         },
-        video::{BufferType, SupportedVideoFormats, VideoFormat, VideoFrameBuffer},
+        video::{
+            self, BufferType, FrameIndex, SupportedVideoFormats, VideoDecodeUnitBuffers,
+            VideoFormat, VideoFrameBuffer,
+        },
     },
 };
 
@@ -44,17 +48,6 @@ pub struct VideoDepayloaderConfig {
     pub format: VideoFormat,
     /// The version of the server.
     pub server_version: ServerVersion,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FrameIndex(pub u32);
-
-impl Deref for FrameIndex {
-    type Target = u32;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,8 +86,6 @@ pub struct VideoFrameMetadata {
     /// The index of the frame
     pub frame_index: FrameIndex,
     /// Type of this frame.
-    /// - For H264 and H265 this will be parsed using the nalus from the bitstream.
-    /// - For other codecs (Av1) this will be the value from the server
     pub frame_type: FrameType,
     /// The timestamp that the server sent.
     /// 90kHz clock time representation.
@@ -110,27 +101,22 @@ pub struct VideoFrameMetadata {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct VideoFrame<Buf> {
+pub struct VideoFrame<'a> {
     /// Metadata of a video frame.
     pub metadata: VideoFrameMetadata,
+    /// Parsed type of this frame.
+    ///
+    /// The difference to [Self::frame_type] is that this is directly parsed from the bitstream for some codecs.
+    /// - For H264 and H265 this will be parsed using the nalus from the bitstream.
+    /// - For other codecs (Av1) this will be the value from the server
+    pub parsed_frame_type: video::FrameType,
     /// The buffers this frame consists of.
     ///
     /// Different codecs split buffers differently:
     /// - H264: each buffer starts with an annex b start code followed by a h264 nalu.
     /// - H265: each buffer starts with an annex b start code followed by a h265 nalu.
     /// - Av1: no specific point where they're being split
-    // TODO: use some SmallVec or something for stack alloc?
-    pub buffers: Vec<VideoFrameBuffer<Buf>>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum VideoDepayloaderOutput {
-    /// The video depayloader produced a frame.
-    /// This also contains other information regarding the frame.
-    ///
-    /// See also:
-    /// - moonlight loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1364-L1464
-    Frame { frame: VideoFrame<Vec<u8>> },
+    pub buffers: VideoDecodeUnitBuffers<'a>,
 }
 
 #[derive(Debug)]
@@ -244,7 +230,7 @@ impl VideoDepayloader {
     pub fn frame(
         &self,
         frame_index: FrameIndex,
-    ) -> Result<Option<VideoFrame<&[u8]>>, VideoDepayloaderError> {
+    ) -> Result<Option<VideoFrame<'_>>, VideoDepayloaderError> {
         let frame = match self.constructed_frame(frame_index) {
             Some(frame) => frame,
             None => return Ok(None),
@@ -271,13 +257,10 @@ impl VideoDepayloader {
         frame_index: FrameIndex,
         timestamp: Duration,
         full_frame: &'a [u8],
-    ) -> VideoFrame<&'a [u8]> {
-        let (mut metadata, frame_data) =
-            self.parse_frame_header(frame_index, timestamp, full_frame);
+    ) -> VideoFrame<'a> {
+        let (metadata, frame_data) = self.parse_frame_header(frame_index, timestamp, full_frame);
 
-        let buffers = self.parse_frame_data(&mut metadata, frame_data);
-
-        VideoFrame { metadata, buffers }
+        self.parse_frame_data(metadata, frame_data)
     }
 
     /// Parses the frame header and returns the [VideoFrameMetadata] and the actual frame data.
@@ -372,15 +355,12 @@ impl VideoDepayloader {
         // Make sure to skip frame header
         let frame_data = &full_frame[frame_header_len..];
 
-        let mut metadata = VideoFrameMetadata {
+        let metadata = VideoFrameMetadata {
             frame_index,
             frame_type: frame_header.frame_type,
             host_processing_latency,
             timestamp,
         };
-
-        // TODO: h264 and h265 use bitstream parsing, cache that data for quicker access, for now we're just also using the parse_frame_data
-        self.parse_frame_data(&mut metadata, frame_data);
 
         (metadata, frame_data)
     }
@@ -388,9 +368,9 @@ impl VideoDepayloader {
     /// Mostly the functionality of https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoDepacketizer.c#L743-L1156
     fn parse_frame_data<'a>(
         &self,
-        metadata: &mut VideoFrameMetadata,
+        metadata: VideoFrameMetadata,
         frame_data: &'a [u8],
-    ) -> Vec<VideoFrameBuffer<&'a [u8]>> {
+    ) -> VideoFrame<'a> {
         if self
             .config
             .format
@@ -398,6 +378,7 @@ impl VideoDepayloader {
         {
             // -- H264 and H265
             // only h264 and h265 bitstreams are parsed
+            let mut parsed_frame_type = video::FrameType::PFrame;
 
             // parse the frame type ourselves
             // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L311-L339
@@ -406,7 +387,7 @@ impl VideoDepayloader {
             let mut start_code_window = [2u8; 4];
 
             let mut last_start_code = None;
-            let mut buffers = Vec::new();
+            let mut buffers = SmallVec::new();
 
             // Add a buffer to the video frame buffer and finds out the buffer type
             let mut add_buffer = |nalu_start: usize, buffer: &'a [u8]| {
@@ -428,7 +409,7 @@ impl VideoDepayloader {
                             // See frame type definition for info
                             if matches!(nal_header.nal_unit_type, h264::NalUnitType::CodedSliceIDR)
                             {
-                                metadata.frame_type = FrameType::Idr;
+                                parsed_frame_type = video::FrameType::Idr;
                             }
 
                             nal_header.nal_unit_type.to_buffer_type()
@@ -460,7 +441,7 @@ impl VideoDepayloader {
                                     | h265::NalUnitType::IdrNLp
                                     | h265::NalUnitType::CraNut
                             ) {
-                                metadata.frame_type = FrameType::Idr;
+                                parsed_frame_type = video::FrameType::Idr;
                             }
 
                             nal_header.nal_unit_type.to_buffer_type()
@@ -506,13 +487,24 @@ impl VideoDepayloader {
                 add_buffer(start_code_len, &frame_data[start_code_begin..]);
             }
 
-            buffers
+            VideoFrame {
+                metadata,
+                parsed_frame_type,
+                buffers,
+            }
         } else {
             // -- AV1
-            vec![VideoFrameBuffer {
-                buffer_type: BufferType::PicData,
-                data: frame_data,
-            }]
+            VideoFrame {
+                parsed_frame_type: match metadata.frame_type {
+                    FrameType::Idr => video::FrameType::Idr,
+                    _ => video::FrameType::PFrame,
+                },
+                metadata,
+                buffers: smallvec![VideoFrameBuffer {
+                    buffer_type: BufferType::PicData,
+                    data: frame_data,
+                }],
+            }
         }
     }
 

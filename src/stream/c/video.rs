@@ -17,6 +17,7 @@ use moonlight_common_sys::limelight::{
     LiWaitForNextVideoFrame, PDECODE_UNIT, VIDEO_FRAME_HANDLE,
 };
 use num::FromPrimitive;
+use smallvec::SmallVec;
 use thiserror::Error;
 use tracing::debug;
 
@@ -24,8 +25,8 @@ use crate::stream::{
     ColorSpace, SupportedVideoFormats,
     c::bindings::Capabilities,
     video::{
-        BufferType, DecodeResult, FrameType, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
-        VideoFormat, VideoFrameBuffer, VideoSetup,
+        BufferType, DecodeResult, FrameIndex, FrameType, VideoCapabilities, VideoDecodeUnit,
+        VideoDecoder, VideoFormat, VideoFrameBuffer, VideoSetup,
     },
 };
 
@@ -79,34 +80,16 @@ unsafe extern "C" fn start() {
     })
 }
 
-static BUFFER: Mutex<Vec<VideoFrameBuffer<&'static [u8]>>> = Mutex::new(Vec::new());
-
 unsafe extern "C" fn submit_decode_unit(decode_unit: PDECODE_UNIT) -> c_int {
-    // # Safety
-    // This buffer is always cleared after (or before use when poisened)
-    // -> The data will only be able to be here this call, so 'static is just to get around compiler
-    let mut buffers = BUFFER.lock().unwrap_or_else(|buf| {
-        let mut buf = buf.into_inner();
-        buf.clear();
-        buf
-    });
+    let unit = unsafe { convert_decode_unit(decode_unit) };
 
-    let unit = unsafe { convert_decode_unit(decode_unit, &mut buffers) };
-
-    let result = global_decoder(|decoder| decoder.submit_decode_unit(unit) as i32);
-
-    buffers.clear();
-
-    result
+    global_decoder(|decoder| decoder.submit_decode_unit(unit) as i32)
 }
 /// Converts the cpp decode unit into the rust one
-unsafe fn convert_decode_unit<'a>(
-    decode_unit: PDECODE_UNIT,
-    buffers: &'a mut Vec<VideoFrameBuffer<&'static [u8]>>,
-) -> VideoDecodeUnit<'a> {
-    buffers.clear();
-
+unsafe fn convert_decode_unit<'a>(decode_unit: PDECODE_UNIT) -> VideoDecodeUnit<'a> {
     let raw = unsafe { *decode_unit };
+
+    let mut buffers = SmallVec::new();
 
     let mut next_element_ptr = raw.bufferList;
     while !next_element_ptr.is_null() {
@@ -126,7 +109,7 @@ unsafe fn convert_decode_unit<'a>(
     }
 
     VideoDecodeUnit {
-        frame_number: raw.frameNumber,
+        frame_number: FrameIndex(raw.frameNumber as u32),
         frame_type: FrameType::from_i32(raw.frameType).expect("valid frame type"),
         frame_processing_latency: if raw.frameHostProcessingLatency == 0 {
             None
@@ -137,7 +120,6 @@ unsafe fn convert_decode_unit<'a>(
         },
         timestamp: Duration::from_nanos((raw.presentationTimeUs as u64 * 1_000_000_000) / 90_000),
         color_space: ColorSpace::from_u8(raw.colorspace).expect("valid Colorspace"),
-        hdr_active: raw.hdrActive,
         buffers,
     }
 }
@@ -245,7 +227,6 @@ pub struct PullVideoManager {
     setup: Option<VideoSetup>,
     setup_code_sender: Option<Sender<i32>>,
     active: Arc<AtomicBool>,
-    buffers: Vec<VideoFrameBuffer<&'static [u8]>>,
 }
 
 impl PullVideoManager {
@@ -267,7 +248,6 @@ impl PullVideoManager {
                 setup_receiver,
                 setup: None,
                 setup_code_sender: Some(setup_code_sender),
-                buffers: Vec::new(),
             },
         )
     }
@@ -370,7 +350,7 @@ impl PullVideoManager {
         decode_unit: PDECODE_UNIT,
     ) -> PullVideoDecodeUnit<'a> {
         unsafe {
-            let decode_unit = convert_decode_unit(decode_unit, &mut self.buffers);
+            let decode_unit = convert_decode_unit(decode_unit);
 
             PullVideoDecodeUnit {
                 frame_handle,

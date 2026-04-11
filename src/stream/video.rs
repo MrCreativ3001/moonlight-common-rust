@@ -1,5 +1,6 @@
 use std::{
     fmt::{self, Display, Formatter},
+    ops::Deref,
     time::Duration,
 };
 
@@ -17,6 +18,7 @@ use crate::stream::bindings::{
 };
 use bitflags::bitflags;
 use num_derive::FromPrimitive;
+use smallvec::SmallVec;
 
 // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1255
 pub const DEFAULT_VIDEO_PORT: u16 = 47998;
@@ -210,11 +212,25 @@ pub struct VideoFrameBuffer<Buf> {
     pub data: Buf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FrameIndex(pub u32);
+
+impl Deref for FrameIndex {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+pub type VideoDecodeUnitBuffers<'a> = SmallVec<[VideoFrameBuffer<&'a [u8]>; 128]>;
+
 /// A decode unit describes a buffer chain of video data from multiple packets
 // TODO: combine this type with the VideoFrame from the proto impl
+#[derive(Debug)]
 pub struct VideoDecodeUnit<'a> {
     /// Frame Number
-    pub frame_number: i32,
+    pub frame_number: FrameIndex,
 
     pub frame_type: FrameType,
 
@@ -242,17 +258,12 @@ pub struct VideoDecodeUnit<'a> {
     /// References:
     /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
     pub timestamp: Duration,
-    /// Determines if this frame is SDR or HDR
-    ///
-    /// Note: This is not currently parsed from the actual bitstream, so if your
-    /// client has access to a bitstream parser, prefer that over this field.
-    pub hdr_active: bool,
     /// Provides the colorspace of this frame (see COLORSPACE_* defines above)
     ///
     /// Note: This is not currently parsed from the actual bitstream, so if your
     /// client has access to a bitstream parser, prefer that over this field.
     pub color_space: ColorSpace,
-    pub buffers: &'a [VideoFrameBuffer<&'a [u8]>],
+    pub buffers: VideoDecodeUnitBuffers<'a>,
 }
 
 #[derive(Debug, Default)]

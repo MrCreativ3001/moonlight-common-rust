@@ -934,6 +934,7 @@ dependencies = [
  "sha1",
  "sha2",
  "signature",
+ "smallvec",
  "spki",
  "thiserror",
  "tokio",

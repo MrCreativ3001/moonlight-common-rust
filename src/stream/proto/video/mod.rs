@@ -5,24 +5,22 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument, trace, trace_span};
+use tracing::{Level, debug, info, instrument};
 
 use crate::stream::{
     AesKey,
     proto::{
         ControlMessageInner,
         control::{ControlMessage, packet::ControlPacket},
-        crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
+        crypto::{CryptoBackend, CryptoError},
         packet::SunshinePingPacket,
         rtsp::moonlight::SunshinePing,
         video::{
-            depayloader::{
-                FrameIndex, VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError,
-                VideoDepayloaderOutput, VideoFrame,
-            },
-            packet::{EncryptedVideoHeader, FrameType},
+            depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
+            packet::FrameType,
         },
     },
+    video::{ColorSpace, FrameIndex, VideoDecodeUnit},
 };
 
 pub mod depayloader;
@@ -62,7 +60,7 @@ pub enum VideoStreamOutput<'a> {
     Send {
         data: Vec<u8>,
     },
-    VideoFrame(VideoFrame<&'a [u8]>),
+    VideoFrame(VideoDecodeUnit<'a>),
     /// Send a control message to the [ControlStream](super::control::ControlStream).
     SendControlMessage {
         message: ControlMessage,
@@ -128,7 +126,7 @@ where
         }
     }
 
-    fn do_request_idr(&mut self) -> Result<VideoStreamOutput<'static>, VideoStreamError> {
+    fn do_request_idr(&mut self) -> Result<Option<Instant>, VideoStreamError> {
         // request an idr if needed
         let timeout = self.wait_until_idr();
 
@@ -149,15 +147,10 @@ where
 
             info!(time_until_idr = ?timeout, now = ?self.last_now, waiting_for_idr_since = ?self.waiting_for_idr_since, "requesting idr and unsyncing depayloader");
 
-            return Ok(VideoStreamOutput::SendControlMessage {
-                message: ControlMessage(ControlMessageInner::SendPacket {
-                    packet: ControlPacket::RequestIdr,
-                    force: true,
-                }),
-            });
+            return Ok(None);
         }
 
-        Ok(VideoStreamOutput::Timeout(self.last_now + timeout))
+        Ok(Some(self.last_now + timeout))
     }
     fn wait_until_idr(&self) -> Duration {
         // Default when we're stuck
@@ -293,10 +286,26 @@ where
                     self.current_frame = Some(FrameIndex(*frame_index + 1));
                     self.last_frame = self.last_now;
 
-                    return Ok(VideoStreamOutput::VideoFrame(frame));
+                    return Ok(VideoStreamOutput::VideoFrame(VideoDecodeUnit {
+                        frame_number: frame.metadata.frame_index,
+                        frame_type: frame.parsed_frame_type,
+                        frame_processing_latency: frame.metadata.host_processing_latency,
+                        timestamp: frame.metadata.timestamp,
+                        color_space: ColorSpace::Rec709,
+                        buffers: frame.buffers,
+                    }));
                 }
 
-                self.do_request_idr()
+                if let Some(timeout) = self.do_request_idr()? {
+                    Ok(VideoStreamOutput::Timeout(timeout))
+                } else {
+                    Ok(VideoStreamOutput::SendControlMessage {
+                        message: ControlMessage(ControlMessageInner::SendPacket {
+                            packet: ControlPacket::RequestIdr,
+                            force: true,
+                        }),
+                    })
+                }
             }
         }
     }

@@ -414,7 +414,6 @@ impl VideoFrameHeader {
 /// References:
 /// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L22-L27
 /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L858-L886
-// TODO: how is this integrated into the depayloader?? how should it transform it into the output frame type?
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FrameType {
     /// Normal P-frame
@@ -437,7 +436,6 @@ pub enum FrameType {
     ///
     /// References:
     /// - Sunshine hardcoded header: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L880-L881
-    #[doc(hidden)]
     Other(u8),
 }
 
