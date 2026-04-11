@@ -872,6 +872,7 @@ pub enum ControlPacket {
     },
     /// References:
     /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L190-L196
+    /// - how to use: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1588-L1628
     ControllerBattery {
         // TODO: what does this do exactly?
         controller_number: u8,
@@ -1515,7 +1516,29 @@ impl ControlPacket {
                 battery_percentage,
                 reserved,
             } => {
-                todo!();
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 8;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SS_CONTROLLER_BATTERY_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12] = *controller_number;
+                buffer[13] = battery_state.bits();
+                buffer[14] = *battery_percentage;
+                buffer[15] = *reserved;
+
+                Ok(4 + content_len as usize)
             }
             Self::ControllerMotion {
                 controller_number,
@@ -2137,6 +2160,24 @@ impl ControlPacket {
                                 tail_a,
                                 button_flags_2,
                                 tail_b,
+                            })
+                        }
+                    }
+                    SS_CONTROLLER_BATTERY_MAGIC => {
+                        if input_len < 4 {
+                            warn!(input_len = ?input_len, "ControllerBattery packet too small!");
+                            None
+                        } else {
+                            let controller_number = payload[12];
+                            let battery_state = BatteryState::from_bits_retain(payload[13]);
+                            let battery_percentage = payload[14];
+                            let reserved = payload[15];
+
+                            Some(ControlPacket::ControllerBattery {
+                                controller_number,
+                                battery_state,
+                                battery_percentage,
+                                reserved,
                             })
                         }
                     }

@@ -285,7 +285,6 @@ mod test {
             crypto::CryptoBackend,
         },
     };
-    use std::error::Error;
 
     fn test_iv_result(
         method: ControlEncryptionMethod,

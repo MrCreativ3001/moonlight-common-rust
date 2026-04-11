@@ -1,60 +1,22 @@
 // TODO
 
-use std::{
-    error::Error,
-    time::{Duration, Instant},
-};
-
 use crate::{
     ServerVersion, init_test,
     stream::{
         control::{
-            ActiveGamepads, ControllerButtons, ControllerCapabilities, ControllerType, KeyAction,
-            KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction, TouchEventType,
+            ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
+            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton,
+            MouseButtonAction, TouchEventType,
         },
         proto::control::packet::{
-            ControlPacket, ControlPacketConfig, ControlPacketType,
-            ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
-            EncryptedControlHeader, MC_HEADER_B, MC_MID_B, MC_TAIL_A, MC_TAIL_B, PacketDirection,
-            TerminationReason,
+            ControlPacket, ControlPacketConfig, ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH,
+            ENCRYPTED_CONTROL_PACKET_TYPE, EncryptedControlHeader, MC_HEADER_B, MC_MID_B,
+            MC_TAIL_A, MC_TAIL_B, PacketDirection, TerminationReason,
         },
         video::{Primary, SunshineHdrMetadata},
     },
     test::init_test,
 };
-
-use crate::{
-    crypto::disabled::DisabledCryptoBackend,
-    stream::proto::{
-        control::peer::{ControlHost, ControlHostConfig, ControlHostOutput},
-        crypto::CryptoBackend,
-    },
-};
-
-#[test]
-fn client_server_peer() {
-    let mut server = ControlHost::new(
-        Instant::now(),
-        ControlHostConfig {
-            peer_count: 1,
-            peer_channel_count: 1,
-        },
-        DisabledCryptoBackend,
-    )
-    .unwrap();
-
-    let mut client = ControlHost::new(
-        Instant::now(),
-        ControlHostConfig {
-            peer_count: 1,
-            peer_channel_count: 1,
-        },
-        DisabledCryptoBackend,
-    )
-    .unwrap();
-
-    // TODO: implement this
-}
 
 #[test]
 fn test_encrypted_control_header_serialization() {
@@ -674,7 +636,26 @@ fn controller_motion() {
 
 #[test]
 fn controller_battery() {
-    todo!()
+    test_packet(
+        PacketDirection::ServerBound,
+        sunshine_gen_7_config(),
+        ControlPacket::ControllerBattery {
+            controller_number: 1,
+            battery_state: BatteryState::FULL,
+            battery_percentage: 10,
+            reserved: 0,
+        },
+        &[
+            6, 2, // Type
+            12, 0, // Length
+            0, 0, 0, 8, // Input Length
+            7, 0, 0, 85, // Input Type
+            1,  // controller number
+            5,  // battery state
+            10, // battery percentage
+            0,  // reserved
+        ],
+    );
 }
 
 #[test]

@@ -229,6 +229,7 @@ bitflags! {
     }
 }
 
+// TODO: this might be an enum?
 bitflags! {
     /// Battery states for [`LiSendControllerBatteryEvent`].
     #[derive(Debug, Clone, Copy, PartialEq)]
