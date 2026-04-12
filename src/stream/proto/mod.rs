@@ -489,6 +489,10 @@ where
                                     addr,
                                     sunshine_connect_data: control_setup.sunshine_connect_data,
                                     encryption,
+                                    apollo_permissions: self
+                                        .client_config
+                                        .apollo_permissions
+                                        .clone(),
                                 },
                                 self.crypto_backend.clone(),
                             )

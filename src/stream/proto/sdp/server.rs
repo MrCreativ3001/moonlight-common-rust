@@ -1,9 +1,10 @@
-use crate::{
-    stream::proto::{
+use crate::stream::{
+    SupportedVideoFormats,
+    c::bindings::RawHostFeatures,
+    proto::{
         rtsp::moonlight::ParseMoonlightRtspResponseError,
         sdp::{Sdp, client::SunshineEncryptionFlags},
     },
-    stream::{HostFeatures, SupportedVideoFormats},
 };
 
 #[derive(Debug, Default)]
@@ -17,7 +18,7 @@ pub struct ServerSdp {
     pub video_formats: Option<SupportedVideoFormats>,
     pub video_reference_frame_invalidation: Option<bool>,
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1130
-    pub sunshine_feature_flags: Option<HostFeatures>,
+    pub sunshine_feature_flags: Option<RawHostFeatures>,
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1135
     pub sunshine_encryption_supported: Option<SunshineEncryptionFlags>,
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1139
@@ -35,7 +36,7 @@ impl ServerSdp {
                 && let Some(value) = attribute.value
             {
                 parsed.sunshine_feature_flags =
-                    Some(HostFeatures::from_bits_truncate(value.parse()?));
+                    Some(RawHostFeatures::from_bits_retain(value.parse()?));
             } else if attribute.key == "x-ss-general.encryptionSupported"
                 && let Some(value) = attribute.value
             {

@@ -1,12 +1,10 @@
-// TODO
-
 use crate::{
     ServerVersion, init_test,
     stream::{
         control::{
             ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
-            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MouseButton,
-            MouseButtonAction, TouchEventType,
+            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
+            MouseButtonAction, PenButtons, ToolType, TouchEventType,
         },
         proto::control::packet::{
             ControlPacket, ControlPacketConfig, ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH,
@@ -67,8 +65,8 @@ fn test_encrypted_control_header_serialization() {
     );
 }
 
-fn sunshine_gen_7_config() -> ControlPacketConfig {
-    ControlPacketConfig::new(ServerVersion::new(7, 1, 431, -1), false).unwrap()
+fn sunshine_gen_7_enc_config() -> ControlPacketConfig {
+    ControlPacketConfig::new(ServerVersion::new(7, 1, 431, -1), true).unwrap()
 }
 
 fn test_packet(
@@ -96,7 +94,7 @@ fn test_packet(
 fn ping() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::PeriodicPing,
         &[0, 2, 4, 0, 0, 0, 0, 0],
     );
@@ -108,7 +106,7 @@ fn hdr_mode() {
 
     test_packet(
         PacketDirection::ClientBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::HdrMode {
             enabled: false,
             sunshine: None,
@@ -118,7 +116,7 @@ fn hdr_mode() {
 
     test_packet(
         PacketDirection::ClientBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::HdrMode {
             enabled: true,
             sunshine: None,
@@ -130,7 +128,7 @@ fn hdr_mode() {
 fn hdr_mode_sunshine() {
     test_packet(
         PacketDirection::ClientBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::HdrMode {
             enabled: true,
             sunshine: Some(SunshineHdrMetadata {
@@ -175,9 +173,9 @@ fn hdr_mode_sunshine() {
 fn request_idr() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::RequestIdr,
-        &[5, 3, 2, 0, 0, 0],
+        &[2, 3, 2, 0, 0, 0],
     );
 }
 
@@ -185,7 +183,7 @@ fn request_idr() {
 fn start_b() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::StartB,
         &[7, 3, 1, 0, 0],
     );
@@ -195,7 +193,7 @@ fn start_b() {
 fn loss_stats() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::LossStats {
             unknown1: 0,
             loss_report_interval_ms: 500,
@@ -220,7 +218,7 @@ fn frame_stats() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::FrameStats {},
         &[
             4, 2, // Type
@@ -235,7 +233,7 @@ fn frame_fec() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::FrameFec {
             frame_index: 42,
             highest_received_sequence_number: 1200,
@@ -271,7 +269,7 @@ fn frame_fec() {
 fn invalidate_reference_frames() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::InvalidateReferenceFrames {
             first_frame_index: 1,
             reserved1: 0,
@@ -295,7 +293,7 @@ fn invalidate_reference_frames() {
 fn long_term_reference_frame_acknowledgement() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::LongTermReferenceFrameAcknowledgement {
             frame_index: 42,
             reserved: 0,
@@ -312,7 +310,7 @@ fn long_term_reference_frame_acknowledgement() {
 fn mouse_move_relative() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::MouseMoveRelative {
             delta_x: 1,
             delta_y: 0,
@@ -332,7 +330,7 @@ fn mouse_move_relative() {
 fn mouse_move_absolute() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::MouseMoveAbsolute {
             x: 0,
             y: 1,
@@ -358,7 +356,7 @@ fn mouse_move_absolute() {
 fn mouse_button() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::MouseButton {
             action: MouseButtonAction::Press,
             button: MouseButton::Left,
@@ -374,7 +372,7 @@ fn mouse_button() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::MouseButton {
             action: MouseButtonAction::Release,
             button: MouseButton::Left,
@@ -394,7 +392,7 @@ fn mouse_scroll() {
     // See https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_scroll
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::MouseScroll {
             scroll_amount_1: 2,
             scroll_amount_2: 2,
@@ -417,7 +415,7 @@ fn mouse_horizontal_scroll() {
     // See https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_horizontal_scroll
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::MouseHorizontalScroll { scroll_amount: 10 },
         &[
             0x06, 0x02, // Type
@@ -433,7 +431,7 @@ fn mouse_horizontal_scroll() {
 fn keyboard() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::Keyboard {
             action: KeyAction::Down,
             flags: KeyFlags::empty(),
@@ -455,7 +453,7 @@ fn keyboard() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::Keyboard {
             action: KeyAction::Up,
             flags: KeyFlags::SUNSHINE_NON_NORMALIZED,
@@ -482,7 +480,7 @@ fn text_utf8() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::text("hello").unwrap(),
         &[
             6, 2, // Type
@@ -499,7 +497,7 @@ fn text_utf8_max() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::Text {
             text,
             text_len: text.len(),
@@ -519,7 +517,7 @@ fn text_utf8_max() {
 fn touch() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::Touch {
             event_type: TouchEventType::Down,
             reserved: 0,
@@ -553,9 +551,39 @@ fn touch() {
 fn pen() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
-        ControlPacket::Pen {},
-        &[],
+        sunshine_gen_7_enc_config(),
+        ControlPacket::Pen {
+            event_type: TouchEventType::Hover,
+            tool_type: ToolType::Pen,
+            buttons: PenButtons::TERTIARY,
+            zero: 0,
+            x: 0.0,
+            y: 1.0,
+            pressure_or_distance: 3.0,
+            rotation: 2,
+            tilt: 10,
+            zero2: 0,
+            contact_area_minor: 4.0,
+            contact_area_major: 5.0,
+        },
+        &[
+            6, 2, // Type
+            36, 0, // Length
+            0, 0, 0, 32, // Input Length
+            3, 0, 0, 85, // Input Ty
+            0,  // Event Type
+            1,  // tool type
+            4,  // buttons
+            0,  // zero
+            0, 0, 0, 0, // X
+            0, 0, 128, 63, // Y
+            0, 0, 64, 64, // Pressure or distance
+            2, 0,  // rotation
+            10, // tilt
+            0,  // zero2
+            0, 0, 128, 64, // Contact area Minor
+            0, 0, 160, 64, // Contact area Major
+        ],
     );
 }
 
@@ -563,7 +591,7 @@ fn pen() {
 fn controller_arrival() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::ControllerArrival {
             controller_number: 1,
             ty: ControllerType::PlayStation,
@@ -589,7 +617,7 @@ fn controller_state() {
 
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::ControllerState {
             header_b: MC_HEADER_B,
             controller_number: 0,
@@ -630,15 +658,80 @@ fn controller_state() {
 }
 
 #[test]
+fn controller_set_motion() {
+    test_packet(
+        PacketDirection::ClientBound,
+        sunshine_gen_7_enc_config(),
+        ControlPacket::ControllerSetMotion {
+            controller_number: 1,
+            rate: 20,
+            motion_type: MotionType::ACCEL,
+        },
+        &[
+            1, 85, // Type
+            5, 0, // Length
+            1, 0, // controller number
+            20, 0, // rate
+            1, // motion type
+        ],
+    );
+}
+
+#[test]
 fn controller_motion() {
-    todo!()
+    test_packet(
+        PacketDirection::ServerBound,
+        sunshine_gen_7_enc_config(),
+        ControlPacket::ControllerMotion {
+            controller_number: 1,
+            motion_type: MotionType::GYRO,
+            reserved: [0; _],
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        },
+        &[
+            6, 2, // Type
+            24, 0, // Length
+            0, 0, 0, 20, // Input Length
+            6, 0, 0, 85, // Input Type
+            1,  // controller number
+            2,  // motion type
+            0, 0, // reserved
+            0, 0, 128, 63, // x
+            0, 0, 0, 64, // y
+            0, 0, 64, 64, // z
+        ],
+    );
+}
+
+#[test]
+fn controller_set_led() {
+    test_packet(
+        PacketDirection::ClientBound,
+        sunshine_gen_7_enc_config(),
+        ControlPacket::ControllerSetLed {
+            controller_number: 1,
+            r: 2,
+            g: 3,
+            b: 4,
+        },
+        &[
+            2, 85, // Type
+            5, 0, // Length
+            1, 0, // controller number
+            2, // r
+            3, // g
+            4, // b
+        ],
+    );
 }
 
 #[test]
 fn controller_battery() {
     test_packet(
         PacketDirection::ServerBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::ControllerBattery {
             controller_number: 1,
             battery_state: BatteryState::FULL,
@@ -662,21 +755,21 @@ fn controller_battery() {
 fn termination_long() {
     test_packet(
         PacketDirection::ClientBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::ServerTermination {
             reason: TerminationReason::GRACEFUL,
         },
-        &[0, 1, 4, 0, 128, 3, 0, 35],
+        &[9, 1, 4, 0, 128, 3, 0, 35],
     );
 }
 #[test]
 fn termination_short() {
     test_packet(
         PacketDirection::ClientBound,
-        sunshine_gen_7_config(),
+        sunshine_gen_7_enc_config(),
         ControlPacket::ServerTermination {
             reason: TerminationReason::Short(2),
         },
-        &[0, 1, 2, 0, 0, 2],
+        &[9, 1, 2, 0, 0, 2],
     );
 }

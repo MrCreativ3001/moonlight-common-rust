@@ -39,6 +39,12 @@ pub enum ControlError {
     NotConfigured,
     #[error("packet not supported")]
     PacketNotSupported(#[from] ControlPacketNotSupported),
+    /// Apollo Extension
+    ///
+    /// See also:
+    /// - [ApolloPermissions](crate::stream::ApolloPermissions)
+    #[error("the apollo permissions list doesn't allow this action")]
+    ApolloPermissionDenied,
     #[error("encryption: {0}")]
     Encryption(#[from] ControlEncryptionError),
 }

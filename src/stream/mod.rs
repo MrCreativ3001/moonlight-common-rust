@@ -13,8 +13,8 @@ use crate::{
     stream::{
         audio::AudioConfig,
         bindings::{
-            ENCFLG_ALL, ENCFLG_AUDIO, ENCFLG_NONE, ENCFLG_VIDEO, LI_FF_CONTROLLER_TOUCH_EVENTS,
-            LI_FF_PEN_TOUCH_EVENTS, STREAM_CFG_AUTO, STREAM_CFG_LOCAL, STREAM_CFG_REMOTE,
+            ENCFLG_ALL, ENCFLG_AUDIO, ENCFLG_NONE, ENCFLG_VIDEO, STREAM_CFG_AUTO, STREAM_CFG_LOCAL,
+            STREAM_CFG_REMOTE,
         },
         control::ActiveGamepads,
         video::{ColorRange, ColorSpace, ServerCodecModeSupport, SupportedVideoFormats},
@@ -290,10 +290,48 @@ pub enum StreamingConfig {
     Auto = STREAM_CFG_AUTO,
 }
 
-bitflags! {
-    #[derive(Debug, Clone)]
-    pub struct HostFeatures: u32 {
-        const PEN_TOUCH_EVENTS = LI_FF_PEN_TOUCH_EVENTS;
-        const CONTROLLER_TOUCH_EVENTS = LI_FF_CONTROLLER_TOUCH_EVENTS;
+#[derive(Debug)]
+pub struct HostFeatures {
+    /// The controller limit of the host.
+    pub controller_limit: usize,
+    /// Sunshine Extension
+    ///
+    /// If the host supports pen touch events.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1003
+    pub sunshine_pen: bool,
+    /// Sunshine Extension
+    ///
+    /// If the host supports general touch events.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1003
+    pub sunshine_touch: bool,
+    /// Sunshine Extension
+    ///
+    /// If the host supports controller touch events.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1004
+    pub sunshine_controller_touch: bool,
+    /// Apollo Extension
+    ///
+    /// Use this to query if specific apollo packets are supported or not and if you have permissions to send these packets or also other packets.
+    ///
+    /// The permissions from Apollo.
+    pub apollo_permissions: Option<ApolloPermissions>,
+    // TODO: expose
+}
+
+impl Default for HostFeatures {
+    fn default() -> Self {
+        HostFeatures {
+            controller_limit: 4,
+            sunshine_pen: false,
+            sunshine_touch: false,
+            sunshine_controller_touch: false,
+            apollo_permissions: None,
+        }
     }
 }

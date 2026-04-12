@@ -21,11 +21,14 @@ use moonlight_common_sys::limelight::{
 };
 
 use crate::{
-    MoonlightError,
+    MoonlightError, ServerVersion,
     stream::{
         HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
         audio::AudioDecoder,
-        c::{bindings::EstimatedRttInfo, connection::ConnectionListenerC},
+        c::{
+            bindings::{EstimatedRttInfo, RawHostFeatures},
+            connection::ConnectionListenerC,
+        },
         connection::ConnectionListener,
         control::{
             ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
@@ -114,6 +117,7 @@ impl MoonlightInstance {
 // --------------- Stream ---------------
 
 pub struct MoonlightStream {
+    server_version: ServerVersion,
     handle: Arc<Handle>,
 }
 
@@ -143,6 +147,8 @@ impl MoonlightStream {
             *connection_guard = true;
 
             drop(connection_guard);
+
+            let server_version = stream_config.version;
 
             let address = CString::from_str(&stream_config.address)?;
             let app_version = stream_config.version.to_string();
@@ -187,7 +193,10 @@ impl MoonlightStream {
             };
 
             // If something panics this will be dropped -> connection_guard is false again
-            let this = Self { handle };
+            let this = Self {
+                handle,
+                server_version,
+            };
 
             connection::set_global(connection_listener, connection_listener_c);
             let mut connection_callbacks = connection::raw_callbacks();
@@ -236,7 +245,7 @@ impl MoonlightStream {
 
         let features = unsafe { LiGetHostFeatureFlags() };
 
-        Ok(HostFeatures::from_bits(features).expect("valid host feature flags"))
+        Ok(RawHostFeatures::from_bits_retain(features).into_host_features(self.server_version))
     }
 
     /// This function returns an estimate of the current RTT to the host PC obtained via ENet

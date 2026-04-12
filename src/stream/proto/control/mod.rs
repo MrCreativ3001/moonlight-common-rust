@@ -11,6 +11,7 @@ use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
+    http::server_info::ApolloPermissions,
     stream::{
         AesKey,
         control::{
@@ -151,6 +152,7 @@ pub struct ControlStreamConfig {
     pub addr: SocketAddr,
     pub sunshine_connect_data: Option<u32>,
     pub encryption: Option<(ControlEncryptionMethod, AesKey)>,
+    pub apollo_permissions: Option<ApolloPermissions>,
 }
 
 #[derive(Debug)]
@@ -198,6 +200,7 @@ pub enum ControlStreamEvent {
 /// If it's not used with that it won't do these things, however you can manually do them using the [Self::send_raw] function.
 pub struct ControlStream<Crypto> {
     server_version: ServerVersion,
+    apollo_permissions: Option<ApolloPermissions>,
     peer: ControlPeerId,
     peer_connected: bool,
     last_now: Instant,
@@ -260,6 +263,7 @@ where
 
         Ok(Self {
             server_version: config.server_version,
+            apollo_permissions: config.apollo_permissions,
             peer,
             peer_connected: false,
             allow_packets: false,
@@ -396,6 +400,32 @@ where
 
     fn check_input_supported(&self, input: &ClientInputEvent) -> Result<(), ControlError> {
         // TODO: add other things: e.g. controller stuff and so on
+
+        if let Some(permissions) = &self.apollo_permissions {
+            match input {
+                ClientInputEvent::ControllerConnect { .. }
+                | ClientInputEvent::ControllerDisconnect { .. }
+                | ClientInputEvent::ControllerState { .. } => {
+                    if !permissions.contains(ApolloPermissions::INPUT_CONTROLLER) {
+                        return Err(ControlError::ApolloPermissionDenied);
+                    }
+                }
+                ClientInputEvent::Keyboard { .. } => {
+                    if !permissions.contains(ApolloPermissions::INPUT_KEYBOARD) {
+                        return Err(ControlError::ApolloPermissionDenied);
+                    }
+                }
+                ClientInputEvent::MouseButton { .. }
+                | ClientInputEvent::MouseMoveAbsolute { .. }
+                | ClientInputEvent::MouseMoveRelative { .. }
+                | ClientInputEvent::MouseScrollHorizontal { .. }
+                | ClientInputEvent::MouseScrollVertical { .. } => {
+                    if !permissions.contains(ApolloPermissions::INPUT_MOUSE) {
+                        return Err(ControlError::ApolloPermissionDenied);
+                    }
+                }
+            }
+        }
 
         match input {
             ClientInputEvent::MouseScrollVertical { .. }

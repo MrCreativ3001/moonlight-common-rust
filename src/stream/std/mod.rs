@@ -13,7 +13,7 @@ use tracing::{Span, debug, debug_span, error, info, info_span, trace, warn};
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        MoonlightStreamConfig, MoonlightStreamSettings,
+        HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
         audio::{AudioConfig, AudioDecoder, AudioFrame},
         connection::ConnectionListener,
         proto::{
@@ -379,6 +379,10 @@ impl MoonlightStream {
         self.use_control_stream(|stream| stream.batch_input(input))?;
 
         Ok(())
+    }
+
+    pub fn features(&self) -> HostFeatures {
+        todo!()
     }
 
     fn use_control_stream(

@@ -10,7 +10,7 @@ use crate::{
         control::{
             ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
             ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
-            MouseButtonAction, TouchEventType,
+            MouseButtonAction, PenButtons, ToolType, TouchEventType,
         },
         video::{Primary, SunshineHdrMetadata},
     },
@@ -368,8 +368,6 @@ impl ControlPacketConfig {
                 set_rgb_led: None,
                 set_adaptive_triggers: None,
             }),
-
-            // TODO: don't panic
             _ => None,
         }
     }
@@ -385,14 +383,14 @@ pub enum ControlPacketType {
     LongTermReferenceFrameAcknowledgement,
     LossStats,
     FrameStats,
-    RumbleData,
+    ControllerRumbleData,
     Termination,
     HdrMode,
     InputData,
     FrameFec,
-    RumbleTriggers,
-    SetMotionEvent,
-    SetRgbLed,
+    ControllerRumbleTriggers,
+    ControllerSetMotion,
+    ControllerSetLed,
     SetAdaptiveTriggers,
 }
 
@@ -406,14 +404,14 @@ impl ControlPacketType {
             Self::LongTermReferenceFrameAcknowledgement => PacketDirection::ServerBound,
             Self::LossStats => PacketDirection::ServerBound,
             Self::FrameStats => PacketDirection::ServerBound,
-            Self::RumbleData => PacketDirection::ServerBound,
+            Self::ControllerRumbleData => PacketDirection::ServerBound,
             Self::Termination => PacketDirection::ClientBound,
             Self::HdrMode => PacketDirection::ClientBound,
             Self::InputData => PacketDirection::ServerBound,
             Self::FrameFec => PacketDirection::ServerBound,
-            Self::RumbleTriggers => PacketDirection::ServerBound,
-            Self::SetMotionEvent => PacketDirection::ClientBound,
-            Self::SetRgbLed => PacketDirection::ClientBound,
+            Self::ControllerRumbleTriggers => PacketDirection::ServerBound,
+            Self::ControllerSetMotion => PacketDirection::ClientBound,
+            Self::ControllerSetLed => PacketDirection::ClientBound,
             Self::SetAdaptiveTriggers => PacketDirection::ClientBound,
         }
     }
@@ -431,14 +429,14 @@ impl ControlPacketType {
             }
             ControlPacketType::LossStats => Some(config.loss_stats),
             ControlPacketType::FrameStats => Some(config.frame_stats),
-            ControlPacketType::RumbleData => config.rumble_data,
+            ControlPacketType::ControllerRumbleData => config.rumble_data,
             ControlPacketType::Termination => config.server_termination,
             ControlPacketType::HdrMode => config.hdr_mode,
             ControlPacketType::InputData => Some(config.input_data),
             ControlPacketType::FrameFec => config.frame_fec,
-            ControlPacketType::RumbleTriggers => config.rumble_triggers,
-            ControlPacketType::SetMotionEvent => config.set_motion_event,
-            ControlPacketType::SetRgbLed => config.set_rgb_led,
+            ControlPacketType::ControllerRumbleTriggers => config.rumble_triggers,
+            ControlPacketType::ControllerSetMotion => config.set_motion_event,
+            ControlPacketType::ControllerSetLed => config.set_rgb_led,
             ControlPacketType::SetAdaptiveTriggers => config.set_adaptive_triggers,
         }
     }
@@ -451,6 +449,8 @@ impl ControlPacketType {
             PacketDirection::ClientBound => match ty {
                 id if Some(id) == config.hdr_mode => Some(Self::HdrMode),
                 id if Some(id) == config.server_termination => Some(Self::Termination),
+                id if Some(id) == config.set_motion_event => Some(Self::ControllerSetMotion),
+                id if Some(id) == config.set_rgb_led => Some(Self::ControllerSetLed),
                 _ => None,
             },
             PacketDirection::ServerBound => match ty {
@@ -617,13 +617,48 @@ pub const UTF8_TEXT_EVENT_MAGIC: u32 = 0x00000017;
 #[derive(Debug, PartialEq)]
 pub enum ControlPacket {
     // -- Server Sent Events
-    // TODO: are those be or le
-    RumbleData {
-        // TODO: does unused exist?
-        unused: u16,
-        controller_id: u16,
+    /// Sent from the server to set the controller rumble for a specific controller.
+    ///
+    /// References:
+    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1046-L1054
+    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_data
+    ControllerRumbleData {
+        unused: u32,
+        controller_number: u16,
         low_frequency: u16,
         high_frequency: u16,
+    },
+    /// Sunshine Extension
+    ///
+    /// Sent from the server to set the controller trigger rumble for a specific controller.
+    ///
+    /// References:
+    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1055-L1061
+    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_triggers
+    ControllerRumbleTriggers {
+        controller_number: u16,
+    },
+    /// Sunshine Extension
+    ///
+    /// This is used to signal to Moonlight clients to start sending motion events (Gyro or Acceleration) to the server.
+    /// By default Moonlight disables these events in order to save bandwith.
+    ///
+    /// References:
+    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1062-L1068
+    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_motion_event
+    ControllerSetMotion {
+        controller_number: u16,
+        rate: u16,
+        motion_type: MotionType,
+    },
+    /// References:
+    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L958-L981
+    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rgb_led
+    ControllerSetLed {
+        controller_number: u16,
+        r: u8,
+        g: u8,
+        b: u8,
     },
     // -- Client Sent Events
     /// Also known as StartA
@@ -806,9 +841,22 @@ pub enum ControlPacket {
     /// Sends pen related events to the host.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L141-L155
+    /// - definition: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L141-L155
+    /// - other types related: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L663-L682
     Pen {
-        // TODO
+        event_type: TouchEventType,
+        tool_type: ToolType,
+        buttons: PenButtons,
+        /// This is zero.
+        zero: u8,
+        x: f32,
+        y: f32,
+        pressure_or_distance: f32,
+        rotation: u16,
+        tilt: u8,
+        zero2: u8,
+        contact_area_minor: f32,
+        contact_area_major: f32,
     },
     /// Send controller inputs to the host.
     ///
@@ -982,7 +1030,10 @@ impl ControlPacket {
             Self::LossStats { .. } => ControlPacketType::LossStats,
             Self::FrameStats { .. } => ControlPacketType::FrameStats,
             Self::FrameFec { .. } => ControlPacketType::FrameFec,
-            Self::RumbleData { .. } => ControlPacketType::RumbleData,
+            Self::ControllerRumbleData { .. } => ControlPacketType::ControllerRumbleData,
+            Self::ControllerRumbleTriggers { .. } => ControlPacketType::ControllerRumbleTriggers,
+            Self::ControllerSetMotion { .. } => ControlPacketType::ControllerSetMotion,
+            Self::ControllerSetLed { .. } => ControlPacketType::ControllerSetLed,
             Self::ServerTermination { .. } => ControlPacketType::Termination,
             Self::HdrMode { .. } => ControlPacketType::HdrMode,
             Self::MouseButton { .. } => ControlPacketType::InputData,
@@ -1548,15 +1599,90 @@ impl ControlPacket {
                 y,
                 z,
             } => {
-                todo!();
+                // See, this code also does the batching, but here we just want to serialize / deserialize
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1558-L1565
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L511-L545
+
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 20;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SS_CONTROLLER_MOTION_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12] = *controller_number;
+                buffer[13] = motion_type.bits();
+                buffer[14..16].copy_from_slice(reserved);
+                buffer[16..20].copy_from_slice(&x.to_le_bytes());
+                buffer[20..24].copy_from_slice(&y.to_le_bytes());
+                buffer[24..28].copy_from_slice(&z.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
-            Self::RumbleData {
+            Self::ControllerRumbleData {
                 unused,
-                controller_id,
+                controller_number,
                 low_frequency,
                 high_frequency,
             } => {
                 todo!();
+            }
+            Self::ControllerRumbleTriggers { controller_number } => {
+                todo!()
+            }
+            Self::ControllerSetLed {
+                controller_number,
+                r,
+                g,
+                b,
+            } => {
+                // Ty
+                let Some(ty) = config.set_rgb_led else {
+                    return Err(ControlPacketNotSupported);
+                };
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let content_len = 5u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                buffer[4..6].copy_from_slice(&controller_number.to_le_bytes());
+                buffer[6] = *r;
+                buffer[7] = *g;
+                buffer[8] = *b;
+
+                Ok(4 + content_len as usize)
+            }
+            Self::ControllerSetMotion {
+                controller_number,
+                rate,
+                motion_type,
+            } => {
+                // Ty
+                let Some(ty) = config.set_motion_event else {
+                    return Err(ControlPacketNotSupported);
+                };
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let content_len = 5u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                buffer[4..6].copy_from_slice(&controller_number.to_le_bytes());
+                buffer[6..8].copy_from_slice(&rate.to_le_bytes());
+                buffer[8] = motion_type.bits();
+
+                Ok(4 + content_len as usize)
             }
             Self::Touch {
                 event_type,
@@ -1600,8 +1726,53 @@ impl ControlPacket {
 
                 Ok(4 + content_len as usize)
             }
-            Self::Pen {} => {
-                todo!();
+            Self::Pen {
+                event_type,
+                tool_type,
+                buttons,
+                zero,
+                x,
+                y,
+                pressure_or_distance,
+                rotation,
+                tilt,
+                zero2,
+                contact_area_minor,
+                contact_area_major,
+            } => {
+                // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1373-L1424
+
+                // Ty
+                let ty = config.input_data;
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                let input_len: u32 = 32;
+                let content_len: u16 = 4 + input_len as u16;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                // Input Len
+                buffer[4..8].copy_from_slice(&input_len.to_be_bytes());
+
+                // Input Ty
+                let ty: u32 = SS_PEN_MAGIC;
+                buffer[8..12].copy_from_slice(&ty.to_le_bytes());
+
+                // Data
+                buffer[12] = *event_type as u8;
+                buffer[13] = *tool_type as u8;
+                buffer[14] = buttons.bits();
+                buffer[15] = *zero;
+                buffer[16..20].copy_from_slice(&x.to_le_bytes());
+                buffer[20..24].copy_from_slice(&y.to_le_bytes());
+                buffer[24..28].copy_from_slice(&pressure_or_distance.to_le_bytes());
+                buffer[28..30].copy_from_slice(&rotation.to_le_bytes());
+                buffer[30] = *tilt;
+                buffer[31] = *zero2;
+                buffer[32..36].copy_from_slice(&contact_area_minor.to_le_bytes());
+                buffer[36..40].copy_from_slice(&contact_area_major.to_le_bytes());
+
+                Ok(4 + content_len as usize)
             }
             Self::ServerTermination { reason } => {
                 let ty = config.server_termination.ok_or(ControlPacketNotSupported)?;
@@ -1669,17 +1840,45 @@ impl ControlPacket {
             }
             ControlPacketType::RequestIdr => Some(ControlPacket::RequestIdr),
             ControlPacketType::StartB => Some(ControlPacket::StartB),
-            ControlPacketType::RumbleData => {
+            ControlPacketType::ControllerRumbleData => {
                 todo!();
             }
-            ControlPacketType::RumbleTriggers => {
+            ControlPacketType::ControllerRumbleTriggers => {
                 todo!()
             }
-            ControlPacketType::SetMotionEvent => {
-                todo!()
+            ControlPacketType::ControllerSetMotion => {
+                if payload.len() < 9 {
+                    warn!("ControllerSetMotion packet too small");
+                    return None;
+                }
+
+                let controller_number = u16::from_le_bytes([payload[4], payload[5]]);
+                let rate = u16::from_le_bytes([payload[6], payload[7]]);
+                let motion_type = MotionType::from_bits_retain(payload[8]);
+
+                Some(ControlPacket::ControllerSetMotion {
+                    controller_number,
+                    rate,
+                    motion_type,
+                })
             }
-            ControlPacketType::SetRgbLed => {
-                todo!()
+            ControlPacketType::ControllerSetLed => {
+                if payload.len() < 9 {
+                    warn!("ControllerSetLed packet too small");
+                    return None;
+                }
+
+                let controller_number = u16::from_le_bytes([payload[4], payload[5]]);
+                let r = payload[6];
+                let g = payload[7];
+                let b = payload[8];
+
+                Some(ControlPacket::ControllerSetLed {
+                    controller_number,
+                    r,
+                    g,
+                    b,
+                })
             }
             ControlPacketType::Termination => {
                 if payload.len() < 4 + 2 {
@@ -2181,13 +2380,122 @@ impl ControlPacket {
                             })
                         }
                     }
+                    SS_CONTROLLER_MOTION_MAGIC => {
+                        if input_len < 20 {
+                            warn!(input_len = ?input_len, "ControllerMotion packet too small!");
+                            None
+                        } else {
+                            let controller_number = payload[12];
+                            let motion_type = MotionType::from_bits_retain(payload[13]);
+                            let reserved = [payload[14], payload[15]];
+                            let x = f32::from_le_bytes([
+                                payload[16],
+                                payload[17],
+                                payload[18],
+                                payload[19],
+                            ]);
+                            let y = f32::from_le_bytes([
+                                payload[20],
+                                payload[21],
+                                payload[22],
+                                payload[23],
+                            ]);
+                            let z = f32::from_le_bytes([
+                                payload[24],
+                                payload[25],
+                                payload[26],
+                                payload[27],
+                            ]);
+
+                            Some(ControlPacket::ControllerMotion {
+                                controller_number,
+                                motion_type,
+                                reserved,
+                                x,
+                                y,
+                                z,
+                            })
+                        }
+                    }
+                    SS_PEN_MAGIC => {
+                        if input_len < 32 {
+                            warn!(input_len = ?input_len, "Pen packet too small!");
+                            None
+                        } else {
+                            let Some(event_type) = TouchEventType::from_u8(payload[12]) else {
+                                warn!(
+                                    got_type = payload[12],
+                                    "Pen packet contains unknown touch event type"
+                                );
+                                return None;
+                            };
+
+                            let tool_type = ToolType::from_u8(payload[13]).unwrap_or_else(|| {
+                                warn!("Pen packet contains unknown tool type, continuing with Unknown tool type");
+                                ToolType::Unknown
+                            });
+
+                            let buttons = PenButtons::from_bits_retain(payload[14]);
+                            let zero = payload[15];
+                            let x = f32::from_le_bytes([
+                                payload[16],
+                                payload[17],
+                                payload[18],
+                                payload[19],
+                            ]);
+                            let y = f32::from_le_bytes([
+                                payload[20],
+                                payload[21],
+                                payload[22],
+                                payload[23],
+                            ]);
+                            let pressure_or_distance = f32::from_le_bytes([
+                                payload[24],
+                                payload[25],
+                                payload[26],
+                                payload[27],
+                            ]);
+                            let rotation = u16::from_le_bytes([payload[28], payload[29]]);
+                            let tilt = payload[30];
+                            let zero2 = payload[31];
+                            let contact_area_minor = f32::from_le_bytes([
+                                payload[32],
+                                payload[33],
+                                payload[34],
+                                payload[35],
+                            ]);
+                            let contact_area_major = f32::from_le_bytes([
+                                payload[36],
+                                payload[37],
+                                payload[38],
+                                payload[39],
+                            ]);
+
+                            Some(ControlPacket::Pen {
+                                event_type,
+                                tool_type,
+                                buttons,
+                                zero,
+                                x,
+                                y,
+                                pressure_or_distance,
+                                rotation,
+                                tilt,
+                                zero2,
+                                contact_area_minor,
+                                contact_area_major,
+                            })
+                        }
+                    }
                     _ => {
                         warn!("InputData packet contains not known input type: {input_ty:#}");
                         None
                     }
                 }
             }
-            _ => todo!(),
+            ControlPacketType::SetAdaptiveTriggers => {
+                todo!()
+            }
         }
     }
 }
