@@ -118,6 +118,7 @@ pub struct ServerInfoResponse {
     /// Permissions this client has.
     pub apollo_permissions: Option<ApolloPermissions>,
     /// Apollo Extension
+    ///
     /// The first option means that it is supported and the second inner option says if the value is present.
     ///
     /// TODO: figure out what this is

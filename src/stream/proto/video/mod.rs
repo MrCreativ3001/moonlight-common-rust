@@ -13,8 +13,7 @@ use crate::stream::{
         ControlMessageInner,
         control::{ControlMessage, packet::ControlPacket},
         crypto::{CryptoBackend, CryptoError},
-        packet::SunshinePingPacket,
-        rtsp::moonlight::SunshinePing,
+        packet::{SunshinePing, SunshinePingPacket},
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
             packet::FrameType,

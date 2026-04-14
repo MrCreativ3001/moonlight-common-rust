@@ -19,8 +19,7 @@ use crate::{
                 packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
             },
             crypto::CryptoBackend,
-            packet::SunshinePingPacket,
-            rtsp::moonlight::SunshinePing,
+            packet::{SunshinePing, SunshinePingPacket},
         },
     },
 };

@@ -115,8 +115,6 @@ unsafe extern "C" fn decode_and_play_sample(data: *mut c_char, len: c_int) {
 
         let timestamp = Duration::from_millis(timestamp as u64);
 
-        // TODO: remove clone
-
         decoder.decode_and_play_sample(AudioFrame {
             timestamp,
             buffer: data,

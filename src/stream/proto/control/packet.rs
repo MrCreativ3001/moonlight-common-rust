@@ -1,6 +1,7 @@
 use std::{ops::Deref, time::Duration};
 
 use num::FromPrimitive;
+use rusty_enet::PacketKind;
 use thiserror::Error;
 use tracing::{Level, instrument, trace, warn};
 
@@ -164,8 +165,34 @@ impl EncryptedControlHeader {
     }
 }
 
-// TODO: use this struct for the enet channel
-pub enum EnetChannel {}
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight-internal.h#L56-L66
+#[derive(Debug, Clone, Copy)]
+pub struct EnetChannel(pub u8);
+
+impl EnetChannel {
+    pub const CHANNEL_GENERIC: EnetChannel = EnetChannel(0x00);
+    /// IDR and reference frame invalidation requests
+    pub const CHANNEL_URGENT: EnetChannel = EnetChannel(0x01);
+    pub const CHANNEL_KEYBOARD: EnetChannel = EnetChannel(0x02);
+    pub const CHANNEL_MOUSE: EnetChannel = EnetChannel(0x03);
+    pub const CHANNEL_PEN: EnetChannel = EnetChannel(0x04);
+    pub const CHANNEL_TOUCH: EnetChannel = EnetChannel(0x05);
+    pub const CHANNEL_UTF8: EnetChannel = EnetChannel(0x06);
+    /// 0x10 to 0x1F by controller index
+    pub const CHANNEL_GAMEPAD_BASE: EnetChannel = EnetChannel(0x10);
+    /// 0x20 to 0x2F by controller index
+    pub const CHANNEL_SENSOR_BASE: EnetChannel = EnetChannel(0x20);
+    pub const CHANNEL_COUNT: usize = 0x30;
+
+    pub fn controller(id: u8) -> Option<EnetChannel> {
+        if id < 16 {
+            Some(Self(Self::CHANNEL_GAMEPAD_BASE.0 + id))
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PacketDirection {
@@ -817,13 +844,16 @@ pub enum ControlPacket {
     },
     /// Sunshine Extension
     ///
-    /// Send some touch event to the host.
+    /// Send touch event to the host.
+    ///
+    /// These are detect using the sdp
     ///
     /// See also:
     /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L615-L650
     ///
     /// References:
     /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L127-L138
+    /// - sdp detection: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/RtspConnection.c#L1145-L1147
     Touch {
         event_type: TouchEventType,
         /// This is 0.
@@ -854,6 +884,7 @@ pub enum ControlPacket {
         pressure_or_distance: f32,
         rotation: u16,
         tilt: u8,
+        /// This is zero.
         zero2: u8,
         contact_area_minor: f32,
         contact_area_major: f32,
@@ -947,7 +978,6 @@ pub enum ControlPacket {
         frame_index: u32,
         reserved: u32,
     },
-    // TODO: touch, controller, pen
     /// The server terminated the session.
     /// There also seems to be a short termination code, however this is not implemented.
     ///
@@ -1013,12 +1043,146 @@ impl ControlPacket {
         }
     }
 
-    // TODO: what is the max size
+    pub fn channel(&self, server_version: ServerVersion) -> (EnetChannel, PacketKind) {
+        // All packets from host to client are reliable and on channel 0
+        // See https://github.com/LizardByte/Sunshine/blob/5364b008c0ada0ab90d27bd991f21951fafffad7/src/stream.cpp#L299-L308
+        if server_version.is_sunshine_like() {
+            match self {
+                // request idr: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1522-L1528
+                // ltr ack: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1569-L1575
+                // invalidate ref frames: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1509-L1515
+                ControlPacket::RequestIdr
+                | ControlPacket::StartB
+                | ControlPacket::LongTermReferenceFrameAcknowledgement { .. } => {
+                    (EnetChannel::CHANNEL_URGENT, PacketKind::Reliable)
+                }
+                // loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1469-L1475
+                // frame fec: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1407-L1413
+                ControlPacket::LossStats { .. } | ControlPacket::FrameFec { .. } => (
+                    EnetChannel::CHANNEL_GENERIC,
+                    PacketKind::Unreliable { sequenced: false },
+                ),
+                // See: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1429
+                // Send the message (and don't expect a response)
+                //
+                // NB: We send this periodic message as reliable to ensure the RTT is recomputed
+                // regularly. This only happens when an ACK is received to a reliable packet.
+                // Since the other traffic on this channel is unsequenced, it doesn't really
+                // cause any negative HOL blocking side-effects.
+                ControlPacket::PeriodicPing => (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L738-L742
+                ControlPacket::MouseMoveRelative { .. } => {
+                    (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
+                }
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L803-L806
+                ControlPacket::MouseMoveAbsolute { .. } => {
+                    (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
+                }
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L865-L866
+                ControlPacket::MouseButton { .. } => {
+                    (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
+                }
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L899-L900
+                ControlPacket::Keyboard { .. } => {
+                    (EnetChannel::CHANNEL_KEYBOARD, PacketKind::Reliable)
+                }
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L980-L981
+                ControlPacket::Text { .. } => (EnetChannel::CHANNEL_UTF8, PacketKind::Reliable),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1445-L1447
+                ControlPacket::ControllerArrival {
+                    controller_number, ..
+                } => (
+                    EnetChannel::controller(*controller_number)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1609-L1611
+                ControlPacket::ControllerBattery {
+                    controller_number, ..
+                } => (
+                    EnetChannel::controller(*controller_number)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
+                // channel: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1558-L1559
+                // reliable or not: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L525-L534
+                // Motion events are so rapid that we can just drop any events that are lost in transit,
+                // but we will treat (0, 0, 0) as a special value for gyro events to allow clients to
+                // reliably set the gyro to a null state when sensor events are halted due to focus loss
+                // or similar client-side constraints.
+                ControlPacket::ControllerMotion {
+                    controller_number,
+                    motion_type,
+                    x,
+                    y,
+                    z,
+                    ..
+                } => (
+                    EnetChannel::controller(*controller_number)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    if *motion_type == MotionType::Gyroscope && *x == 0.0 && *y == 0.0 && *z == 0.0
+                    {
+                        PacketKind::Reliable
+                    } else {
+                        // moonlight-common-c doesn't set the sequenced flag, however it does make sense to just set it to drop older packets
+                        PacketKind::Unreliable { sequenced: true }
+                    },
+                ),
+                ControlPacket::ControllerRumbleData {
+                    controller_number, ..
+                } => (
+                    // Server Packet, see above
+                    EnetChannel::controller(*controller_number as u8)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
+                ControlPacket::ControllerRumbleTriggers {
+                    controller_number, ..
+                } => (
+                    // Server Packet, see above
+                    EnetChannel::controller(*controller_number as u8)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
+                //
+                ControlPacket::ControllerSetLed {
+                    controller_number, ..
+                } => (
+                    // Server Packet, see above
+                    EnetChannel::controller(*controller_number as u8)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
+                ControlPacket::ControllerSetMotion {
+                    controller_number, ..
+                } => (
+                    // Server Packet, see above
+                    EnetChannel::controller(*controller_number as u8)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
+                ControlPacket::ControllerState {
+                    controller_number, ..
+                } => (
+                    // moonlight has todo to send them Unreliable and sequenced, so we do that
+                    // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1072-L1076
+                    EnetChannel::controller(*controller_number as u8)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Unreliable { sequenced: true },
+                ),
+                _ => todo!("{:?}", self),
+            }
+        } else {
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
+            // Always use channel 0 and reliable for GFE
+            (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable)
+        }
+    }
+
     /// This is the maximum size a packet can have
     pub const MAX_SIZE: usize = 44;
 
     pub fn ty(&self) -> ControlPacketType {
-        // TODO: fully implement
         match self {
             Self::PeriodicPing => ControlPacketType::PeriodicPing,
             Self::RequestIdr => ControlPacketType::RequestIdr,
@@ -1585,7 +1749,7 @@ impl ControlPacket {
 
                 // Data
                 buffer[12] = *controller_number;
-                buffer[13] = battery_state.bits();
+                buffer[13] = *battery_state as u8;
                 buffer[14] = *battery_percentage;
                 buffer[15] = *reserved;
 
@@ -1621,7 +1785,7 @@ impl ControlPacket {
 
                 // Data
                 buffer[12] = *controller_number;
-                buffer[13] = motion_type.bits();
+                buffer[13] = *motion_type as u8;
                 buffer[14..16].copy_from_slice(reserved);
                 buffer[16..20].copy_from_slice(&x.to_le_bytes());
                 buffer[20..24].copy_from_slice(&y.to_le_bytes());
@@ -1680,7 +1844,7 @@ impl ControlPacket {
 
                 buffer[4..6].copy_from_slice(&controller_number.to_le_bytes());
                 buffer[6..8].copy_from_slice(&rate.to_le_bytes());
-                buffer[8] = motion_type.bits();
+                buffer[8] = *motion_type as u8;
 
                 Ok(4 + content_len as usize)
             }
@@ -1854,7 +2018,15 @@ impl ControlPacket {
 
                 let controller_number = u16::from_le_bytes([payload[4], payload[5]]);
                 let rate = u16::from_le_bytes([payload[6], payload[7]]);
-                let motion_type = MotionType::from_bits_retain(payload[8]);
+                let Some(motion_type) = MotionType::from_u8(payload[8]) else {
+                    warn!(
+                        controller_number = controller_number,
+                        motion_type_raw = payload[8],
+                        "received invalid motion type"
+                    );
+
+                    return None;
+                };
 
                 Some(ControlPacket::ControllerSetMotion {
                     controller_number,
@@ -2368,7 +2540,15 @@ impl ControlPacket {
                             None
                         } else {
                             let controller_number = payload[12];
-                            let battery_state = BatteryState::from_bits_retain(payload[13]);
+                            let battery_state =
+                                BatteryState::from_u8(payload[13]).unwrap_or_else(|| {
+                                    warn!(
+                                        controller_number = controller_number,
+                                        battery_state_raw = payload[13],
+                                        "received unknown controller battery state"
+                                    );
+                                    BatteryState::Unknown
+                                });
                             let battery_percentage = payload[14];
                             let reserved = payload[15];
 
@@ -2386,7 +2566,14 @@ impl ControlPacket {
                             None
                         } else {
                             let controller_number = payload[12];
-                            let motion_type = MotionType::from_bits_retain(payload[13]);
+                            let Some(motion_type) = MotionType::from_u8(payload[13]) else {
+                                warn!(
+                                    controller_number = controller_number,
+                                    motion_type_raw = payload[13],
+                                    "received invalid motion type"
+                                );
+                                return None;
+                            };
                             let reserved = [payload[14], payload[15]];
                             let x = f32::from_le_bytes([
                                 payload[16],

@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rusty_enet::{PacketKind, error::PeerSendError};
+use rusty_enet::error::PeerSendError;
 use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::{
@@ -14,14 +14,16 @@ use crate::{
     http::server_info::ApolloPermissions,
     stream::{
         AesKey,
+        bindings::{LI_ROT_UNKNOWN, LI_TILT_UNKNOWN},
         control::{
             ActiveGamepads, ControllerButtons, ControllerCapabilities, ControllerType, KeyAction,
-            KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction,
+            KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction, PenButtons, ToolType,
+            TouchEventType,
         },
         proto::{
             control::{
                 packet::{
-                    ControlPacket, ControlPacketConfig, ControlPacketNotSupported,
+                    ControlPacket, ControlPacketConfig, ControlPacketNotSupported, EnetChannel,
                     PERIODIC_PING_INTERVAL, PERIODIC_PING_VERSION,
                 },
                 peer::{
@@ -46,17 +48,6 @@ pub mod peer;
 mod test;
 
 // TODO: where's the difference between v1 and v2 headers?
-
-const CHANNEL_GENERIC: u8 = 0x00;
-const CHANNEL_URGENT: u8 = 0x01; // IDR and reference frame invalidation requests
-const CHANNEL_KEYBOARD: u8 = 0x02;
-const CHANNEL_MOUSE: u8 = 0x03;
-const CHANNEL_PEN: u8 = 0x04;
-const CHANNEL_TOUCH: u8 = 0x05;
-const CHANNEL_UTF8: u8 = 0x06;
-const CHANNEL_GAMEPAD_BASE: u8 = 0x10; // 0x10 to 0x1F by controller index
-const CHANNEL_SENSOR_BASE: u8 = 0x20; // 0x20 to 0x2F by controller index
-const CHANNEL_COUNT: usize = 0x30;
 
 /// A message from the [MoonlightStreamProto](super::MoonlightStreamProto) to the [ControlStream]
 #[derive(Debug)]
@@ -116,8 +107,30 @@ pub enum ClientInputEvent {
     ControllerDisconnect {
         controller_number: u8,
     },
-    // TODO: touch events?
-    // TODO: pen events?
+    // TODO: batch touch and pen events?
+    /// Sunshine Extension
+    Touch {
+        event_type: TouchEventType,
+        rotation: Option<u16>,
+        pointer_id: u32,
+        x: f32,
+        y: f32,
+        pressure_or_distance: f32,
+        contact_area_minor: f32,
+        contact_area_major: f32,
+    },
+    Pen {
+        event_type: TouchEventType,
+        tool_type: ToolType,
+        buttons: PenButtons,
+        x: f32,
+        y: f32,
+        pressure_or_distance: f32,
+        rotation: Option<u16>,
+        tilt: Option<u8>,
+        contact_area_minor: f32,
+        contact_area_major: f32,
+    },
 }
 
 /// References:
@@ -234,7 +247,7 @@ where
             now,
             ControlHostConfig {
                 peer_count: 1,
-                peer_channel_count: CHANNEL_COUNT,
+                peer_channel_count: EnetChannel::CHANNEL_COUNT,
             },
             crypto_backend,
         )
@@ -250,7 +263,7 @@ where
             .connect(
                 config.addr,
                 ControlConnectConfig {
-                    channel_count: CHANNEL_COUNT,
+                    channel_count: EnetChannel::CHANNEL_COUNT,
                     sunshine_connect_data: config.sunshine_connect_data,
                     config: ControlPeerConfig {
                         role: ControlPeerRole::Client,
@@ -399,8 +412,6 @@ where
     }
 
     fn check_input_supported(&self, input: &ClientInputEvent) -> Result<(), ControlError> {
-        // TODO: add other things: e.g. controller stuff and so on
-
         if let Some(permissions) = &self.apollo_permissions {
             match input {
                 ClientInputEvent::ControllerConnect { .. }
@@ -421,6 +432,16 @@ where
                 | ClientInputEvent::MouseScrollHorizontal { .. }
                 | ClientInputEvent::MouseScrollVertical { .. } => {
                     if !permissions.contains(ApolloPermissions::INPUT_MOUSE) {
+                        return Err(ControlError::ApolloPermissionDenied);
+                    }
+                }
+                ClientInputEvent::Touch { .. } => {
+                    if !permissions.contains(ApolloPermissions::INPUT_TOUCH) {
+                        return Err(ControlError::ApolloPermissionDenied);
+                    }
+                }
+                ClientInputEvent::Pen { .. } => {
+                    if !permissions.contains(ApolloPermissions::INPUT_PEN) {
                         return Err(ControlError::ApolloPermissionDenied);
                     }
                 }
@@ -608,6 +629,61 @@ where
                     0.0,
                 ))?;
             }
+            ClientInputEvent::Touch {
+                event_type,
+                rotation,
+                pointer_id,
+                x,
+                y,
+                pressure_or_distance,
+                contact_area_minor,
+                contact_area_major,
+            } => {
+                // TODO: some touch events are batched
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1326-L1371
+
+                self.send_raw(ControlPacket::Touch {
+                    event_type,
+                    reserved: 0,
+                    rotation: rotation.unwrap_or(LI_ROT_UNKNOWN as u16),
+                    pointer_id,
+                    x,
+                    y,
+                    pressure_or_distance,
+                    contact_area_minor,
+                    contact_area_major,
+                })?;
+            }
+            ClientInputEvent::Pen {
+                event_type,
+                tool_type,
+                buttons,
+                x,
+                y,
+                pressure_or_distance,
+                rotation,
+                tilt,
+                contact_area_minor,
+                contact_area_major,
+            } => {
+                // TODO: some pen events are batched
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1326-L1371
+
+                self.send_raw(ControlPacket::Pen {
+                    event_type,
+                    tool_type,
+                    buttons,
+                    zero: 0,
+                    x,
+                    y,
+                    pressure_or_distance,
+                    rotation: rotation.unwrap_or(LI_ROT_UNKNOWN as u16),
+                    tilt: tilt.unwrap_or(LI_TILT_UNKNOWN as u8),
+                    zero2: 0,
+                    contact_area_minor,
+                    contact_area_major,
+                })?;
+            }
         }
 
         Ok(())
@@ -646,46 +722,7 @@ where
         }
 
         // TODO: other packets?
-        let (channel, kind) = if self.server_version.is_sunshine_like() {
-            match packet {
-                // request idr: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1522-L1528
-                // ltr ack: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1569-L1575
-                // invalidate ref frames: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1509-L1515
-                ControlPacket::RequestIdr
-                | ControlPacket::StartB
-                | ControlPacket::LongTermReferenceFrameAcknowledgement { .. } => {
-                    (CHANNEL_URGENT, PacketKind::Reliable)
-                }
-                // loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1469-L1475
-                // frame fec: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1407-L1413
-                ControlPacket::LossStats { .. } | ControlPacket::FrameFec { .. } => {
-                    (CHANNEL_GENERIC, PacketKind::Unreliable { sequenced: false })
-                }
-                // See: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1429
-                // Send the message (and don't expect a response)
-                //
-                // NB: We send this periodic message as reliable to ensure the RTT is recomputed
-                // regularly. This only happens when an ACK is received to a reliable packet.
-                // Since the other traffic on this channel is unsequenced, it doesn't really
-                // cause any negative HOL blocking side-effects.
-                ControlPacket::PeriodicPing => (CHANNEL_GENERIC, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L738-L742
-                ControlPacket::MouseMoveRelative { .. } => (CHANNEL_MOUSE, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L803-L806
-                ControlPacket::MouseMoveAbsolute { .. } => (CHANNEL_MOUSE, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L865-L866
-                ControlPacket::MouseButton { .. } => (CHANNEL_MOUSE, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L899-L900
-                ControlPacket::Keyboard { .. } => (CHANNEL_KEYBOARD, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L980-L981
-                ControlPacket::Text { .. } => (CHANNEL_UTF8, PacketKind::Reliable),
-                _ => todo!("{:?}", packet),
-            }
-        } else {
-            // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
-            // Always use channel 0 and reliable for GFE
-            (0, PacketKind::Reliable)
-        };
+        let (channel, kind) = packet.channel(self.server_version);
 
         self.host.send(self.peer, channel, kind, packet)?;
 

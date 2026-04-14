@@ -31,14 +31,15 @@ This design allows the same protocol implementation to be reused across native a
 |**Video Codec**|H264|✅|✅|
 ||H265|✅|✅|
 ||AV1|❌|✅|
-|**Video Encoding Features**|Reference Frame Invalidation|❌|✅|
-||Long Term Reference Frames[^1]|❌|✅|
+|**Video Encoding Features**|Reference Frame Invalidation[^1]|❌|✅|
+||Long Term Reference Frames[^2]|❌|✅|
 |**Encryption**|RTSP Encryption|✅|✅|
 ||Audio Encryption|✅|✅|
 ||Video Encryption|❌|✅|
 ||Control Encryption|✅|✅|
 
-[^1]: https://github.com/moonlight-stream/moonlight-common-c/issues/120
+[^1]: https://github.com/games-on-whales/wolf/issues/5
+[^2]: https://github.com/moonlight-stream/moonlight-common-c/issues/120
 
 ## Usage
 

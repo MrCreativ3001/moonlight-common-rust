@@ -665,7 +665,7 @@ fn controller_set_motion() {
         ControlPacket::ControllerSetMotion {
             controller_number: 1,
             rate: 20,
-            motion_type: MotionType::ACCEL,
+            motion_type: MotionType::Acceleration,
         },
         &[
             1, 85, // Type
@@ -684,7 +684,7 @@ fn controller_motion() {
         sunshine_gen_7_enc_config(),
         ControlPacket::ControllerMotion {
             controller_number: 1,
-            motion_type: MotionType::GYRO,
+            motion_type: MotionType::Gyroscope,
             reserved: [0; _],
             x: 1.0,
             y: 2.0,
@@ -734,7 +734,7 @@ fn controller_battery() {
         sunshine_gen_7_enc_config(),
         ControlPacket::ControllerBattery {
             controller_number: 1,
-            battery_state: BatteryState::FULL,
+            battery_state: BatteryState::Full,
             battery_percentage: 10,
             reserved: 0,
         },

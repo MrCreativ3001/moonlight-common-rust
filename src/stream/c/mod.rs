@@ -4,6 +4,7 @@ use std::{
     ptr::{null, null_mut},
     str::FromStr,
     sync::{Arc, LazyLock, Mutex},
+    thread::spawn,
     time::Duration,
 };
 
@@ -713,7 +714,7 @@ impl MoonlightStream {
         unsafe {
             if let Some(err) = Self::send_event_error(LiSendControllerMotionEvent(
                 controller_number,
-                motion_type.bits(),
+                motion_type as u8,
                 x,
                 y,
                 z,
@@ -734,7 +735,7 @@ impl MoonlightStream {
         unsafe {
             if let Some(err) = Self::send_event_error(LiSendControllerBatteryEvent(
                 controller_number,
-                battery_state.bits(),
+                battery_state as u8,
                 battery_percentage.unwrap_or(LI_BATTERY_PERCENTAGE_UNKNOWN as u8),
             )) {
                 return Err(err);
@@ -743,14 +744,10 @@ impl MoonlightStream {
         Ok(())
     }
 
+    /// Will stop the stream.
+    ///
+    /// This will block until the stream is fully stopped.
     pub fn stop(self) {
-        drop(self);
-    }
-}
-
-impl Drop for MoonlightStream {
-    fn drop(&mut self) {
-        // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
         unsafe {
             // # Safety
             // LiStopConnection is not thread safe so we need a mutex
@@ -771,5 +768,18 @@ impl Drop for MoonlightStream {
 
             drop(connection_guard);
         }
+    }
+}
+
+impl Drop for MoonlightStream {
+    fn drop(&mut self) {
+        let this = MoonlightStream {
+            server_version: self.server_version,
+            handle: self.handle.clone(),
+        };
+
+        spawn(move || {
+            this.stop();
+        });
     }
 }

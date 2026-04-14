@@ -18,7 +18,7 @@ use crate::{
                 },
                 packet::{
                     ControlPacket, ControlPacketConfig, ControlPacketNotSupported,
-                    EncryptedControlHeader, PacketDirection,
+                    EncryptedControlHeader, EnetChannel, PacketDirection,
                 },
             },
             crypto::CryptoBackend,
@@ -234,7 +234,7 @@ where
     pub fn send(
         &mut self,
         id: ControlPeerId,
-        channel_id: u8,
+        channel_id: EnetChannel,
         kind: PacketKind,
         packet: ControlPacket,
     ) -> Result<(), ControlError> {
@@ -310,7 +310,7 @@ where
             &unencrypted_buffer[0..len]
         };
 
-        peer.send(channel_id, &Packet::new(buffer, kind))
+        peer.send(channel_id.0, &Packet::new(buffer, kind))
             .map_err(EnetError::from)?;
 
         Ok(())

@@ -1,12 +1,13 @@
 //! All rtsp messages are here
 
-use std::{num::ParseIntError, ops::Deref, str::FromStr};
+use std::{num::ParseIntError, str::FromStr};
 
 use thiserror::Error;
 
 use crate::{
     ServerVersion,
     stream::proto::{
+        packet::{SUNSHINE_PING_PAYLOAD_SIZE, SunshinePing},
         rtsp::raw::{
             RtspAddr, RtspCommand, RtspProtocol, RtspRequest, RtspRequestMessage, RtspResponse,
         },
@@ -400,21 +401,5 @@ impl RtspPlayRequest {
             options: vec![("Session".to_string(), self.session_id)],
             payload: None,
         }
-    }
-}
-
-// TODO: where is this used?
-// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Video.h#L48
-// TODO: maybe don't make this a const?
-pub const SUNSHINE_PING_PAYLOAD_SIZE: usize = 16;
-
-#[derive(Debug, Clone)]
-pub struct SunshinePing(pub [u8; SUNSHINE_PING_PAYLOAD_SIZE]);
-
-impl Deref for SunshinePing {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }

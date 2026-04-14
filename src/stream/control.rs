@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use num_derive::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
 
 use crate::stream::bindings::{
     A_FLAG, B_FLAG, BACK_FLAG, BUTTON_ACTION_PRESS, BUTTON_ACTION_RELEASE, BUTTON_LEFT,
@@ -229,15 +229,14 @@ bitflags! {
     }
 }
 
-bitflags! {
-    /// Motion sensor types for [`LiSendControllerMotionEvent`].
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct MotionType: u8 {
-        /// Accelerometer data in m/s² (inclusive of gravitational acceleration).
-        const ACCEL = LI_MOTION_TYPE_ACCEL as u8;
-        /// Gyroscope data in degrees per second.
-        const GYRO  = LI_MOTION_TYPE_GYRO as u8;
-    }
+/// Motion sensor types for [`LiSendControllerMotionEvent`].
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, ToPrimitive)]
+pub enum MotionType {
+    /// Accelerometer data in m/s² (inclusive of gravitational acceleration).
+    Acceleration = LI_MOTION_TYPE_ACCEL as u8,
+    /// Gyroscope data in degrees per second.
+    Gyroscope = LI_MOTION_TYPE_GYRO as u8,
 }
 
 bitflags! {
@@ -249,22 +248,23 @@ bitflags! {
     }
 }
 
-// TODO: this might be an enum?
-bitflags! {
-    /// Battery states for [`LiSendControllerBatteryEvent`].
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct BatteryState: u8 {
-        /// Unknown battery state.
-        const UNKNOWN       = LI_BATTERY_STATE_UNKNOWN as u8;
-        /// No battery present.
-        const NOT_PRESENT   = LI_BATTERY_STATE_NOT_PRESENT as u8;
-        /// Battery is discharging.
-        const DISCHARGING   = LI_BATTERY_STATE_DISCHARGING as u8;
-        /// Battery is charging.
-        const CHARGING      = LI_BATTERY_STATE_CHARGING as u8;
-        /// Connected to power but not charging.
-        const NOT_CHARGING  = LI_BATTERY_STATE_NOT_CHARGING as u8;
-        /// Battery is full.
-        const FULL          = LI_BATTERY_STATE_FULL as u8;
-    }
+/// Battery states for [`LiSendControllerBatteryEvent`].
+///
+/// Refernces:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L811-L820
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, ToPrimitive)]
+pub enum BatteryState {
+    /// Unknown battery state.
+    Unknown = LI_BATTERY_STATE_UNKNOWN as u8,
+    /// No battery present.
+    NotPresent = LI_BATTERY_STATE_NOT_PRESENT as u8,
+    /// Battery is discharging.
+    Discharging = LI_BATTERY_STATE_DISCHARGING as u8,
+    /// Battery is charging.
+    Charging = LI_BATTERY_STATE_CHARGING as u8,
+    /// Connected to power but not charging.
+    NotCharging = LI_BATTERY_STATE_NOT_CHARGING as u8,
+    /// Battery is full.
+    Full = LI_BATTERY_STATE_FULL as u8,
 }
