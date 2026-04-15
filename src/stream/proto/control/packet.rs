@@ -30,54 +30,7 @@ pub const PERIODIC_PING_VERSION: ServerVersion = ServerVersion::new(7, 1, 415, 0
 #[error("this packet is not supported on this version of moonlight")]
 pub struct ControlPacketNotSupported;
 
-/// Its possible to send control messages via tcp on very old versions: AppVersionQuad[0] < 5
-/// - Create: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L1784-L1793
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L825-L832
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L797-L820
-pub struct ControlHeaderTcp {
-    /// This seems to equal ControlHeaderV1.type
-    pub ty: u16,
-    /// The len of the packet, because tcp is streamed
-    pub len: u16,
-}
-impl ControlHeaderTcp {
-    pub const SIZE: usize = 4;
-
-    pub fn deserialize(buffer: &[u8; Self::SIZE]) -> Self {
-        let ty = u16::from_be_bytes([buffer[0], buffer[1]]);
-        let len = u16::from_be_bytes([buffer[2], buffer[3]]);
-
-        Self { ty, len }
-    }
-
-    pub fn serialize(&self, buffer: &mut [u8; Self::SIZE]) {
-        buffer[0..2].copy_from_slice(&self.ty.to_be_bytes());
-        buffer[2..4].copy_from_slice(&self.len.to_be_bytes());
-    }
-}
-
-/// V1 Control Header:
-/// - Definition: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L16-L18
-///
-/// Used when message is not encrypted (default)
-pub struct ControlHeaderV1 {
-    pub ty: u16,
-}
-
-impl ControlHeaderV1 {
-    pub const SIZE: usize = 2;
-
-    pub fn deserialize(buffer: &[u8; Self::SIZE]) -> Self {
-        let ty = u16::from_be_bytes([buffer[0], buffer[1]]);
-
-        Self { ty }
-    }
-    pub fn serialize(&mut self, buffer: &mut [u8; Self::SIZE]) {
-        buffer[0..2].copy_from_slice(&self.ty.to_be_bytes());
-    }
-}
-
-/// V2 Control Header:
+/// Control Header:
 /// - Definition: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L20-L23
 ///
 /// The header of the decrypted payload which follows after the EncryptedControlHeader
@@ -213,14 +166,6 @@ impl Deref for RawControlPacketType {
     }
 }
 
-/// The version of all packets
-// TODO: when / how is this used
-#[derive(Debug)]
-pub enum PacketVersion {
-    V1,
-    V2,
-}
-
 // Packets:
 // - New values: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html
 // - Old Value: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L146-L216
@@ -228,8 +173,6 @@ pub enum PacketVersion {
 pub struct ControlPacketConfig {
     /// Required because some packets have version depedent data
     pub server_version: ServerVersion,
-    /// The version of all packets
-    pub version: PacketVersion,
     /// See also:
     /// - [ControlPacket::PeriodicPing]
     pub periodic_ping: Option<RawControlPacketType>,
@@ -310,8 +253,6 @@ impl ControlPacketConfig {
             5 => Some(Self {
                 server_version,
 
-                version: PacketVersion::V1,
-
                 periodic_ping: None,
                 request_idr: RawControlPacketType(0x0305),
                 start_b: RawControlPacketType(0x0307),
@@ -338,8 +279,6 @@ impl ControlPacketConfig {
 
             7 if encrypted => Some(Self {
                 server_version,
-
-                version: PacketVersion::V1,
 
                 periodic_ping: (server_version >= PERIODIC_PING_VERSION)
                     .then_some(RawControlPacketType(0x0200)),
@@ -368,8 +307,6 @@ impl ControlPacketConfig {
             //
             6 | 7 => Some(Self {
                 server_version,
-
-                version: PacketVersion::V1,
 
                 periodic_ping: (server_version >= PERIODIC_PING_VERSION)
                     .then_some(RawControlPacketType(0x0200)),

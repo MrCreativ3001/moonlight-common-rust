@@ -47,8 +47,6 @@ pub mod peer;
 #[allow(clippy::unwrap_used)]
 mod test;
 
-// TODO: where's the difference between v1 and v2 headers?
-
 /// A message from the [MoonlightStreamProto](super::MoonlightStreamProto) to the [ControlStream]
 #[derive(Debug)]
 pub struct ControlMessage(pub(super) ControlMessageInner);
