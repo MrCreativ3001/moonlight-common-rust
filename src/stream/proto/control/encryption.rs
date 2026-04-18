@@ -410,6 +410,14 @@ mod test {
         test_clientbound_packet(OpenSSLCryptoBackend);
     }
 
+    #[cfg(feature = "rustcrypto")]
+    #[test]
+    fn clientbound_packet_sunshine_rustcrypto() {
+        use crate::crypto::rustcrypto::RustCryptoBackend;
+
+        test_clientbound_packet(RustCryptoBackend);
+    }
+
     fn test_serverbound_packet<Crypto>(crypto: Crypto)
     where
         Crypto: CryptoBackend,
@@ -466,5 +474,13 @@ mod test {
         use crate::crypto::openssl::OpenSSLCryptoBackend;
 
         test_serverbound_packet(OpenSSLCryptoBackend);
+    }
+
+    #[cfg(feature = "rustcrypto")]
+    #[test]
+    fn serverbound_packet_sunshine_rustcrypto() {
+        use crate::crypto::rustcrypto::RustCryptoBackend;
+
+        test_serverbound_packet(RustCryptoBackend);
     }
 }

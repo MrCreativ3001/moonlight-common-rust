@@ -15,13 +15,8 @@ use moonlight_common_sys::limelight::{
 };
 use num_derive::FromPrimitive;
 
-use crate::{
-    ServerVersion,
-    stream::{
-        ColorRange, ColorSpace, EncryptionFlags, HostFeatures, StreamingConfig,
-        SupportedVideoFormats,
-        bindings::{LI_FF_CONTROLLER_TOUCH_EVENTS, LI_FF_PEN_TOUCH_EVENTS},
-    },
+use crate::stream::{
+    ColorRange, ColorSpace, EncryptionFlags, HostFeatures, StreamingConfig, SupportedVideoFormats,
 };
 
 // --------------- Stream ---------------
@@ -91,31 +86,6 @@ bitflags! {
         const SUPPORTS_ARBITRARY_SOUND_DURATION = CAPABILITY_SUPPORTS_ARBITRARY_AUDIO_DURATION;
         const PULL_RENDERER = CAPABILITY_PULL_RENDERER;
         const SLOW_OPUS_DECODER = CAPABILITY_SLOW_OPUS_DECODER;
-    }
-}
-
-bitflags! {
-    #[derive(Debug, Clone)]
-    pub struct RawHostFeatures: u32 {
-        const PEN_TOUCH_EVENTS = LI_FF_PEN_TOUCH_EVENTS;
-        const CONTROLLER_TOUCH_EVENTS = LI_FF_CONTROLLER_TOUCH_EVENTS;
-    }
-}
-
-impl RawHostFeatures {
-    pub fn into_host_features(self, server_version: ServerVersion) -> HostFeatures {
-        HostFeatures {
-            // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1021-L1038
-            controller_limit: if server_version.is_sunshine_like() {
-                16
-            } else {
-                4
-            },
-            sunshine_pen: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
-            sunshine_touch: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
-            sunshine_controller_touch: self.contains(RawHostFeatures::CONTROLLER_TOUCH_EVENTS),
-            ..Default::default()
-        }
     }
 }
 

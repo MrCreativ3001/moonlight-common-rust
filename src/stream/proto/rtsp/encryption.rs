@@ -74,7 +74,6 @@ where
     Ok(len)
 }
 
-// TODO
 /// References:
 /// - Sunshine:
 ///   - https://github.com/LizardByte/Sunshine/blob/24b66feddaf6df889dc1330a02b3289c09ec62cc/src/rtsp.cpp#L176-L239
@@ -398,7 +397,8 @@ mod test {
     #[cfg(feature = "rustcrypto")]
     #[test]
     fn rustcrypto() {
-        // test_crypto(RustCryptoBackend);
-        todo!()
+        use crate::crypto::rustcrypto::RustCryptoBackend;
+
+        test_crypto(&RustCryptoBackend);
     }
 }

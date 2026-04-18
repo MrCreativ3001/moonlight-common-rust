@@ -105,6 +105,13 @@ x509-cert = { version = "0.2.5", features = [
 ], default-features = false, optional = true }
 pkcs8 = { version = "0.10.2", default-features = false, optional = true }
 signature = { version = "2.2.0", default-features = false, optional = true }
+aes-gcm = { version = "0", default-features = false, features = [
+    "aes",
+], optional = true }
+# this must match the aes version
+cbc = { version = "0.1.2", default-features = false, features = [
+    "block-padding",
+], optional = true }
 
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
@@ -127,7 +134,6 @@ stream-c = ["dep:moonlight-common-sys"]
 
 # Crypto implementations
 openssl = ["dep:openssl"]
-# TODO: rustcrypto
 rustcrypto = [
     "dep:sha1",
     "dep:sha2",
@@ -139,6 +145,8 @@ rustcrypto = [
     "dep:x509-cert",
     "dep:signature",
     "dep:pkcs8",
+    "dep:aes-gcm",
+    "dep:cbc",
 ]
 
 # Request implementations
@@ -176,16 +184,15 @@ venator = { version = "1.1.0" }
 openssl-src = "=300.5.3"
 openssl-sys = "=0.9.109"
 
-# TODO: all examples should use rustcrypto
 [[example]]
 name = "client-simple"
 path = "examples/client-simple.rs"
-required-features = ["std", "rustcrypto"]
+required-features = ["ureq", "std", "rustcrypto"]
 
 [[example]]
 name = "client-stream"
 path = "examples/client-stream.rs"
-required-features = ["std", "rustcrypto"]
+required-features = ["ureq", "std", "rustcrypto"]
 
 [[example]]
 name = "client-common-c"

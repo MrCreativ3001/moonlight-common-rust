@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{sync::Arc, thread::sleep, time::Duration};
+use std::{thread::sleep, time::Duration};
 
 use moonlight_common::{
-    crypto::{openssl::OpenSSLCryptoBackend, rustcrypto::RustCryptoBackend},
+    crypto::rustcrypto::RustCryptoBackend,
     high::std::MoonlightHost,
     http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::ureq::UreqClient},
     stream::{
@@ -21,8 +21,6 @@ use crate::common::{
     gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
     try_load_identity,
 };
-
-use tracing::info;
 
 mod common;
 
@@ -42,7 +40,7 @@ fn main() {
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
-    let crypto_backend = OpenSSLCryptoBackend;
+    let crypto_backend = RustCryptoBackend;
 
     // -- Load identity
     let Some((client_identifier, client_secret, server_identifier)) = try_load_identity() else {

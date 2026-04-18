@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{fs, sync::Arc};
+use std::fs;
 
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
@@ -31,7 +31,7 @@ fn main() {
         MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
-    let crypto_provider = Arc::new(RustCryptoBackend);
+    let crypto_backend = RustCryptoBackend;
 
     // -- Pair to a host
 
@@ -46,7 +46,7 @@ fn main() {
         None => {
             // Generate new identity
             let (client_identifier, client_secret) =
-                crypto_provider.generate_client_identity().unwrap();
+                crypto_backend.generate_client_identity().unwrap();
 
             // Pair to sunshine server and print a message
             let device_name = "roth".to_string();
@@ -60,7 +60,7 @@ fn main() {
                     &client_secret,
                     device_name,
                     pin,
-                    crypto_provider.clone(),
+                    crypto_backend,
                 )
                 .unwrap();
 

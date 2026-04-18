@@ -1,6 +1,5 @@
 use crate::stream::{
-    SupportedVideoFormats,
-    c::bindings::RawHostFeatures,
+    RawHostFeatures, SupportedVideoFormats,
     proto::{
         rtsp::moonlight::ParseMoonlightRtspResponseError,
         sdp::{Sdp, client::SunshineEncryptionFlags},

@@ -24,12 +24,9 @@ use moonlight_common_sys::limelight::{
 use crate::{
     MoonlightError, ServerVersion,
     stream::{
-        HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
+        HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings, RawHostFeatures,
         audio::AudioDecoder,
-        c::{
-            bindings::{EstimatedRttInfo, RawHostFeatures},
-            connection::ConnectionListenerC,
-        },
+        c::{bindings::EstimatedRttInfo, connection::ConnectionListenerC},
         connection::ConnectionListener,
         control::{
             ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,

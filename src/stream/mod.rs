@@ -13,8 +13,8 @@ use crate::{
     stream::{
         audio::AudioConfig,
         bindings::{
-            ENCFLG_ALL, ENCFLG_AUDIO, ENCFLG_NONE, ENCFLG_VIDEO, STREAM_CFG_AUTO, STREAM_CFG_LOCAL,
-            STREAM_CFG_REMOTE,
+            ENCFLG_ALL, ENCFLG_AUDIO, ENCFLG_NONE, ENCFLG_VIDEO, LI_FF_CONTROLLER_TOUCH_EVENTS,
+            LI_FF_PEN_TOUCH_EVENTS, STREAM_CFG_AUTO, STREAM_CFG_LOCAL, STREAM_CFG_REMOTE,
         },
         control::ActiveGamepads,
         video::{ColorRange, ColorSpace, ServerCodecModeSupport, SupportedVideoFormats},
@@ -288,6 +288,31 @@ pub enum StreamingConfig {
     Local = STREAM_CFG_LOCAL,
     Remote = STREAM_CFG_REMOTE,
     Auto = STREAM_CFG_AUTO,
+}
+
+bitflags! {
+    #[derive(Debug, Clone)]
+    pub struct RawHostFeatures: u32 {
+        const PEN_TOUCH_EVENTS = LI_FF_PEN_TOUCH_EVENTS;
+        const CONTROLLER_TOUCH_EVENTS = LI_FF_CONTROLLER_TOUCH_EVENTS;
+    }
+}
+
+impl RawHostFeatures {
+    pub fn into_host_features(self, server_version: ServerVersion) -> HostFeatures {
+        HostFeatures {
+            // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1021-L1038
+            controller_limit: if server_version.is_sunshine_like() {
+                16
+            } else {
+                4
+            },
+            sunshine_pen: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
+            sunshine_touch: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
+            sunshine_controller_touch: self.contains(RawHostFeatures::CONTROLLER_TOUCH_EVENTS),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Debug)]

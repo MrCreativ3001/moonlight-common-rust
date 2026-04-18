@@ -1,9 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use std::sync::Arc;
-
 use moonlight_common::{
-    crypto::{rustcrypto::RustCryptoBackend},
+    crypto::rustcrypto::RustCryptoBackend,
     high::tokio::MoonlightHost,
     http::{
         DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
@@ -33,7 +31,7 @@ async fn main() {
             .unwrap();
 
     // Create a Crypto Backend
-    let crypto_provider = Arc::new(RustCryptoBackend);
+    let crypto_provider = RustCryptoBackend;
 
     // Try to get existing identity
     match try_load_identity_async().await {
