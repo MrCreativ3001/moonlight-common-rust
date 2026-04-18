@@ -2,12 +2,10 @@ use thiserror::Error;
 
 use tracing::{Level, debug, instrument, trace};
 
-use std::error::Error;
-
 use crate::stream::{
     AesKey,
     proto::{
-        crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
+        crypto::{CryptoBackend, CryptoError},
         rtsp::packet::RtspEncryptionHeader,
     },
 };
@@ -57,13 +55,12 @@ where
         tag: [0; 16],
     };
 
-    crypto_backend.encrypt(
-        CipherAlgorithm::Aes128Gcm,
+    crypto_backend.encrypt_aes_gcm(
         &aes_key,
         &iv,
-        &mut header.tag,
         message,
         &mut encrypted_message[RtspEncryptionHeader::SIZE..],
+        &mut header.tag,
     )?;
 
     #[allow(clippy::unwrap_used)]
@@ -128,12 +125,11 @@ where
         return Err(RtspEncryptionError::OutputTooSmall);
     }
 
-    crypto_backend.decrypt(
-        CipherAlgorithm::Aes128Gcm,
+    crypto_backend.decrypt_aes_gcm(
         &aes_key,
         &iv,
-        Some(&header.tag),
         ciphertext,
+        &header.tag,
         &mut message[..message_len],
     )?;
 
@@ -169,13 +165,12 @@ where
         tag: [0; 16],
     };
 
-    crypto_backend.encrypt(
-        CipherAlgorithm::Aes128Gcm,
+    crypto_backend.encrypt_aes_gcm(
         &aes_key,
         &iv,
-        &mut header.tag,
         message,
         &mut encrypted_message[RtspEncryptionHeader::SIZE..],
+        &mut header.tag,
     )?;
 
     #[allow(clippy::unwrap_used)]
@@ -237,12 +232,11 @@ where
         return Err(RtspEncryptionError::OutputTooSmall);
     }
 
-    crypto_backend.decrypt(
-        CipherAlgorithm::Aes128Gcm,
+    crypto_backend.decrypt_aes_gcm(
         &aes_key,
         &iv,
-        Some(&header.tag),
         ciphertext,
+        &header.tag,
         &mut message[..message_len],
     )?;
 

@@ -5,7 +5,7 @@ use crate::{
         ClientIdentifier, ClientSecret,
         pair::{HashAlgorithm, PairingCryptoBackend},
     },
-    stream::proto::crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
+    stream::proto::crypto::{CryptoBackend, CryptoError},
 };
 
 #[derive(Debug, Error)]
@@ -76,23 +76,42 @@ impl PairingCryptoBackend for DisabledCryptoBackend {
 }
 
 impl CryptoBackend for DisabledCryptoBackend {
-    fn encrypt(
+    fn encrypt_aes_gcm(
         &self,
-        _algorithm: CipherAlgorithm,
         _key: &[u8],
         _iv: &[u8],
-        _tag: &mut [u8],
         _input: &[u8],
+        _output: &mut [u8],
+        _tag: &mut [u8],
+    ) -> Result<(), CryptoError> {
+        Err(CryptoError::from_error(CryptoBackendDisabledError))
+    }
+
+    fn decrypt_aes_gcm(
+        &self,
+        _key: &[u8],
+        _iv: &[u8],
+        _input: &[u8],
+        _tag: &[u8],
         _output: &mut [u8],
     ) -> Result<(), CryptoError> {
         Err(CryptoError::from_error(CryptoBackendDisabledError))
     }
-    fn decrypt(
+
+    fn encrypt_aes_cbc(
         &self,
-        _algorithm: CipherAlgorithm,
         _key: &[u8],
         _iv: &[u8],
-        _tag: Option<&[u8]>, // Required for AEAD (e.g. GCM), unused for CBC
+        _input: &[u8],
+        _output: &mut [u8],
+    ) -> Result<usize, CryptoError> {
+        Err(CryptoError::from_error(CryptoBackendDisabledError))
+    }
+
+    fn decrypt_aes_cbc(
+        &self,
+        _key: &[u8],
+        _iv: &[u8],
         _input: &[u8],
         _output: &mut [u8],
     ) -> Result<usize, CryptoError> {

@@ -7,22 +7,19 @@ use std::{
 use fec_rs::ReedSolomon;
 use thiserror::Error;
 
-use crate::{
-    crypto::round_to_pkcs7_padded_len,
-    stream::{
-        AesIv, AesKey,
-        audio::AudioFrame,
-        proto::{
-            audio::{
-                create_audio_reed_solomon,
-                packet::{
-                    AudioFecHeader, INVALID_OPUS_HEADER, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
-                    RTP_AUDIO_TOTAL_SHARDS, RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC,
-                    RtpAudioHeader,
-                },
+use crate::stream::{
+    AesIv, AesKey,
+    audio::AudioFrame,
+    proto::{
+        audio::{
+            create_audio_reed_solomon,
+            packet::{
+                AudioFecHeader, INVALID_OPUS_HEADER, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
+                RTP_AUDIO_TOTAL_SHARDS, RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC,
+                RtpAudioHeader,
             },
-            crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
         },
+        crypto::{CryptoBackend, CryptoError, round_to_pkcs7_safe_len},
     },
 };
 
@@ -148,14 +145,12 @@ where
 
             // Ensure output buffer is big enough
             self.unencrypt_buffer
-                .resize(round_to_pkcs7_padded_len(output.buffer.len()) + 16, 0);
+                .resize(round_to_pkcs7_safe_len(output.buffer.len()), 0);
 
             // Decrypt
-            let len = self.crypto_backend.decrypt(
-                CipherAlgorithm::Aes128Cbc,
+            let len = self.crypto_backend.decrypt_aes_cbc(
                 &aes_key,
                 &iv,
-                None,
                 &output.buffer,
                 &mut self.unencrypt_buffer,
             )?;

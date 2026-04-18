@@ -11,7 +11,7 @@ use crate::stream::{
                 EncryptedControlHeader,
             },
         },
-        crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
+        crypto::{CryptoBackend, CryptoError},
     },
 };
 
@@ -49,16 +49,13 @@ where
         tag: [0; _],
     };
 
-    crypto
-        .encrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &aes_key,
-            iv,
-            &mut header.tag,
-            unencrypted_packet,
-            &mut encrypted_packet[EncryptedControlHeader::SIZE..],
-        )
-        .map_err(|err| ControlEncryptionError::Crypto(err.into()))?;
+    crypto.encrypt_aes_gcm(
+        &aes_key,
+        iv,
+        unencrypted_packet,
+        &mut encrypted_packet[EncryptedControlHeader::SIZE..],
+        &mut header.tag,
+    )?;
 
     // Only serialize header after having encrypted to also serialize the tag
     // The size matches and the caller is responsible for the list being big enough
@@ -120,18 +117,15 @@ where
     let mut iv = [0; _];
     let iv_len = generate_iv(encrypted_header.sequence_number, &mut iv);
 
-    let len = crypto
-        .decrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &aes_key,
-            &iv[0..iv_len],
-            Some(&encrypted_header.tag),
-            encrypted_payload,
-            unencrypted_packet,
-        )
-        .map_err(|err| ControlEncryptionError::Crypto(err.into()))?;
+    crypto.decrypt_aes_gcm(
+        &aes_key,
+        &iv[0..iv_len],
+        encrypted_payload,
+        &encrypted_header.tag,
+        unencrypted_packet,
+    )?;
 
-    Ok(len)
+    Ok(encrypted_payload.len())
 }
 
 /// The caller must ensure that encrypted_packet is big enough.

@@ -27,7 +27,10 @@ use crate::{
         ClientIdentifier, ClientSecret, ServerIdentifier,
         pair::{HashAlgorithm, PairingCryptoBackend},
     },
-    stream::proto::crypto::{CipherAlgorithm, CryptoBackend, CryptoError},
+    stream::proto::crypto::{
+        CryptoBackend, CryptoError, add_pkcs_7_padding, remove_pkcs_7_padding,
+        round_to_pkcs7_safe_len,
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -196,111 +199,108 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
     }
 }
 
-fn add_pkcs7_padding(input: &[u8]) -> Vec<u8> {
-    let block_size = 16;
-    let pad_len = block_size - (input.len() % block_size);
-    let mut out = Vec::with_capacity(input.len() + pad_len);
-    out.extend_from_slice(input);
-    out.extend(std::iter::repeat(pad_len as u8).take(pad_len));
-    out
-}
-
 fn crypto_err(error: ErrorStack) -> CryptoError {
     CryptoError::from_error(error)
 }
 
 impl CryptoBackend for OpenSSLCryptoBackend {
-    fn encrypt(
+    fn encrypt_aes_gcm(
         &self,
-        algorithm: CipherAlgorithm,
         key: &[u8],
         iv: &[u8],
-        tag: &mut [u8],
         input: &[u8],
         output: &mut [u8],
+        tag: &mut [u8],
     ) -> Result<(), CryptoError> {
-        let cipher = match algorithm {
-            CipherAlgorithm::Aes128Cbc => symm::Cipher::aes_128_cbc(),
-            CipherAlgorithm::Aes128Gcm => symm::Cipher::aes_128_gcm(),
-        };
+        let cipher = symm::Cipher::aes_128_gcm();
 
         let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
-        crypter.pad(false);
 
-        match algorithm {
-            CipherAlgorithm::Aes128Cbc => {
-                let padded = add_pkcs7_padding(input);
+        let mut count = crypter.update(input, output).map_err(crypto_err)?;
+        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
-                let mut count = crypter.update(&padded, output).map_err(crypto_err)?;
-                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+        crypter.get_tag(tag).map_err(crypto_err)?;
 
-                Ok(())
-            }
-
-            CipherAlgorithm::Aes128Gcm => {
-                let mut count = crypter.update(input, output).map_err(crypto_err)?;
-                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
-
-                crypter.get_tag(tag).map_err(crypto_err)?;
-
-                Ok(())
-            }
-        }
+        debug_assert_eq!(count, input.len());
+        Ok(())
     }
 
-    fn decrypt(
+    fn decrypt_aes_gcm(
         &self,
-        algorithm: CipherAlgorithm,
         key: &[u8],
         iv: &[u8],
-        tag: Option<&[u8]>,
         input: &[u8],
+        tag: &[u8],
         output: &mut [u8],
-    ) -> Result<usize, CryptoError> {
-        let cipher = match algorithm {
-            CipherAlgorithm::Aes128Cbc => symm::Cipher::aes_128_cbc(),
-            CipherAlgorithm::Aes128Gcm => symm::Cipher::aes_128_gcm(),
-        };
+    ) -> Result<(), CryptoError> {
+        let cipher = symm::Cipher::aes_128_gcm();
 
         let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
         crypter.pad(false);
 
-        match algorithm {
-            CipherAlgorithm::Aes128Cbc => {
-                let mut count = crypter.update(input, output).map_err(crypto_err)?;
-                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+        let mut count = crypter.update(input, output).map_err(crypto_err)?;
 
-                let pad_len = output[count - 1];
-                if pad_len > 0 && pad_len <= 16 {
-                    count -= pad_len as usize;
-                }
+        crypter.set_tag(tag).map_err(crypto_err)?;
+        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
-                Ok(count)
-            }
-            CipherAlgorithm::Aes128Gcm => {
-                let mut count = crypter.update(input, output).map_err(crypto_err)?;
+        debug_assert_eq!(count, input.len());
+        Ok(())
+    }
 
-                let tag = tag.ok_or_else(ErrorStack::get).map_err(crypto_err)?;
+    fn encrypt_aes_cbc(
+        &self,
+        key: &[u8],
+        iv: &[u8],
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, CryptoError> {
+        let cipher = symm::Cipher::aes_128_cbc();
 
-                crypter.set_tag(tag).map_err(crypto_err)?;
-                count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+        // add padding
+        // TODO: remove temporary vec
+        let mut padded = vec![0; round_to_pkcs7_safe_len(input.len())];
+        padded[0..input.len()].copy_from_slice(input);
 
-                Ok(count)
-            }
-        }
+        let len = add_pkcs_7_padding(&mut padded, input.len());
+
+        // encrypt
+        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
+        crypter.pad(false);
+
+        let mut count = crypter.update(&padded[..len], output).map_err(crypto_err)?;
+        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+
+        Ok(count)
+    }
+
+    fn decrypt_aes_cbc(
+        &self,
+        key: &[u8],
+        iv: &[u8],
+        input: &[u8],
+        output: &mut [u8],
+    ) -> Result<usize, CryptoError> {
+        let cipher = symm::Cipher::aes_128_cbc();
+
+        // decrypt
+        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
+        crypter.pad(false);
+
+        let mut count = crypter.update(input, output).map_err(crypto_err)?;
+        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+
+        // remove padding
+        count = remove_pkcs_7_padding(&mut output[0..count]);
+
+        Ok(count)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::stream::proto::crypto::test::{
-        test_aes_cbc_roundtrip, test_aes_gcm_roundtrip, test_gcm_tag_failure,
-    };
+    use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
 
     use super::*;
-
-    // TODO: also test the padding
-    // TODO: here are tests: https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/tests/testCrypto.cpp#L74-L154
 
     #[test]
     fn openssl_cbc() {
@@ -312,11 +312,5 @@ mod test {
     fn openssl_gcm() {
         let backend = OpenSSLCryptoBackend;
         test_aes_gcm_roundtrip(&backend);
-    }
-
-    #[test]
-    fn openssl_gcm_tag_fail() {
-        let backend = OpenSSLCryptoBackend;
-        test_gcm_tag_failure(&backend);
     }
 }

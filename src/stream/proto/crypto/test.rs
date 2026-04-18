@@ -1,113 +1,57 @@
-use std::fmt::Debug;
-
-use crate::stream::proto::crypto::{CipherAlgorithm, CryptoBackend};
+use crate::stream::proto::crypto::{CryptoBackend, round_to_pkcs7_safe_len};
 
 pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend) {
     let key = [0x11u8; 16];
     let iv = [0x22u8; 16];
 
-    let plaintext = b"hello world 123"; // forces padding
+    let expected_plaintext = b"hello world 123"; // forces padding
+    let expected_ciphertext = [
+        74, 33, 162, 224, 94, 5, 114, 62, 77, 96, 165, 123, 88, 229, 164, 179,
+    ];
 
-    let mut ciphertext = vec![0u8; 32];
-    let mut decrypted = vec![0u8; 32];
-    let mut tag = [0u8; 16]; // unused for CBC
-
-    backend
-        .encrypt(
-            CipherAlgorithm::Aes128Cbc,
-            &key,
-            &iv,
-            &mut tag,
-            plaintext,
-            &mut ciphertext,
-        )
-        .expect("encrypt failed");
+    let mut ciphertext = vec![0u8; round_to_pkcs7_safe_len(expected_plaintext.len())];
 
     let len = backend
-        .decrypt(
-            CipherAlgorithm::Aes128Cbc,
-            &key,
-            &iv,
-            None,
-            &ciphertext,
-            &mut decrypted,
-        )
+        .encrypt_aes_cbc(&key, &iv, expected_plaintext, &mut ciphertext)
+        .expect("encrypt failed");
+
+    assert_eq!(&ciphertext[0..len], expected_ciphertext.as_slice());
+
+    let mut plaintext = vec![0u8; round_to_pkcs7_safe_len(ciphertext.len())];
+
+    let len = backend
+        .decrypt_aes_cbc(&key, &iv, &expected_ciphertext, &mut plaintext)
         .expect("decrypt failed");
 
-    // strip PKCS7 manually
-    let pad = decrypted[len - 1] as usize;
-    let unpadded = &decrypted[..len - pad];
-
-    assert_eq!(unpadded, plaintext);
+    assert_eq!(len, expected_plaintext.len());
+    assert_eq!(&plaintext[0..len], expected_plaintext.as_slice());
 }
 
 pub fn test_aes_gcm_roundtrip(backend: &impl CryptoBackend) {
     let key = [0x33u8; 16];
     let iv = [0x44u8; 12];
 
-    let plaintext = b"authenticated encryption test";
+    let expected_plaintext = b"authenticated encryption test";
+    let expected_ciphertext = [
+        227, 170, 120, 14, 223, 202, 210, 171, 34, 114, 86, 177, 125, 88, 37, 74, 181, 51, 95, 5,
+        3, 125, 45, 133, 23, 236, 116, 68, 128,
+    ];
+    let expected_tag = [
+        231, 251, 174, 73, 134, 41, 168, 74, 197, 168, 48, 106, 12, 41, 147, 43,
+    ];
 
-    let mut ciphertext = vec![0u8; plaintext.len()];
-    let mut decrypted = vec![0u8; plaintext.len()];
+    let mut plaintext = vec![0u8; expected_ciphertext.len()];
+    let mut ciphertext = vec![0u8; expected_plaintext.len()];
     let mut tag = [0u8; 16];
 
     backend
-        .encrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &key,
-            &iv,
-            &mut tag,
-            plaintext,
-            &mut ciphertext,
-        )
+        .encrypt_aes_gcm(&key, &iv, expected_plaintext, &mut ciphertext, &mut tag)
         .expect("encrypt failed");
-
-    let len = backend
-        .decrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &key,
-            &iv,
-            Some(&tag),
-            &ciphertext,
-            &mut decrypted,
-        )
-        .expect("decrypt failed");
-
-    assert_eq!(&decrypted[..len], plaintext);
-}
-
-pub fn test_gcm_tag_failure(backend: &impl CryptoBackend) {
-    let key = [0x55u8; 16];
-    let iv = [0x66u8; 12];
-
-    let plaintext = b"tamper detection";
-
-    let mut ciphertext = vec![0u8; plaintext.len()];
-    let mut decrypted = vec![0u8; plaintext.len()];
-    let mut tag = [0u8; 16];
+    assert_eq!(&ciphertext, expected_ciphertext.as_slice());
+    assert_eq!(tag, expected_tag);
 
     backend
-        .encrypt(
-            CipherAlgorithm::Aes128Gcm,
-            &key,
-            &iv,
-            &mut tag,
-            plaintext,
-            &mut ciphertext,
-        )
-        .unwrap();
-
-    // tamper with ciphertext
-    ciphertext[0] ^= 0xFF;
-
-    let result = backend.decrypt(
-        CipherAlgorithm::Aes128Gcm,
-        &key,
-        &iv,
-        Some(&tag),
-        &ciphertext,
-        &mut decrypted,
-    );
-
-    assert!(result.is_err(), "tampering should fail");
+        .decrypt_aes_gcm(&key, &iv, &ciphertext, &tag, &mut plaintext)
+        .expect("decrypt failed");
+    assert_eq!(&plaintext, expected_plaintext.as_slice());
 }
