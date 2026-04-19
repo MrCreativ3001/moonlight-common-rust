@@ -300,6 +300,13 @@ bitflags! {
 
 impl RawHostFeatures {
     pub fn into_host_features(self, server_version: ServerVersion) -> HostFeatures {
+        let extensions = HostProtocolExtensions {
+            sunshine_pen: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
+            sunshine_touch: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
+            sunshine_controller_touch: self.contains(RawHostFeatures::CONTROLLER_TOUCH_EVENTS),
+            ..Default::default()
+        };
+
         HostFeatures {
             // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1021-L1038
             controller_limit: if server_version.is_sunshine_like() {
@@ -307,18 +314,16 @@ impl RawHostFeatures {
             } else {
                 4
             },
-            sunshine_pen: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
-            sunshine_touch: self.contains(RawHostFeatures::PEN_TOUCH_EVENTS),
-            sunshine_controller_touch: self.contains(RawHostFeatures::CONTROLLER_TOUCH_EVENTS),
-            ..Default::default()
+            pen: extensions.sunshine_pen,
+            touch: extensions.sunshine_touch,
+            controller_touch: extensions.sunshine_controller_touch,
+            extensions,
         }
     }
 }
 
-#[derive(Debug)]
-pub struct HostFeatures {
-    /// The controller limit of the host.
-    pub controller_limit: usize,
+#[derive(Debug, Default)]
+pub struct HostProtocolExtensions {
     /// Sunshine Extension
     ///
     /// If the host supports pen touch events.
@@ -342,21 +347,48 @@ pub struct HostFeatures {
     pub sunshine_controller_touch: bool,
     /// Apollo Extension
     ///
+    /// The permissions from Apollo.
+    ///
     /// Use this to query if specific apollo packets are supported or not and if you have permissions to send these packets or also other packets.
     ///
-    /// The permissions from Apollo.
+    /// See also:
+    /// - [ApolloPermissions]
+    ///
+    /// References:
+    /// - packet definitions: https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/stream.cpp#L73-L74
+    /// - server commands: https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/stream.cpp#L1004-L1035
+    /// - set / get clipboard: https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/nvhttp.cpp#L1526-L1634
     pub apollo_permissions: Option<ApolloPermissions>,
-    // TODO: expose
+    /// Foundation Sunshine Extension
+    ///
+    /// References:
+    /// - https://github.com/AlkaidLab/foundation-sunshine/blob/c2d8de3650a2ddf65281b6694e623c865a603831/src/stream.cpp#L88-L89
+    pub foundation_microphone: bool,
+    // TODO: https://github.com/AlkaidLab/foundation-sunshine/blob/c2d8de3650a2ddf65281b6694e623c865a603831/src/stream.cpp#L90-L91
+}
+
+#[derive(Debug)]
+pub struct HostFeatures {
+    /// The controller limit of the host.
+    pub controller_limit: usize,
+    /// If the host supports pen events
+    pub pen: bool,
+    /// If the host supports touch events
+    pub touch: bool,
+    /// If the host supports controller touch events
+    pub controller_touch: bool,
+    /// More details about the extensions this host supports
+    pub extensions: HostProtocolExtensions,
 }
 
 impl Default for HostFeatures {
     fn default() -> Self {
         HostFeatures {
             controller_limit: 4,
-            sunshine_pen: false,
-            sunshine_touch: false,
-            sunshine_controller_touch: false,
-            apollo_permissions: None,
+            controller_touch: false,
+            pen: false,
+            touch: false,
+            extensions: HostProtocolExtensions::default(),
         }
     }
 }

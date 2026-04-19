@@ -16,7 +16,7 @@ use moonlight_common_sys::limelight::{
 use num_derive::FromPrimitive;
 
 use crate::stream::{
-    ColorRange, ColorSpace, EncryptionFlags, HostFeatures, StreamingConfig, SupportedVideoFormats,
+    ColorRange, ColorSpace, EncryptionFlags, StreamingConfig, SupportedVideoFormats,
 };
 
 // --------------- Stream ---------------

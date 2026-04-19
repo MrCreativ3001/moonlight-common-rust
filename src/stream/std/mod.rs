@@ -24,7 +24,7 @@ use crate::{
                 ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
                 ControlStreamOutput,
                 packet::ControlPacket,
-                peer::{ControlError, ControlHostAction, ControlHostInput},
+                peer::{ControlError, ControlHostAction},
             },
             crypto::CryptoBackend,
             video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},

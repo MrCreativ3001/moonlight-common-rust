@@ -8,14 +8,12 @@ use fec_rs::ReconstructShard;
 /// and an optional length.
 ///
 /// The length of the array must be big enough, else there could be a panic when reconstructing shards.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ArrayShard<'a> {
     /// If [None] this shard isn't currently present
     pub len: Option<usize>,
     pub array: &'a mut [u8],
 }
-
-impl<'a> ArrayShard<'a> {}
 
 unsafe impl<'a> ReconstructShard for ArrayShard<'a> {
     fn len(&self) -> Option<usize> {

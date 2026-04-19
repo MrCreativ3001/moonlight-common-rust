@@ -3,11 +3,20 @@ use std::array;
 use fec_rs::ReedSolomon;
 use thiserror::Error;
 
-use crate::stream::proto::audio::{
-    create_audio_reed_solomon,
-    packet::{
-        AudioFecHeader, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER, RTP_PAYLOAD_TYPE_AUDIO,
-        RTP_PAYLOAD_TYPE_AUDIO_FEC, RtpAudioHeader,
+use crate::{
+    crypto::disabled::DisabledCryptoBackend,
+    stream::{
+        AesIv, AesKey,
+        proto::{
+            audio::{
+                create_audio_reed_solomon,
+                packet::{
+                    AudioFecHeader, RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_HEADER,
+                    RTP_PAYLOAD_TYPE_AUDIO, RTP_PAYLOAD_TYPE_AUDIO_FEC, RtpAudioHeader,
+                },
+            },
+            crypto::CryptoBackend,
+        },
     },
 };
 
@@ -15,7 +24,7 @@ pub struct AudioPayloaderConfig {
     pub fec: bool,
     /// The size of one opus frame in bytes
     pub frame_len: usize,
-    // TODO: encryption
+    pub encryption: Option<(AesKey, AesIv)>,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -33,7 +42,8 @@ enum State {
     PollFec2,
 }
 
-pub struct AudioPayloader {
+pub struct AudioPayloader<Crypto> {
+    crypto_backend: Crypto,
     reed_solomon: Option<ReedSolomon>,
     frame_len: usize,
     base_timestamp: u32,
@@ -44,11 +54,26 @@ pub struct AudioPayloader {
     state: State,
 }
 
-impl AudioPayloader {
-    pub fn new(config: AudioPayloaderConfig) -> Self {
+impl AudioPayloader<DisabledCryptoBackend> {
+    pub fn new_unencrypted(config: AudioPayloaderConfig) -> Self {
+        assert_eq!(
+            config.encryption, None,
+            "Cannot have unencrypted audio payloader with aes key and iv"
+        );
+
+        Self::new(config, DisabledCryptoBackend)
+    }
+}
+
+impl<Crypto> AudioPayloader<Crypto>
+where
+    Crypto: CryptoBackend,
+{
+    pub fn new(config: AudioPayloaderConfig, crypto_backend: Crypto) -> Self {
         debug_assert!(config.frame_len > 0);
 
         Self {
+            crypto_backend,
             reed_solomon: config.fec.then(create_audio_reed_solomon),
             frame_len: config.frame_len,
             data_shards: array::from_fn(|_| vec![0; config.frame_len]),

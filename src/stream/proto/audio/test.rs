@@ -1,4 +1,4 @@
-use std::{array, error::Error, time::Duration};
+use std::{array, time::Duration};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -337,9 +337,10 @@ pub fn test_audio_payloader_no_fec() {
     let third_data = &[8, 9, 10, 11];
     let fourth_data = &[12, 13, 14, 15];
 
-    let mut payloader = AudioPayloader::new(AudioPayloaderConfig {
+    let mut payloader = AudioPayloader::new_unencrypted(AudioPayloaderConfig {
         fec: false,
         frame_len: 4,
+        encryption: None,
     });
 
     payloader.push_frame(0, first_data).unwrap();
@@ -429,9 +430,10 @@ pub fn test_audio_payloader() {
     let first_fec = &[136, 137, 138, 139];
     let second_fec = &[36, 37, 38, 39];
 
-    let mut payloader = AudioPayloader::new(AudioPayloaderConfig {
+    let mut payloader = AudioPayloader::new_unencrypted(AudioPayloaderConfig {
         fec: true,
         frame_len: 4,
+        encryption: None,
     });
 
     println!("First frame");
@@ -568,9 +570,10 @@ pub fn test_audio_payloader_sunshine() {
     let frame3 = &SUNSHINE_PACKET3[RtpAudioHeader::SIZE..];
     let frame4 = &SUNSHINE_PACKET4[RtpAudioHeader::SIZE..];
 
-    let mut payloader = AudioPayloader::new(AudioPayloaderConfig {
+    let mut payloader = AudioPayloader::new_unencrypted(AudioPayloaderConfig {
         fec: true,
         frame_len: frame1.len(),
+        encryption: None,
     });
 
     payloader.set_sequence_number(92);
@@ -598,15 +601,47 @@ fn audio_payloader_encrypted_sunshine<Crypto>(crypto: Crypto)
 where
     Crypto: CryptoBackend + Clone,
 {
-    // TODO: add audio payloader encryption tests
-    todo!()
+    let mut payloader = AudioPayloader::new(
+        AudioPayloaderConfig {
+            fec: true,
+            frame_len: SUNSHINE_ENC_EXPECTED1.len(),
+            encryption: Some((SUNSHINE_ENC_KEY, SUNSHINE_ENC_IV)),
+        },
+        crypto,
+    );
+
+    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED1).unwrap();
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET1));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
+
+    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED2).unwrap();
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET2));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
+
+    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED3).unwrap();
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET3));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
+
+    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED4).unwrap();
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET4));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET5));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET6));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 }
 
+#[cfg(feature = "openssl")]
 #[test]
 fn audio_payloader_encrypted_sunshine_openssl() {
     use crate::crypto::openssl::OpenSSLCryptoBackend;
 
     audio_payloader_encrypted_sunshine(OpenSSLCryptoBackend);
+}
+#[cfg(feature = "rustcrypto")]
+#[test]
+fn audio_payloader_encrypted_sunshine_rustcrypto() {
+    use crate::crypto::rustcrypto::RustCryptoBackend;
+
+    audio_payloader_encrypted_sunshine(RustCryptoBackend);
 }
 
 #[test]
@@ -1718,6 +1753,13 @@ fn audio_depayloader_encrypted_sunshine_openssl() {
     use crate::crypto::openssl::OpenSSLCryptoBackend;
 
     audio_depayloader_encrypted_sunshine(OpenSSLCryptoBackend);
+}
+#[cfg(feature = "rustcrypto")]
+#[test]
+fn audio_depayloader_encrypted_sunshine_rustcrypto() {
+    use crate::crypto::rustcrypto::RustCryptoBackend;
+
+    audio_depayloader_encrypted_sunshine(RustCryptoBackend);
 }
 
 const SUNSHINE_PACKET1: &[u8] = &[
