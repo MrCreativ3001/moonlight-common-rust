@@ -23,6 +23,7 @@ use crate::stream::{
 };
 
 pub mod depayloader;
+#[allow(unused)]
 mod nal;
 mod packet;
 pub mod payloader;
@@ -84,7 +85,9 @@ enum State {
 }
 
 pub struct VideoStream<Crypto> {
+    #[allow(unused)]
     crypto_backend: Crypto,
+    #[allow(unused)]
     aes_key: Option<AesKey>,
     last_now: Instant,
     state: State,

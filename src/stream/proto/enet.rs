@@ -67,6 +67,7 @@ pub enum EnetEvent {
     },
     Disconnect {
         peer: PeerID,
+        #[allow(unused)]
         data: u32,
     },
 }
@@ -146,10 +147,6 @@ impl EnetHost {
 
     pub fn peer(&mut self, id: PeerID) -> Option<&mut Peer<ReadWrite<SocketAddr, Infallible>>> {
         self.enet.get_peer_mut(id)
-    }
-
-    pub fn peers(&mut self) -> impl Iterator<Item = &mut Peer<ReadWrite<SocketAddr, Infallible>>> {
-        self.enet.peers_mut()
     }
 
     pub fn poll_output(&mut self) -> Result<EnetOutput, EnetError> {

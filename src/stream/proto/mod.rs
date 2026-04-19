@@ -167,9 +167,9 @@ enum State {
     SetupAudio,
     RtspSetupAudioReceive { response: RtspSetupAudioResponse },
     SetupVideo,
-    RtspSetupVideoReceive { response: RtspSetupVideoResponse },
+    RtspSetupVideoReceive { _response: RtspSetupVideoResponse },
     SetupControl,
-    RtspSetupControlReceive { response: RtspSetupControlResponse },
+    RtspSetupControlReceive { _response: RtspSetupControlResponse },
     RtspAnnounceReceive,
     RtspPlayReceive,
     Connected,
@@ -425,7 +425,7 @@ where
                             );
 
                             self.state = State::RtspSetupVideoReceive {
-                                response: video_setup,
+                                _response: video_setup,
                             };
 
                             info!("starting video stream");
@@ -510,7 +510,7 @@ where
                                 .unwrap();
 
                             self.state = State::RtspSetupControlReceive {
-                                response: control_setup,
+                                _response: control_setup,
                             };
 
                             info!("starting control stream");
@@ -576,7 +576,7 @@ where
                     self.state = State::SetupVideo;
                     continue;
                 }
-                State::RtspSetupVideoReceive { response } => {
+                State::RtspSetupVideoReceive { _response: _ } => {
                     // Session id exists at this point
                     #[allow(clippy::unwrap_used)]
                     let session_id = self.session_id.as_ref().unwrap();
@@ -591,7 +591,7 @@ where
                     self.state = State::SetupControl;
                     continue;
                 }
-                State::RtspSetupControlReceive { response } => {
+                State::RtspSetupControlReceive { _response: _ } => {
                     // Session id exists at this point
                     #[allow(clippy::unwrap_used)]
                     let session_id = self.session_id.as_ref().unwrap();
@@ -628,7 +628,7 @@ where
         &mut self,
         input: MoonlightStreamInput,
     ) -> Result<(), MoonlightStreamProtoError> {
-        let last_now = self.last_now;
+        let _last_now = self.last_now;
         // TODO: all sans io structs MUST be updated via timeout even if it isn't their event
 
         match input {
@@ -732,7 +732,7 @@ where
         // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtspConnection.c#L733-L834
         let audio_packet_duration = Duration::from_millis(5);
 
-        let mut opus_config = if self.client_settings.audio_config == AudioConfig::STEREO {
+        let opus_config = if self.client_settings.audio_config == AudioConfig::STEREO {
             OpusMultistreamConfig {
                 sample_rate: 48000,
                 samples_per_frame: 48 * audio_packet_duration.as_millis() as u32,

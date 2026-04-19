@@ -78,6 +78,7 @@ where
 /// - Sunshine:
 ///   - https://github.com/LizardByte/Sunshine/blob/24b66feddaf6df889dc1330a02b3289c09ec62cc/src/rtsp.cpp#L176-L239
 ///   - https://github.com/LizardByte/Sunshine/blob/24b66feddaf6df889dc1330a02b3289c09ec62cc/src/rtsp.cpp#L127-L174
+#[allow(unused)]
 #[instrument(level = Level::TRACE, skip(crypto_backend, encrypted_message, message))]
 pub fn decrypt_client_rtsp_message_into<Crypto>(
     crypto_backend: &Crypto,
@@ -135,6 +136,7 @@ where
     Ok(message_len)
 }
 
+#[allow(unused)]
 pub fn encrypt_server_rtsp_message_into<Crypto>(
     crypto_backend: &Crypto,
     aes_key: AesKey,

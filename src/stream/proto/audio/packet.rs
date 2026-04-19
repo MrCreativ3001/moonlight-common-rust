@@ -5,6 +5,7 @@ pub const INVALID_OPUS_HEADER: u8 = 0;
 ///
 /// References:
 /// - Definition: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L26
+#[allow(unused)]
 pub const MAX_AUDIO_PACKET_SIZE: usize = 1400;
 
 /// This is the header used for audio.

@@ -37,7 +37,6 @@ impl NalHeader {
         }
     }
 
-    #[allow(unused)]
     pub fn serialize(&self) -> [u8; 2] {
         let mut header = [0u8; 2];
 

@@ -235,7 +235,7 @@ impl Request for ClientStreamRequest {
             query_map.get("localAudioPlayMode").unwrap_or("1".into()) != "0";
 
         // TODO: what to trust?
-        let gamepads_attached_mask: u32 = query_map
+        let _gamepads_attached_mask: u32 = query_map
             .get("remoteControllersBitmap")
             .unwrap_or("0".into())
             .parse()?;

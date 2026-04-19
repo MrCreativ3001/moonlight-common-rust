@@ -1733,14 +1733,14 @@ impl ControlPacket {
                 Ok(4 + content_len as usize)
             }
             Self::ControllerRumbleData {
-                unused,
-                controller_number,
-                low_frequency,
-                high_frequency,
+                unused: _,
+                controller_number: _,
+                low_frequency: _,
+                high_frequency: _,
             } => {
                 todo!();
             }
-            Self::ControllerRumbleTriggers { controller_number } => {
+            Self::ControllerRumbleTriggers { controller_number: _ } => {
                 todo!()
             }
             Self::ControllerSetLed {

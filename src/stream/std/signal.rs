@@ -5,7 +5,6 @@ use std::sync::{
 
 use tracing::debug;
 
-use crate::stream::std::MoonlightStreamError;
 
 #[derive(Clone)]
 pub struct StopSignal {

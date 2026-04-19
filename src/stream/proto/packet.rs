@@ -21,6 +21,7 @@ pub struct SunshinePingPacket {
 }
 
 impl SunshinePingPacket {
+    #[allow(unused)]
     pub fn deserialize(data: &[u8; 20]) -> Self {
         let mut payload = [0; 16];
         payload.copy_from_slice(&data[0..16]);

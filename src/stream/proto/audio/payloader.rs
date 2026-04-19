@@ -43,6 +43,7 @@ enum State {
 }
 
 pub struct AudioPayloader<Crypto> {
+    #[allow(unused)]
     crypto_backend: Crypto,
     reed_solomon: Option<ReedSolomon>,
     frame_len: usize,

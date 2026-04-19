@@ -14,6 +14,7 @@ pub const MAX_VIDEO_FEC_BLOCKS: usize = 4;
 
 /// References:
 /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Video.h#L12-L19
+#[allow(unused)]
 #[derive(Debug)]
 pub struct EncryptedVideoHeader {
     pub iv: [u8; 12],
@@ -25,6 +26,7 @@ pub struct EncryptedVideoHeader {
     pub tag: [u8; 16],
 }
 
+#[allow(unused)]
 impl EncryptedVideoHeader {
     pub const SIZE: usize = 32;
 

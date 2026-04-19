@@ -48,7 +48,7 @@ impl Request for ServerInfoRequest {
     ) -> Result<(), QueryBuilderError> {
         Ok(())
     }
-    fn from_query_params<Q>(query_map: &Q) -> Result<Self, FromQueryError>
+    fn from_query_params<Q>(_query_map: &Q) -> Result<Self, FromQueryError>
     where
         Q: QueryMap,
     {

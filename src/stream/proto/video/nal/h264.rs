@@ -53,7 +53,6 @@ impl NalUnitType {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc3984#section-1.3
-#[allow(unused)]
 #[derive(Debug, Clone, Copy)]
 pub struct NalHeader {
     pub forbidden_zero_bit: bool,

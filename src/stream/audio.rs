@@ -1,4 +1,4 @@
-use std::{ops::Deref, time::Duration};
+use std::time::Duration;
 
 use crate::stream::bindings::AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT;
 use thiserror::Error;

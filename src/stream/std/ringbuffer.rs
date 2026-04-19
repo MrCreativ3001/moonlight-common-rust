@@ -107,6 +107,7 @@ impl RingBuffer {
         Some(packet_len)
     }
 
+    #[allow(unused)]
     pub fn capacity(&self) -> usize {
         self.capacity
     }

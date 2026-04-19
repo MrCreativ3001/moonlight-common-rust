@@ -3,6 +3,7 @@
 use std::{num::ParseIntError, str::FromStr};
 
 use thiserror::Error;
+use tracing::warn;
 
 use crate::{
     ServerVersion,
@@ -173,8 +174,11 @@ impl RtspSetupResponse {
                 if let Some(value) = attribute.trim().strip_prefix("server_port=") {
                     port = match value.parse::<u16>() {
                         Ok(value) => Some(value),
-                        // TODO: log error?
-                        Err(err) => None,
+                        Err(err) => {
+                            warn!(error = ?err, "failed to parse port in a audio/video/control stream setup response");
+
+                            None
+                        }
                     };
                 }
             }
@@ -227,6 +231,7 @@ impl RtspSetupResponse {
 }
 
 pub struct RtspSetupAudioRequest {
+    #[allow(unused)]
     pub target: RtspAddr,
     pub session_id: Option<String>,
 }
@@ -270,6 +275,7 @@ impl RtspSetupAudioResponse {
 }
 
 pub struct RtspSetupVideoRequest {
+    #[allow(unused)]
     pub target: RtspAddr,
     pub session_id: Option<String>,
 }
@@ -364,7 +370,7 @@ pub struct RtspAnnounceRequest {
 }
 
 impl RtspAnnounceRequest {
-    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
         // TODO: set target based on versionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L633
 
         // TODO: generate sdp: https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/SdpGenerator.c#L566
@@ -389,7 +395,7 @@ pub struct RtspPlayRequest {
 }
 
 impl RtspPlayRequest {
-    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
         // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1330-L1390
 
         RtspRequest {
