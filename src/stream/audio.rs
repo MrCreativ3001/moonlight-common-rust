@@ -42,6 +42,58 @@ impl OpusMultistreamConfig {
         mapping: [0, 1, 0, 0, 0, 0, 0, 0],
     };
 
+    /// Parse a single surround-param integer into an OpusMultistreamConfig
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L733-L834
+    pub fn from_surround_param(param: u64) -> Self {
+        // Default values
+        let mut config = OpusMultistreamConfig {
+            sample_rate: 48000,
+            channel_count: 0,
+            streams: 0,
+            coupled_streams: 0,
+            samples_per_frame: 960,
+            mapping: [0; 8],
+        };
+
+        // Convert param to string to easily extract digits
+        let param_str = param.to_string();
+        let digits: Vec<u32> = param_str.chars().filter_map(|c| c.to_digit(10)).collect();
+
+        if digits.len() < 3 {
+            // Must have at least channel_count, streams, coupled_streams
+            return config;
+        }
+
+        // Heuristic based on GFE parsing
+        // First digit(s) -> channel count
+        config.channel_count = digits[0];
+
+        // Second digit -> streams
+        config.streams = digits[1];
+
+        // Third digit -> coupled streams
+        config.coupled_streams = digits[2];
+
+        // Remaining digits -> mapping array
+        for (i, &d) in digits[3..].iter().enumerate().take(8) {
+            config.mapping[i] = d as u8;
+        }
+
+        // Special adjustment for 5.1/7.1 LFE channel
+        if config.channel_count == 6 || config.channel_count == 8 {
+            let original_mapping = config.mapping;
+            // LFE comes after center
+            config.mapping[3] = original_mapping[config.channel_count as usize - 1];
+            // Slide the rest
+            config.mapping[4..(config.channel_count as usize)]
+                .copy_from_slice(&original_mapping[(4 - 1)..(config.channel_count as usize - 1)]);
+        }
+
+        config
+    }
+
     pub fn frame_duration(&self) -> Duration {
         Duration::from_secs_f64(self.samples_per_frame as f64 / self.sample_rate as f64)
     }

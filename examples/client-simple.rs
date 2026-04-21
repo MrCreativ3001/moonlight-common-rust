@@ -17,10 +17,12 @@ use crate::common::{EXAMPLE_DATA_DIR, save_identity, try_load_identity};
 
 mod common;
 
+// TODO: use clap in all examples
+
 fn main() {
     common::init();
 
-    let address = "192.168.178.140".to_string();
+    let address = "192.168.178.139".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;

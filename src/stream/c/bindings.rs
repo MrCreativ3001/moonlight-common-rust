@@ -15,9 +15,7 @@ use moonlight_common_sys::limelight::{
 };
 use num_derive::FromPrimitive;
 
-use crate::stream::{
-    ColorRange, ColorSpace, EncryptionFlags, StreamingConfig, SupportedVideoFormats,
-};
+use crate::stream::{ColorRange, ColorSpace, EncryptionFlags, StreamingConfig, VideoFormats};
 
 // --------------- Stream ---------------
 
@@ -47,7 +45,7 @@ pub struct StreamConfiguration {
     pub audio_configuration: i32,
     /// Specifies the mask of supported video formats.
     /// See VIDEO_FORMAT constants below.
-    pub supported_video_formats: SupportedVideoFormats,
+    pub supported_video_formats: VideoFormats,
     /// If specified, the client's display refresh rate x 100. For example,
     /// 59.94 Hz would be specified as 5994. This is used by recent versions
     /// of GFE for enhanced frame pacing.

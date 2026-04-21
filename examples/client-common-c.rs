@@ -12,7 +12,7 @@ use moonlight_common::{
         c::MoonlightInstance,
         control::ActiveGamepads,
         debug::DebugListener,
-        video::{ColorRange, ColorSpace, SupportedVideoFormats},
+        video::{ColorRange, ColorSpace, VideoFormats},
     },
 };
 
@@ -72,7 +72,7 @@ fn main() {
         streaming_remotely: StreamingConfig::Auto,
         sops: true,
         hdr: false,
-        supported_video_formats: SupportedVideoFormats::H264,
+        supported_video_formats: VideoFormats::H264,
         color_space: ColorSpace::Rec709,
         color_range: ColorRange::Limited,
         local_audio_play_mode: false,

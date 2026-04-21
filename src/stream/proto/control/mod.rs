@@ -719,7 +719,6 @@ where
             return Ok(());
         }
 
-        // TODO: other packets?
         let (channel, kind) = packet.channel(self.server_version);
 
         self.host.send(self.peer, channel, kind, packet)?;
@@ -771,7 +770,6 @@ where
                 }
                 ControlHostOutput::Event(ControlHostEvent::Receive {
                     id,
-                    // TODO: is channel_id important?
                     channel_id: _,
                     packet,
                 }) => {

@@ -13,7 +13,7 @@ use moonlight_common::{
         debug::DebugListener,
         proto::control::ClientInputEvent,
         std::MoonlightStream,
-        video::{ColorRange, ColorSpace, SupportedVideoFormats},
+        video::{ColorRange, ColorSpace, VideoFormats},
     },
 };
 
@@ -29,7 +29,7 @@ fn main() {
 
     // This implementation is not done yet, use the client-common-c
 
-    let address = "192.168.178.140".to_string();
+    let address = "192.168.178.139".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;
@@ -71,7 +71,7 @@ fn main() {
         streaming_remotely: StreamingConfig::Auto,
         sops: true,
         hdr: false,
-        supported_video_formats: SupportedVideoFormats::H264,
+        supported_video_formats: VideoFormats::H264,
         color_space: ColorSpace::Rec709,
         color_range: ColorRange::Limited,
         local_audio_play_mode: false,

@@ -12,7 +12,7 @@ use tracing::info;
 use crate::{
     ServerVersion,
     stream::{
-        AudioConfig, ColorRange, ColorSpace, StreamingConfig, SupportedVideoFormats,
+        AudioConfig, ColorRange, ColorSpace, StreamingConfig, VideoFormats,
         proto::sdp::{Sdp, SdpMedia, SdpMediaType, SdpNetworkType, SdpOrigin, sdp_attr},
         video::VideoFormat,
     },
@@ -60,8 +60,6 @@ bitflags! {
     }
 }
 
-// TODO: this might be interesting: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L556-L563
-
 #[derive(Debug, Default, Clone)]
 pub struct ClientSdp {
     /// Required: Default is 14
@@ -83,7 +81,6 @@ pub struct ClientSdp {
     pub timeout_length: Option<Duration>,
     /// default is 0
     pub frames_with_invalid_ref_threshold: Option<u32>,
-    // TODO: differentiate between them, version docs / check?: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L359
     // We don't support dynamic bitrate scaling properly (it tends to bounce between min and max and never
     // settle on the optimal bitrate if it's somewhere in the middle), so we'll just latch the bitrate
     // to the requested value.
@@ -237,7 +234,7 @@ impl ClientSdp {
     /// Other hints:
     /// - server_address: look in the struct
     /// - audio_surround_quality: look in the struct
-    /// - use_reliable_udp == 0 -> no encryption, == 13 -> encryption
+    /// - use_reliable_udp == 0 -> no control encryption, == 13 -> control encryption
     pub fn new(
         streaming_remotely: StreamingConfig,
         server_version: ServerVersion,
@@ -272,7 +269,7 @@ impl ClientSdp {
 
             sdp.sunshine_encryption = Some(sunshine_encryption_flags);
 
-            if negotiated_video_format.contained_in(SupportedVideoFormats::MASK_YUV444) {
+            if negotiated_video_format.contained_in(VideoFormats::MASK_YUV444) {
                 sdp.sunshine_chroma_sampling_type = Some(ChromaSamplingType::YUV444);
             } else {
                 sdp.sunshine_chroma_sampling_type = Some(ChromaSamplingType::Auto);
@@ -400,9 +397,9 @@ impl ClientSdp {
         if server_version.major >= 4 {
             sdp.slices_per_frame = Some(slices_per_frame);
 
-            if negotiated_video_format.contained_in(SupportedVideoFormats::MASK_AV1) {
+            if negotiated_video_format.contained_in(VideoFormats::MASK_AV1) {
                 sdp.vqos_bit_stream_format = Some(2);
-            } else if negotiated_video_format.contained_in(SupportedVideoFormats::MASK_H265) {
+            } else if negotiated_video_format.contained_in(VideoFormats::MASK_H265) {
                 sdp.client_support_hevc = Some(true);
                 sdp.vqos_bit_stream_format = Some(1);
 
@@ -422,7 +419,7 @@ impl ClientSdp {
 
         if server_version.major >= 7 {
             // Enable HDR if request
-            if negotiated_video_format.contained_in(SupportedVideoFormats::MASK_10BIT) {
+            if negotiated_video_format.contained_in(VideoFormats::MASK_10BIT) {
                 sdp.dynamic_range_mode = Some(true);
             } else {
                 sdp.dynamic_range_mode = Some(false);
@@ -432,17 +429,20 @@ impl ClientSdp {
 
             sdp.client_refresh_rate_x100 = Some(fps_x100);
 
+            sdp.encoder_csc_mode = Some((color_space, color_range));
+
+            // audio stuff: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L492-L530
             sdp.audio_surround_num_channels = Some(audio_config.channel_count);
             sdp.audio_surround_channel_mask = Some(audio_config.channel_mask);
             sdp.audio_surround_enable = Some(audio_config.channel_count > 2);
-
-            // TODO: audio stuff: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L492-L530
             sdp.audio_surround_quality = Some(high_quality_audio);
-
-            sdp.encoder_csc_mode = Some((color_space, color_range));
+        } else {
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L524-L530
+            // 5 ms duration for legacy servers
+            sdp.audio_packet_duration = Some(Duration::from_millis(5));
+            // High quality audio mode not supported on legacy servers
+            sdp.audio_surround_quality = Some(false);
         }
-        // TODO: packeet duration: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L522
-        sdp.audio_packet_duration = Some(Duration::from_millis(5));
 
         sdp.rtsp_client_version = Some(14);
         sdp.target_ip = Some(target_ip);
@@ -456,7 +456,6 @@ impl ClientSdp {
     pub fn into_sdp(self) -> Sdp {
         let mut sdp = Sdp::default();
 
-        // TODO: move sdpversion, SdpOrigin into this ClientSdp struct
         sdp.version = Some(0);
         if let Some(rtsp_client_version) = self.rtsp_client_version
             && let Some(target_ip) = self.target_ip
@@ -619,7 +618,6 @@ impl ClientSdp {
         }
 
         for (i, value) in self.transfer_protocol.iter().enumerate() {
-            // TODO: stack allocate?
             sdp.attributes.push(sdp_attr(
                 format!("x-nv-video[{}].transferProtocol", i),
                 value,
@@ -627,7 +625,6 @@ impl ClientSdp {
         }
 
         for (i, value) in self.rate_control_mode2.iter().enumerate() {
-            // TODO: stack allocate?
             sdp.attributes.push(sdp_attr(
                 format!("x-nv-video[{}].rateControlMode", i),
                 value,
@@ -635,13 +632,11 @@ impl ClientSdp {
         }
 
         for (i, value) in self.bw_flags.iter().enumerate() {
-            // TODO: stack allocate?
             sdp.attributes
                 .push(sdp_attr(format!("x-nv-video[{}].bw.flags", i), value));
         }
 
         for (i, value) in self.video_qos_max_consecutive_drops.iter().enumerate() {
-            // TODO: stack allocate?
             sdp.attributes.push(sdp_attr(
                 format!("x-nv-vqos[{}].videoQosMaxConsecutiveDrops", i),
                 value,
@@ -790,6 +785,10 @@ impl ClientSdp {
                 (((color_space as u8) << 1) | color_range as u8) as usize,
             ));
         }
+
+        // Populate the SDP tail with required information
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L556-L563
+        sdp.time = Some((0, 0));
 
         if let Some(video_port) = self.video_port {
             sdp.media.push(SdpMedia {

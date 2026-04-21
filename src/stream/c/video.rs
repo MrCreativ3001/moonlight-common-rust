@@ -22,7 +22,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::stream::{
-    ColorSpace, SupportedVideoFormats,
+    ColorSpace, VideoFormats,
     c::bindings::Capabilities,
     video::{
         BufferType, DecodeResult, FrameIndex, FrameType, VideoCapabilities, VideoDecodeUnit,
@@ -169,7 +169,7 @@ pub struct PullVideoDecoder {
     setup_sender: Sender<VideoSetup>,
     setup_code_receiver: Receiver<i32>,
     active: Arc<AtomicBool>,
-    supported_formats: SupportedVideoFormats,
+    supported_formats: VideoFormats,
 }
 
 pub const ML_PULL_RENDERER_ERROR: i32 = -100001;
@@ -198,7 +198,7 @@ impl VideoDecoder for PullVideoDecoder {
         unreachable!()
     }
 
-    fn supported_formats(&self) -> SupportedVideoFormats {
+    fn supported_formats(&self) -> VideoFormats {
         self.supported_formats
     }
 
@@ -230,7 +230,7 @@ pub struct PullVideoManager {
 }
 
 impl PullVideoManager {
-    pub fn new(supported_formats: SupportedVideoFormats) -> (PullVideoDecoder, PullVideoManager) {
+    pub fn new(supported_formats: VideoFormats) -> (PullVideoDecoder, PullVideoManager) {
         let active = Arc::new(AtomicBool::new(false));
 
         let (setup_sender, setup_receiver) = channel();

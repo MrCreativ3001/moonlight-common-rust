@@ -20,7 +20,7 @@ use crate::{
             },
         },
         video::{
-            self, BufferType, FrameIndex, SupportedVideoFormats, VideoDecodeUnitBuffers,
+            self, BufferType, FrameIndex, VideoFormats, VideoDecodeUnitBuffers,
             VideoFormat, VideoFrameBuffer,
         },
     },
@@ -288,7 +288,7 @@ impl VideoDepayloader {
         if !self
             .config
             .format
-            .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
+            .contained_in(VideoFormats::MASK_H264 | VideoFormats::MASK_H265)
         {
             let payload_len = self.payload_len();
             let last_payload_start = full_frame.len().saturating_sub(payload_len);
@@ -374,7 +374,7 @@ impl VideoDepayloader {
         if self
             .config
             .format
-            .contained_in(SupportedVideoFormats::MASK_H264 | SupportedVideoFormats::MASK_H265)
+            .contained_in(VideoFormats::MASK_H264 | VideoFormats::MASK_H265)
         {
             // -- H264 and H265
             // only h264 and h265 bitstreams are parsed
@@ -395,7 +395,7 @@ impl VideoDepayloader {
                     if self
                         .config
                         .format
-                        .contained_in(SupportedVideoFormats::MASK_H264)
+                        .contained_in(VideoFormats::MASK_H264)
                     {
                         if buffer.len() < nalu_start + 1 {
                             warn!("Couldn't read nal header because nalu is too short!");
@@ -417,7 +417,7 @@ impl VideoDepayloader {
                     } else if self
                         .config
                         .format
-                        .contained_in(SupportedVideoFormats::MASK_H265)
+                        .contained_in(VideoFormats::MASK_H265)
                     {
                         if buffer.len() < nalu_start + 2 {
                             warn!("Couldn't read nal header because nalu is too short!");

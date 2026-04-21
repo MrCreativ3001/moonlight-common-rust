@@ -1,5 +1,6 @@
 use crate::stream::{
-    RawHostFeatures, SupportedVideoFormats,
+    RawHostFeatures, VideoFormats,
+    audio::OpusMultistreamConfig,
     proto::{
         rtsp::moonlight::ParseMoonlightRtspResponseError,
         sdp::{Sdp, client::SunshineEncryptionFlags},
@@ -8,13 +9,18 @@ use crate::stream::{
 
 #[derive(Debug, Default)]
 pub struct ServerSdp {
-    // TODO: parse audio data correctly:
     /// Sample rate is always 48 KHz
     /// Stereo doesn't have any surround-params elements in the RTSP data
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L734
-    // TODO: is this AudioConfig?
-    pub audio_surround_params: Vec<usize>,
-    pub video_formats: Option<SupportedVideoFormats>,
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L734
+    pub audio_surround_params: Vec<OpusMultistreamConfig>,
+    /// The supported video formats based on the sdp.
+    /// You should not only rely on this value alone and should also use the [serverCodecModeSupport](crate::http::server_info::ServerInfoResponse::server_codec_mode_support) from the serverinfo.
+    ///
+    /// References:
+    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1076-L1122
+    pub video_formats: VideoFormats,
     pub video_reference_frame_invalidation: Option<bool>,
     /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1130
     pub sunshine_feature_flags: Option<RawHostFeatures>,
@@ -25,11 +31,14 @@ pub struct ServerSdp {
 }
 
 impl ServerSdp {
-    // TODO: maybe a different error?
     pub fn parse(sdp: Sdp) -> Result<Self, ParseMoonlightRtspResponseError> {
-        let mut parsed = ServerSdp::default();
+        let mut parsed = ServerSdp {
+            // H264 is support on every server by default
+            // See https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1115
+            video_formats: VideoFormats::MASK_H264,
+            ..Default::default()
+        };
 
-        // TODO: move this into sdp moonlight
         for attribute in sdp.attributes {
             if attribute.key == "x-ss-general.featureFlags"
                 && let Some(value) = attribute.value
@@ -54,24 +63,29 @@ impl ServerSdp {
                 // format to H264, so we can't just look for the HEVC MIME type. What we'll do instead is
                 // look for the base 64 encoded VPS NALU prefix that is unique to the HEVC bitstream.
 
-                // TODO: where is this in the sdp?
-                // TODO: why do they do this? https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1091
+                // See
+                // https://github.com/LizardByte/Sunshine/blob/7228c2553c393739c3387d5a152c9b255be2328f/src/rtsp.cpp#L793
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1091
+                parsed.video_formats |= VideoFormats::MASK_H265;
             } else if attribute.key == "AV1/90000" {
-                // TODO: Av1? https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1076C103-L1076C112
-                // TODO: where is this in the sdp?
+                // If the server supports AV1
+                // See
+                // https://github.com/LizardByte/Sunshine/blob/7228c2553c393739c3387d5a152c9b255be2328f/src/rtsp.cpp#L797
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1076C103-L1076C112
+                parsed.video_formats |= VideoFormats::MASK_AV1;
             } else if attribute.key == "x-nv-video[0].refPicInvalidation" {
-                // TODO: where is this in the sdp?
                 parsed.video_reference_frame_invalidation = Some(true);
             } else if attribute.key == "fmtp"
                 && let Some(value) = attribute.value
                 && let Some(value) = value.strip_prefix("97 surround-params=")
-                && let Ok(value) = value.parse::<usize>()
+                && let Ok(value) = value.parse::<u64>()
             {
                 // fmtp line looks like this "a=fmtp:97 surround-params=%d"
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L759
 
-                // TODO: maybe warn about failed parsing?
-                parsed.audio_surround_params.push(value);
+                parsed
+                    .audio_surround_params
+                    .push(OpusMultistreamConfig::from_surround_param(value));
             }
         }
 

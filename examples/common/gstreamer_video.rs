@@ -5,7 +5,7 @@ use gstreamer::{
 };
 use gstreamer_app::AppSrc;
 use moonlight_common::stream::video::{
-    DecodeResult, SupportedVideoFormats, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoSetup,
+    DecodeResult, VideoFormats, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoSetup,
 };
 
 pub struct GStreamerVideoDecoder {
@@ -80,7 +80,7 @@ impl VideoDecoder for GStreamerVideoDecoder {
         self.pipeline.set_state(State::Null);
     }
 
-    fn supported_formats(&self) -> SupportedVideoFormats {
-        SupportedVideoFormats::H264
+    fn supported_formats(&self) -> VideoFormats {
+        VideoFormats::H264
     }
 }

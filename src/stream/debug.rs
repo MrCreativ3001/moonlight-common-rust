@@ -1,7 +1,7 @@
 use tracing::info;
 
 use crate::stream::{
-    AudioConfig, SupportedVideoFormats,
+    AudioConfig, VideoFormats,
     audio::{AudioDecoder, AudioFrame, OpusMultistreamConfig},
     connection::ConnectionListener,
     video::{
@@ -29,8 +29,8 @@ impl VideoDecoder for NullListener {
 
     fn stop(&mut self) {}
 
-    fn supported_formats(&self) -> SupportedVideoFormats {
-        SupportedVideoFormats::all()
+    fn supported_formats(&self) -> VideoFormats {
+        VideoFormats::all()
     }
 
     fn capabilities(&self) -> VideoCapabilities {

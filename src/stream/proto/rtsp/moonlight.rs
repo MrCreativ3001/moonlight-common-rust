@@ -22,7 +22,6 @@ pub const DEFAULT_AUDIO_PORT: u16 = 48000;
 
 #[derive(Debug, Error)]
 pub enum ParseMoonlightRtspResponseError {
-    // TODO: implement the status code on all rtsp responses
     #[error("status code not success({code}): {message:?}")]
     StatusCode { message: Option<String>, code: i32 },
     #[error("no payload")]
@@ -55,8 +54,6 @@ impl RtspOptionsRequest {
     }
 }
 
-// TODO: check for values in the response that they are what they say
-
 #[derive(Debug)]
 pub struct RtspOptionsResponse {}
 
@@ -65,6 +62,13 @@ impl RtspOptionsResponse {
         response: &RtspResponse,
     ) -> Result<RtspOptionsResponse, ParseMoonlightRtspResponseError> {
         let _ = response;
+
+        if response.message.status_code / 100 != 2 {
+            return Err(ParseMoonlightRtspResponseError::StatusCode {
+                message: Some(response.message.status_message.clone()),
+                code: response.message.status_code as i32,
+            });
+        }
 
         Ok(RtspOptionsResponse {})
     }
@@ -104,6 +108,13 @@ impl RtspDescribeResponse {
     pub fn try_from_response(
         response: &RtspResponse,
     ) -> Result<Self, ParseMoonlightRtspResponseError> {
+        if response.message.status_code / 100 != 2 {
+            return Err(ParseMoonlightRtspResponseError::StatusCode {
+                message: Some(response.message.status_message.clone()),
+                code: response.message.status_code as i32,
+            });
+        }
+
         let Some(sdp) = &response.payload else {
             return Err(ParseMoonlightRtspResponseError::NoPayload);
         };
@@ -190,7 +201,7 @@ impl RtspSetupResponse {
         // resolves any 454 session not found errors on
         // standard RTSP server implementations.
         // (i.e - sessionId = "DEADBEEFCAFE;timeout = 90")
-        // TODO: is the timeout needed? https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1212
+        // Timeout doesn't seem to be used
         let session_value = response
             .options
             .iter()
@@ -216,7 +227,12 @@ impl RtspSetupResponse {
             if payload_bytes.len() == SUNSHINE_PING_PAYLOAD_SIZE {
                 payload.copy_from_slice(&payload_bytes[0..SUNSHINE_PING_PAYLOAD_SIZE]);
             } else {
-                // TODO: warn?
+                warn!(
+                    got_ping_payload = ?payload_bytes,
+                    got_len = payload_bytes.len(),
+                    expected_len = SUNSHINE_PING_PAYLOAD_SIZE,
+                    "X-SS-Ping-Payload length invalid"
+                );
             }
 
             sunshine_ping = Some(SunshinePing(payload));
@@ -238,14 +254,15 @@ pub struct RtspSetupAudioRequest {
 
 impl RtspSetupAudioRequest {
     pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
-        // TODO: set target based on appversionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1161C75-L1161C89
-
-        // TODO: implement this
-        // For GFE 3.22 compatibility, we must start the audio ping thread before the RTSP handshake.
-        // It will not reply to our RTSP PLAY request until the audio ping has been received.
-
         RtspSetupRequest {
-            target: "streamid=audio".to_string(),
+            // See
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1160-L1162
+            target: if server_version >= ServerVersion::new(5, 0, 0, 0) {
+                "streamid=audio/0/0"
+            } else {
+                "streamid=audio"
+            }
+            .to_string(),
             session_id: self.session_id,
         }
         .into_request(server_version)
@@ -264,6 +281,13 @@ impl RtspSetupAudioResponse {
     pub fn try_from_response(
         response: &RtspResponse,
     ) -> Result<Self, ParseMoonlightRtspResponseError> {
+        if response.message.status_code / 100 != 2 {
+            return Err(ParseMoonlightRtspResponseError::StatusCode {
+                message: Some(response.message.status_message.clone()),
+                code: response.message.status_code as i32,
+            });
+        }
+
         let response = RtspSetupResponse::try_from_response(response)?;
 
         Ok(Self {
@@ -309,6 +333,13 @@ impl RtspSetupVideoResponse {
     pub fn try_from_response(
         response: &RtspResponse,
     ) -> Result<Self, ParseMoonlightRtspResponseError> {
+        if response.message.status_code / 100 != 2 {
+            return Err(ParseMoonlightRtspResponseError::StatusCode {
+                message: Some(response.message.status_message.clone()),
+                code: response.message.status_code as i32,
+            });
+        }
+
         let response = RtspSetupResponse::try_from_response(response)?;
 
         Ok(Self {
@@ -344,6 +375,13 @@ impl RtspSetupControlResponse {
     pub fn try_from_response(
         response: &RtspResponse,
     ) -> Result<Self, ParseMoonlightRtspResponseError> {
+        if response.message.status_code / 100 != 2 {
+            return Err(ParseMoonlightRtspResponseError::StatusCode {
+                message: Some(response.message.status_message.clone()),
+                code: response.message.status_code as i32,
+            });
+        }
+
         let setup = RtspSetupResponse::try_from_response(response)?;
 
         // Parse the Sunshine control connect data extension if present
@@ -370,15 +408,19 @@ pub struct RtspAnnounceRequest {
 }
 
 impl RtspAnnounceRequest {
-    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
-        // TODO: set target based on versionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L633
-
-        // TODO: generate sdp: https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/SdpGenerator.c#L566
-
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
         RtspRequest {
             message: RtspRequestMessage {
                 command: RtspCommand::Announce,
-                target: "streamid=control".to_string(),
+                // See
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L939
+                // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L633-L634
+                target: (if server_version >= ServerVersion::new(7, 1, 431, 0) {
+                    "streamid=control/13/0"
+                } else {
+                    "streamid=video"
+                })
+                .to_string(),
                 protocol: RtspProtocol::V1_0,
             },
             options: vec![
@@ -395,8 +437,15 @@ pub struct RtspPlayRequest {
 }
 
 impl RtspPlayRequest {
-    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
-        // TODO: https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1330-L1390
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
+        if server_version.is_nvidia_software() && server_version < ServerVersion::new(7, 1, 431, 0)
+        {
+            // See
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L1330-L1390
+            warn!(
+                "The stream might not fully start because this implementation doesn't support this version of nvidia game stream."
+            );
+        }
 
         RtspRequest {
             message: RtspRequestMessage {

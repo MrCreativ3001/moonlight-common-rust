@@ -17,7 +17,7 @@ use crate::{
             LI_FF_PEN_TOUCH_EVENTS, STREAM_CFG_AUTO, STREAM_CFG_LOCAL, STREAM_CFG_REMOTE,
         },
         control::ActiveGamepads,
-        video::{ColorRange, ColorSpace, ServerCodecModeSupport, SupportedVideoFormats},
+        video::{ColorRange, ColorSpace, ServerCodecModeSupport, VideoFormats},
     },
 };
 
@@ -171,7 +171,7 @@ pub struct MoonlightStreamSettings {
     pub streaming_remotely: StreamingConfig,
     pub sops: bool,
     pub hdr: bool,
-    pub supported_video_formats: SupportedVideoFormats,
+    pub supported_video_formats: VideoFormats,
     pub color_space: ColorSpace,
     pub color_range: ColorRange,
     pub local_audio_play_mode: bool,
@@ -246,7 +246,7 @@ impl MoonlightStreamSettings {
         } else if resolution_above_4k
             && self
                 .supported_video_formats
-                .contains(!SupportedVideoFormats::MASK_H264)
+                .contains(!VideoFormats::MASK_H264)
         {
             return Err(StreamConfigError::NotSupported4kCodecMissing);
         } else if self.height > 2160 && supports_4k_gfe {

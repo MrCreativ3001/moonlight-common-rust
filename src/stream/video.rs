@@ -27,11 +27,11 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct ServerCodecModeSupport: u32 {
         const H264            = SCM_H264;
+        const H264_HIGH8_444  = SCM_H264_HIGH8_444;
         const HEVC            = SCM_HEVC;
         const HEVC_MAIN10     = SCM_HEVC_MAIN10;
         const AV1_MAIN8       = SCM_AV1_MAIN8;
         const AV1_MAIN10      = SCM_AV1_MAIN10;
-        const H264_HIGH8_444  = SCM_H264_HIGH8_444;
         const HEVC_REXT8_444  = SCM_HEVC_REXT8_444;
         const HEVC_REXT10_444 = SCM_HEVC_REXT10_444;
         const AV1_HIGH8_444   = SCM_AV1_HIGH8_444;
@@ -57,10 +57,10 @@ pub enum ColorRange {
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SupportedVideoFormats(u32);
+pub struct VideoFormats(u32);
 
 bitflags! {
-    impl SupportedVideoFormats: u32 {
+    impl VideoFormats: u32 {
         const H264 = VIDEO_FORMAT_H264;          // H.264 High Profile
         const H264_HIGH8_444 = VIDEO_FORMAT_H264_HIGH8_444;   // H.264 High 4:4:4 8-bit Profile
         const H265 = VIDEO_FORMAT_H265;                       // HEVC Main Profile
@@ -81,7 +81,7 @@ bitflags! {
     }
 }
 
-impl Display for SupportedVideoFormats {
+impl Display for VideoFormats {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[")?;
 
@@ -130,8 +130,8 @@ impl VideoFormat {
         ]
     }
 
-    pub fn contained_in(&self, supported_video_formats: SupportedVideoFormats) -> bool {
-        let Some(single_format) = SupportedVideoFormats::from_bits(*self as u32) else {
+    pub fn contained_in(&self, supported_video_formats: VideoFormats) -> bool {
+        let Some(single_format) = VideoFormats::from_bits(*self as u32) else {
             return false;
         };
 
@@ -271,7 +271,9 @@ pub struct VideoCapabilities {
     pub reference_frame_invalidation_h264: bool,
     pub reference_frame_invalidation_h265: bool,
     pub reference_frame_invalidation_av1: bool,
+    /// This is only used in the moonlight-common-c implementation
     pub pull_renderer: bool,
+    pub slices_per_frame: Option<u32>,
 }
 
 // TODO: replace submit_decode_unit structs with more general structs
@@ -291,7 +293,7 @@ pub trait VideoDecoder {
     /// This callback notifies the decoder that the stream is stopping. Frames may still be submitted but they may be safely discarded.
     fn stop(&mut self);
 
-    fn supported_formats(&self) -> SupportedVideoFormats;
+    fn supported_formats(&self) -> VideoFormats;
     fn capabilities(&self) -> VideoCapabilities {
         VideoCapabilities::default()
     }

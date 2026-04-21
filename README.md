@@ -28,6 +28,7 @@ This design allows the same protocol implementation to be reused across native a
 ||Sunshine|✅|✅|
 ||Wolf|✅|✅|
 ||Apollo|✅|✅|
+||Foundation Sunshine|✅|✅|
 |**Video Codec**|H264|✅|✅|
 ||H265|✅|✅|
 ||AV1|❌|✅|

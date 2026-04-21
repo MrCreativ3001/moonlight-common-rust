@@ -32,7 +32,7 @@ pub enum RtspClientError {
     #[error("encryption: {0}")]
     Encryption(#[from] RtspEncryptionError),
     #[error("the connection is secured, but no key present")]
-    NoEncryptionKey,
+    MissingEncryptionKey,
     #[error("rtsp addr: {0}")]
     ParseTarget(#[from] RtspAddrParseError),
     #[error("error status code: {0}")]
@@ -43,6 +43,10 @@ pub enum RtspClientError {
     IncompleteResponse,
     #[error("failed to convert bytes into utf8")]
     Utf8(#[from] Utf8Error),
+    #[error("the response didn't contain a sequence number (CSeq header)")]
+    MissingSequenceNumber,
+    #[error("the response is not matching the request sequence number")]
+    OutOfOrderResponse,
     #[error("the connection was closed without any payload")]
     Close,
 }
@@ -105,6 +109,7 @@ enum State {
 }
 
 impl RtspClient<DisabledCryptoBackend> {
+    #[allow(unused)]
     pub fn new_unencrypted(config: RtspClientConfig) -> Self {
         Self::new(config, DisabledCryptoBackend)
     }
@@ -115,8 +120,6 @@ impl<Crypto> RtspClient<Crypto>
 where
     Crypto: CryptoBackend,
 {
-    // TODO: enet? https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtspConnection.c#L246-L371
-    // TODO: maybe make client version an enum?
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(mut config: RtspClientConfig, crypto_backend: Crypto) -> Self {
         Self {
@@ -210,16 +213,13 @@ where
                         if response_sequence_number == self.sequence_number {
                             self.sequence_number += 1;
                         } else {
-                            // TODO: error
-                            todo!()
+                            return Err(RtspClientError::OutOfOrderResponse);
                         }
                     } else {
-                        // TODO: error
-                        todo!()
+                        return Err(RtspClientError::MissingSequenceNumber);
                     }
 
-                    // TODO: maybe only look for error codes?
-                    if response.message.status_code != 200 {
+                    if response.message.status_code / 100 != 2 {
                         return Err(RtspClientError::StatusCode(response.message.status_code));
                     }
 
@@ -276,7 +276,7 @@ where
                 let plaintext = plaintext.into_bytes();
 
                 let data = if self.target.encrypted {
-                    let aes_key = self.aes_key.ok_or(RtspClientError::NoEncryptionKey)?;
+                    let aes_key = self.aes_key.ok_or(RtspClientError::MissingEncryptionKey)?;
 
                     let mut encrypted = vec![0u8; RtspEncryptionHeader::SIZE + plaintext.len()];
 

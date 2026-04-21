@@ -204,6 +204,8 @@ impl MoonlightStream {
         let mut tcp_stream: Option<TcpStream> = None;
         let mut recv_buffer = vec![0; 2048];
 
+        let video_capabilities = video_decoder.capabilities();
+
         let mut audio_decoder = Some(audio_decoder);
         let mut video_decoder = Some(video_decoder);
         let mut connection_listener = Some(connection_listener);
@@ -215,8 +217,13 @@ impl MoonlightStream {
             first_frame_notify: Condvar::new(),
         });
 
-        let mut setup =
-            MoonlightStreamSetup::new(Instant::now(), config, settings, crypto_backend)?;
+        let mut setup = MoonlightStreamSetup::new(
+            Instant::now(),
+            config,
+            settings,
+            crypto_backend,
+            video_capabilities,
+        )?;
 
         loop {
             match setup.poll_output()? {

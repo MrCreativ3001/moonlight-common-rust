@@ -6,9 +6,12 @@ use std::{
 };
 
 use thiserror::Error;
+use tracing::warn;
 
 pub mod client;
 pub mod server;
+
+// TODO: replace this by sdp types rust crate
 
 #[derive(Debug, PartialEq)]
 pub struct SdpAttribute {
@@ -52,12 +55,14 @@ impl FromStr for SdpNetworkType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SdpMediaType {
     Video,
+    Audio,
 }
 
 impl Display for SdpMediaType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = match self {
             Self::Video => "video",
+            Self::Audio => "audio",
         };
         write!(f, "{s}")
     }
@@ -69,6 +74,7 @@ impl FromStr for SdpMediaType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "video" => Ok(Self::Video),
+            "audio" => Ok(Self::Audio),
             _ => Err(()),
         }
     }
@@ -288,8 +294,7 @@ impl FromStr for Sdp {
 
                 sdp.time = Some((t0, t1));
             } else {
-                // TODO: maybe debug or warn?
-
+                warn!(line = ?line, "unknown sdp line");
                 // ignore
             }
         }

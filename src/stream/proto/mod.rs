@@ -42,11 +42,12 @@ use crate::{
             },
             video::{VideoStream, VideoStreamConfig, depayloader::VideoDepayloaderConfig},
         },
-        video::{DEFAULT_VIDEO_PORT, VideoFormat},
+        video::{
+            DEFAULT_VIDEO_PORT, ServerCodecModeSupport, VideoCapabilities, VideoFormat,
+            VideoFormats,
+        },
     },
 };
-
-// TODO: avoid heap alloc by using 'a in certain structs (e.g. RtspRequest / Response, Sdp)
 
 // TODO: implement apollo extensions: https://github.com/ClassicOldSong/moonlight-common-c/commit/84af637de7718d1bb390332f0e37a4c6d59e6b78
 // Detect apollo based on: if we have a "Permission" field in the xml?
@@ -151,6 +152,7 @@ struct Sdp {
 pub struct MoonlightStreamSetup<Crypto> {
     client_config: MoonlightStreamConfig,
     client_settings: MoonlightStreamSettings,
+    video_capabilities: VideoCapabilities,
     crypto_backend: Crypto,
     rtsp: RtspClient<Crypto>,
     sdp: Option<Sdp>,
@@ -180,8 +182,15 @@ impl MoonlightStreamSetup<DisabledCryptoBackend> {
         now: Instant,
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
+        video_capabilities: VideoCapabilities,
     ) -> Result<Self, MoonlightStreamProtoError> {
-        Self::new(now, config, settings, DisabledCryptoBackend)
+        Self::new(
+            now,
+            config,
+            settings,
+            DisabledCryptoBackend,
+            video_capabilities,
+        )
     }
 }
 
@@ -204,6 +213,7 @@ where
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         crypto_backend: Crypto,
+        video_capabilities: VideoCapabilities,
     ) -> Result<Self, MoonlightStreamProtoError> {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L976-L994
         #[allow(clippy::wildcard_in_or_patterns)]
@@ -236,9 +246,9 @@ where
 
         let mut this = Self {
             client_settings: settings,
+            video_capabilities,
             crypto_backend: crypto_backend.clone(),
             last_now: now,
-            // TODO: how to get this?
             rtsp: RtspClient::new(
                 RtspClientConfig {
                     target: rtsp_addr,
@@ -357,7 +367,6 @@ where
                                     // It doesn't seem worth it to sink a bunch of hours into figure out how to properly handle audio FEC
                                     // for a 3 year old version of GFE that almost nobody uses. Instead, we'll just disable the FEC queue
                                     // entirely and pass all audio data straight to the decoder.
-                                    // TODO: want fec disabled
                                     fec: self.server_version >= ServerVersion::new(7, 1, 415, 0),
                                     sunshine_ping: audio_setup.sunshine_ping.clone(),
                                     sunshine_encryption: encrypted.then_some((
@@ -482,6 +491,7 @@ where
                                 None
                             };
 
+                            // We control all values and those values don't fail -> this cannot panic
                             let mut control_stream = ControlStream::new(
                                 self.last_now,
                                 ControlStreamConfig {
@@ -496,18 +506,18 @@ where
                                 },
                                 self.crypto_backend.clone(),
                             )
-                            .unwrap();
+                            .expect("failed to create control stream");
 
                             // Buffer RequestIdr and StartB for connect because they should be the first packets
                             // This won't panic, because we have control over all values and they don't panic
                             #[allow(clippy::unwrap_used)]
                             control_stream
                                 .send_inner(ControlPacket::RequestIdr, true)
-                                .unwrap();
+                                .expect("failed to send / buffer RequestIdr");
                             #[allow(clippy::unwrap_used)]
                             control_stream
                                 .send_inner(ControlPacket::StartB, true)
-                                .unwrap();
+                                .expect("failed to send / buffer StartB");
 
                             self.state = State::RtspSetupControlReceive {
                                 _response: control_setup,
@@ -525,6 +535,8 @@ where
                             #[allow(clippy::unwrap_used)]
                             let session_id = self.session_id.as_ref().unwrap();
 
+                            // For GFE 3.22 compatibility, we must start the audio ping thread before the RTSP handshake.
+                            // It will not reply to our RTSP PLAY request until the audio ping has been received.
                             self.rtsp.send_no_response(
                                 RtspPlayRequest {
                                     session_id: session_id.to_owned(),
@@ -645,7 +657,6 @@ where
 
                 self.rtsp.handle_input(RtspInput::Disconnected)?;
             }
-            _ => todo!(),
         }
 
         Ok(())
@@ -732,6 +743,7 @@ where
         // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtspConnection.c#L733-L834
         let audio_packet_duration = Duration::from_millis(5);
 
+        let mut high_quality_audio = false;
         let opus_config = if self.client_settings.audio_config == AudioConfig::STEREO {
             OpusMultistreamConfig {
                 sample_rate: 48000,
@@ -742,19 +754,143 @@ where
                 mapping: [0, 1, 0, 0, 0, 0, 0, 0],
             }
         } else {
-            // TODO: figure this out: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtspConnection.c#L750-L830
-            todo!()
+            // TODO: is this correct?
+
+            // See
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtspConnection.c#L750-L830
+
+            // Figure out if the preferred audio config is supported, else just use stereo
+            let mut selected_config = OpusMultistreamConfig {
+                sample_rate: 48000,
+                samples_per_frame: 48 * audio_packet_duration.as_millis() as u32,
+                channel_count: 2,
+                streams: 1,
+                coupled_streams: 1,
+                mapping: [0, 1, 0, 0, 0, 0, 0, 0],
+            };
+
+            for opus_config in &server_sdp.audio_surround_params {
+                if opus_config.channel_count == self.client_settings.audio_config.channel_count {
+                    high_quality_audio = true;
+                    selected_config = opus_config.clone();
+                    break;
+                }
+            }
+
+            selected_config
         };
 
         // -- Select Video Format
-        // TODO: find out negotiated formats
-        let negotiated_video_format = VideoFormat::H264;
+        // Av1 is not supported in this implementation currently
+        // See https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/RtspConnection.c#L1090-L1136
+        let negotiated_video_format;
+
+        if self
+            .client_settings
+            .supported_video_formats
+            .intersects(VideoFormats::MASK_H265)
+        {
+            // H265 Rext 10
+            if self
+                .client_config
+                .server_codec_mode_support
+                .contains(ServerCodecModeSupport::HEVC_REXT10_444)
+                && self
+                    .client_settings
+                    .supported_video_formats
+                    .contains(VideoFormats::H265_REXT10_444)
+            {
+                negotiated_video_format = VideoFormat::H265Rext10_444;
+            } else
+            // H265 Main 10
+            if self
+                .client_config
+                .server_codec_mode_support
+                .contains(ServerCodecModeSupport::HEVC_MAIN10)
+                && self
+                    .client_settings
+                    .supported_video_formats
+                    .contains(VideoFormats::H265_MAIN10)
+            {
+                negotiated_video_format = VideoFormat::H265Main10;
+            } else
+            // H265 Rext 8
+            if self
+                .client_config
+                .server_codec_mode_support
+                .contains(ServerCodecModeSupport::HEVC_REXT8_444)
+                && self
+                    .client_settings
+                    .supported_video_formats
+                    .contains(VideoFormats::H265_REXT8_444)
+            {
+                negotiated_video_format = VideoFormat::H265Rext8_444;
+            } else {
+                negotiated_video_format = VideoFormat::H265;
+            }
+        } else {
+            // H264 High 8
+            if self
+                .client_config
+                .server_codec_mode_support
+                .contains(ServerCodecModeSupport::H264_HIGH8_444)
+                && self
+                    .client_settings
+                    .supported_video_formats
+                    .contains(VideoFormats::H264_HIGH8_444)
+            {
+                negotiated_video_format = VideoFormat::H264High8_444;
+            } else {
+                // Default H264
+                negotiated_video_format = VideoFormat::H264;
+            }
+        }
+
+        // Repair percent
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L224-L230
+        let mut fec_repair_percent = 20;
+        if self.client_settings.width >= 3840 && self.client_settings.height >= 2160 {
+            // When streaming 4K, lower FEC levels to reduce stream overhead
+            fec_repair_percent = 5;
+        }
+
+        // This seems configurable but i don't know what it does exactly, but 1 works
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L424-L429
+        let slices_per_frame = self.video_capabilities.slices_per_frame.unwrap_or(1);
+
+        // Reference Frame Invalidation, See
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L462-L474
+        let reference_frame_invalidation_supported = match negotiated_video_format {
+            VideoFormat::H264 | VideoFormat::H264High8_444 => {
+                self.video_capabilities.reference_frame_invalidation_h264
+            }
+            VideoFormat::H265
+            | VideoFormat::H265Rext10_444
+            | VideoFormat::H265Main10
+            | VideoFormat::H265Rext8_444 => {
+                self.video_capabilities.reference_frame_invalidation_h264
+            }
+            VideoFormat::Av1Main8
+            | VideoFormat::Av1Main10
+            | VideoFormat::Av1High8_444
+            | VideoFormat::Av1High10_444 => {
+                self.video_capabilities.reference_frame_invalidation_h265
+            }
+        };
+        let max_num_reference_frames = if reference_frame_invalidation_supported {
+            // If the decoder supports reference frame invalidation, that indicates it also supports
+            // the maximum number of reference frames allowed by the codec. Even if we can't use RFI
+            // due to lack of host support, we can still allow the host to pick a number of reference
+            // frames greater than 1 to improve encoding efficiency.
+            0
+        } else {
+            1
+        };
 
         // TODO: only generate the sdp in the announce stage so we know the video port
         let client_sdp = ClientSdp::new(
             StreamingConfig::Local,
             self.server_version,
-            // TODO: what is target_ip actually
             self.rtsp.target_addr().addr.ip(),
             moonlight_features,
             sunshine_encryption,
@@ -767,14 +903,13 @@ where
             self.client_settings.fps_x100,
             self.client_settings.packet_size,
             self.client_settings.bitrate,
-            // TODO: is it actually 0.0.0.0?
             "0.0.0.0".to_string(),
             self.rtsp.target_addr().addr.port(),
-            50, // TODO: <--
+            fec_repair_percent,
             self.client_settings.audio_config,
-            false, // <-- TODO
-            1,     // TODO: <--
-            1,     // TODO: <--
+            high_quality_audio,
+            slices_per_frame,
+            max_num_reference_frames,
             self.client_settings.color_space,
             self.client_settings.color_range,
             0,
