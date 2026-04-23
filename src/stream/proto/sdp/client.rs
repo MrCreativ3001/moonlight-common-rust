@@ -39,6 +39,14 @@ bitflags! {
         const CONTROL_V2 = 0x01;
         const VIDEO = 0x02;
         const AUDIO = 0x04;
+
+        /// Foundation Extension
+        ///
+        /// Make sure to check if the server is a Sunshine Foundation server before using this
+        ///
+        /// References:
+        /// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L53
+        const FOUNDATION_MIC = 0x08;
     }
 }
 

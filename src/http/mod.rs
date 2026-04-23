@@ -151,7 +151,7 @@ pub trait Request: Sized {
         Q: QueryMap;
 }
 
-pub trait TextResponse: FromStr {
+pub trait TextResponse: FromStr + Debug {
     fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result;
 }
 

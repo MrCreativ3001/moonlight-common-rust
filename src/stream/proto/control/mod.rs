@@ -447,7 +447,7 @@ where
         }
 
         match input {
-            ClientInputEvent::MouseScrollVertical { .. }
+            ClientInputEvent::MouseScrollHorizontal { .. }
                 if !self.server_version.is_sunshine_like() =>
             {
                 Err(ControlError::PacketNotSupported(ControlPacketNotSupported))

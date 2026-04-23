@@ -79,6 +79,7 @@ fn main() {
         audio_config: AudioConfig::STEREO,
         gamepads_attached: ActiveGamepads::empty(),
         gamepads_persist_after_disconnect: false,
+        enable_mic: false,
     };
 
     // Adjust the settings for the host, required because older hosts might not support some settings

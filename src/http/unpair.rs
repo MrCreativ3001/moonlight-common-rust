@@ -43,6 +43,7 @@ impl Request for UnpairRequest {
     }
 }
 
+#[derive(Debug)]
 pub struct UnpairResponse {}
 
 impl TextResponse for UnpairResponse {

@@ -27,6 +27,10 @@ use crate::{
                 peer::{ControlError, ControlHostAction},
             },
             crypto::CryptoBackend,
+            microphone::foundation::{
+                FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
+                FoundationMicStreamOutput,
+            },
             video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
         },
         std::{ringbuffer::RingBuffer, signal::StopSignal},
@@ -49,6 +53,8 @@ pub enum MoonlightStreamError {
     Video(#[from] VideoStreamError),
     #[error("control stream: {0}")]
     Control(#[from] ControlError),
+    #[error("foundation mic stream: {0}")]
+    FoundationMic(#[from] FoundationMicStreamError),
     #[error("thread join: {0:?}")]
     ThreadJoin(Box<dyn Any + Send + 'static>),
     #[error("exceeded first frame timeout")]
@@ -59,6 +65,7 @@ pub struct MoonlightStream {
     inner: Arc<SharedInner>,
     threads: Threads,
     stop: StopSignal,
+    host_features: HostFeatures,
 }
 
 #[derive(Debug, Default)]
@@ -67,6 +74,7 @@ struct Threads {
     video_stream: Option<JoinHandle<()>>,
     control_stream_sender: Option<JoinHandle<()>>,
     control_stream_receiver: Option<JoinHandle<()>>,
+    foundation_mic_sender: Option<JoinHandle<()>>,
 }
 
 impl Threads {
@@ -103,6 +111,14 @@ impl Threads {
             debug!("control_stream_receiver_thread doesn't exist");
         }
 
+        if let Some(foundation_mic_sender) = self.foundation_mic_sender.take() {
+            if let Err(err) = foundation_mic_sender.join() {
+                on_error(err);
+            }
+        } else {
+            debug!("foundation_mic_sender_thread doesn't exist");
+        }
+
         debug!("finished thread cleanup");
     }
     fn take(&mut self) -> Self {
@@ -111,6 +127,7 @@ impl Threads {
             video_stream: self.video_stream.take(),
             control_stream_sender: self.control_stream_sender.take(),
             control_stream_receiver: self.control_stream_receiver.take(),
+            foundation_mic_sender: self.foundation_mic_sender.take(),
         }
     }
 }
@@ -118,6 +135,8 @@ impl Threads {
 struct SharedInner {
     control_stream: Mutex<Option<ControlStream<Arc<dyn CryptoBackend + Send>>>>,
     control_notify: Condvar,
+    foundation_mic_stream: Mutex<Option<FoundationMicStream<Arc<dyn CryptoBackend + Send>>>>,
+    foundation_mic_notify: Condvar,
     first_frame: Mutex<FirstFrame>,
     first_frame_notify: Condvar,
 }
@@ -150,6 +169,7 @@ impl MoonlightStream {
         let stop = StopSignal::new();
 
         let mut threads = Threads::default();
+        let mut host_features = HostFeatures::default();
 
         let inner = match Self::connect_inner(
             config,
@@ -159,6 +179,7 @@ impl MoonlightStream {
             connection_listener,
             crypto_backend,
             &mut threads,
+            &mut host_features,
             &stop,
         ) {
             Ok(value) => value,
@@ -181,6 +202,7 @@ impl MoonlightStream {
             inner,
             threads,
             stop,
+            host_features,
         })
     }
     fn connect_inner<Crypto>(
@@ -191,6 +213,7 @@ impl MoonlightStream {
         connection_listener: impl ConnectionListener + Send + 'static,
         crypto_backend: Crypto,
         threads: &mut Threads,
+        host_features: &mut HostFeatures,
         stop: &StopSignal,
     ) -> Result<Arc<SharedInner>, MoonlightStreamError>
     where
@@ -213,6 +236,8 @@ impl MoonlightStream {
         let shared_inner = Arc::new(SharedInner {
             control_notify: Condvar::new(),
             control_stream: Mutex::new(None),
+            foundation_mic_stream: Mutex::new(None),
+            foundation_mic_notify: Condvar::new(),
             first_frame: Mutex::new(FirstFrame::default()),
             first_frame_notify: Condvar::new(),
         });
@@ -312,6 +337,28 @@ impl MoonlightStream {
                         shared_inner.clone(),
                     ));
                 }
+                MoonlightStreamSetupOutput::FoundationStartMic {
+                    addr,
+                    mic_stream: new_mic_stream,
+                } => {
+                    let socket = UdpSocket::bind("0.0.0.0:0")?;
+                    socket.connect(addr)?;
+
+                    {
+                        let mut mic_stream = shared_inner
+                            .foundation_mic_stream
+                            .lock()
+                            .expect("failed to lock foundation mic stream");
+                        *mic_stream = Some(new_mic_stream);
+                    }
+
+                    threads.foundation_mic_sender = Some(foundation_mic_sender(
+                        info_span!("foundation_mic_stream_sender"),
+                        stop.clone(),
+                        socket,
+                        shared_inner.clone(),
+                    ));
+                }
                 MoonlightStreamSetupOutput::StartControlStream {
                     addr,
                     control_stream: new_control_stream,
@@ -344,7 +391,10 @@ impl MoonlightStream {
                         shared_inner.clone(),
                     ));
                 }
-                MoonlightStreamSetupOutput::Connected => break,
+                MoonlightStreamSetupOutput::Connected { features } => {
+                    *host_features = features;
+                    break;
+                }
             }
 
             setup.handle_input(MoonlightStreamInput::Timeout(Instant::now()))?;
@@ -388,8 +438,22 @@ impl MoonlightStream {
         Ok(())
     }
 
-    pub fn features(&self) -> HostFeatures {
-        todo!()
+    /// Use [host_features](Self::host_features) to detect support for microphone.
+    pub fn send_microphone_opus_data(&self, timestamp: Duration, frame: &[u8]) -> bool {
+        match self.try_use_foundation_microphone(|stream| {
+            stream.send_microphone_opus_data(timestamp, frame)
+        }) {
+            Ok(value) => value,
+            Err(err) => {
+                warn!(error = ?err, "failed to send foundation microphone data");
+
+                false
+            }
+        }
+    }
+
+    pub fn host_features(&self) -> HostFeatures {
+        self.host_features.clone()
     }
 
     fn use_control_stream(
@@ -420,6 +484,34 @@ impl MoonlightStream {
         self.inner.control_notify.notify_all();
 
         Ok(())
+    }
+    /// Returns if the closure was executed / if the stream is present
+    fn try_use_foundation_microphone(
+        &self,
+        f: impl FnOnce(
+            &mut FoundationMicStream<Arc<dyn CryptoBackend + Send + 'static>>,
+        ) -> Result<(), FoundationMicStreamError>,
+    ) -> Result<bool, FoundationMicStreamError> {
+        if self.stop.is_notified() {
+            trace!("couldn't aquire foundation microphone stream because the stream was stopped");
+            return Ok(true);
+        }
+
+        {
+            let mut mic_stream = self.inner.foundation_mic_stream.lock();
+            let mic_stream = mic_stream
+                .as_mut()
+                .expect("failed to get FoundationMicStream");
+
+            if let Some(mic_stream) = &mut **mic_stream {
+                f(mic_stream)?;
+            }
+        }
+
+        // this should notify both the sender and receiver
+        self.inner.foundation_mic_notify.notify_all();
+
+        Ok(true)
     }
 
     pub fn stop(mut self) {
@@ -757,6 +849,75 @@ where
         }
 
         debug!("stopped video_thread");
+    })
+}
+
+fn foundation_mic_sender(
+    span: Span,
+    stop: StopSignal,
+    socket: UdpSocket,
+    shared_inner: Arc<SharedInner>,
+) -> JoinHandle<()> {
+    spawn(move || {
+        let _enter = span.enter();
+
+        let mut timeout = Duration::ZERO;
+
+        'outer: loop {
+            // Check if we're stopped
+            if stop.is_notified() {
+                break 'outer;
+            }
+
+            // Wait on Condvar
+            let foundation_mic = shared_inner
+                .foundation_mic_stream
+                .lock()
+                .expect("failed to lock on FoundationMicStream");
+            let (mut foundation_mic, _) = shared_inner
+                .foundation_mic_notify
+                .wait_timeout(foundation_mic, timeout)
+                .expect("failed to wait on FoundationMicStream");
+            let foundation_mic = foundation_mic
+                .as_mut()
+                .expect("failed to get FoundationMicStream");
+
+            // Handle sans io event loop
+            if let Err(err) =
+                foundation_mic.handle_input(FoundationMicStreamInput::Timeout(Instant::now()))
+            {
+                handle_error(&stop, err.into());
+                break 'outer;
+            }
+
+            loop {
+                let poll_output = match foundation_mic.poll_output() {
+                    Ok(value) => value,
+                    Err(err) => {
+                        handle_error(&stop, err.into());
+                        break 'outer;
+                    }
+                };
+
+                match poll_output {
+                    FoundationMicStreamOutput::Send { data } => {
+                        if let Err(err) = socket.send(data) {
+                            handle_error(&stop, err.into());
+                            break 'outer;
+                        }
+                    }
+                    FoundationMicStreamOutput::Timeout(wait_until) => {
+                        // Keep time lower or equal to 1 to allow for stopping this thread
+                        timeout = wait_until
+                            .duration_since(Instant::now())
+                            .min(Duration::from_secs(1));
+                        break;
+                    }
+                }
+            }
+        }
+
+        debug!("stopped foundation_mic_send");
     })
 }
 

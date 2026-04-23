@@ -20,11 +20,10 @@ use crate::{
             },
             crypto::CryptoBackend,
             packet::{SunshinePing, SunshinePingPacket},
+            ping::PING_RETRY_TIMEOUT,
         },
     },
 };
-
-const PING_RETRY: Duration = Duration::from_millis(500);
 
 pub mod depayloader;
 mod packet;
@@ -128,9 +127,9 @@ where
             } => {
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/AudioStream.c#L38-L65
                 if let Some(last_send) = last_send
-                    && *last_send + PING_RETRY > self.last_now
+                    && *last_send + PING_RETRY_TIMEOUT > self.last_now
                 {
-                    return Ok(AudioStreamOutput::Timeout(*last_send + PING_RETRY));
+                    return Ok(AudioStreamOutput::Timeout(*last_send + PING_RETRY_TIMEOUT));
                 }
 
                 let packet = if let Some(ping) = sunshine_ping.as_mut() {

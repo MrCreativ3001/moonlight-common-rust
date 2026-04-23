@@ -21,8 +21,10 @@ pub struct SunshinePingPacket {
 }
 
 impl SunshinePingPacket {
+    pub const SIZE: usize = 20;
+
     #[allow(unused)]
-    pub fn deserialize(data: &[u8; 20]) -> Self {
+    pub fn deserialize(data: &[u8; Self::SIZE]) -> Self {
         let mut payload = [0; 16];
         payload.copy_from_slice(&data[0..16]);
 
@@ -36,7 +38,7 @@ impl SunshinePingPacket {
         }
     }
 
-    pub fn serialize(&self, data: &mut [u8; 20]) {
+    pub fn serialize(&self, data: &mut [u8; Self::SIZE]) {
         data[0..16].copy_from_slice(&self.payload);
         data[16..20].copy_from_slice(&self.sequence_number.to_be_bytes());
     }

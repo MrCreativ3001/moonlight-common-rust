@@ -87,7 +87,10 @@ pub enum ServerType {
     #[default]
     NvidiaGameStream,
     Sunshine,
+    /// See https://github.com/ClassicOldSong/Apollo
     Apollo,
+    /// See https://github.com/AlkaidLab/foundation-sunshine/
+    FoundationSunshine,
 }
 
 /// The version of the server.
@@ -134,6 +137,11 @@ impl ServerVersion {
     /// Any server that supports Apollo protocol
     pub fn is_apollo(&self) -> bool {
         matches!(self.server_type, ServerType::Apollo)
+    }
+
+    /// Any server that supports Foundation protocols
+    pub fn is_foundation(&self) -> bool {
+        matches!(self.server_type, ServerType::FoundationSunshine)
     }
 }
 

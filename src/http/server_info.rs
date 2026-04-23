@@ -123,6 +123,24 @@ pub struct ServerInfoResponse {
     ///
     /// TODO: figure out what this is
     pub apollo_game_uuid: Option<Option<Uuid>>,
+    /// Foundation Extension
+    ///
+    /// The version of Foundation Sunshine
+    ///
+    /// References:
+    /// - https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L988
+    pub foundation_sunshine_version: Option<String>,
+    /// Foundation Extension
+    ///
+    /// A version identifier for the current app list.
+    ///
+    /// This value is used for cache validation: if the ETag matches the
+    /// client’s cached value, the app list has not changed and does not
+    /// need to be re-fetched.
+    ///
+    /// References:
+    /// - https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L1053
+    pub foundation_app_list_etag: Option<String>,
 }
 
 impl TextResponse for ServerInfoResponse {
@@ -145,6 +163,13 @@ impl TextResponse for ServerInfoResponse {
         body_writer.write_str("<GfeVersion>")?;
         serialize_text_xml(body_writer, &self.gfe_version)?;
         body_writer.write_str("</GfeVersion>")?;
+
+        // <SunshineVersion> (Foundation Extension)
+        if let Some(foundation_sunshine_version) = &self.foundation_sunshine_version {
+            body_writer.write_str("<SunshineVersion>")?;
+            serialize_text_xml(body_writer, foundation_sunshine_version)?;
+            body_writer.write_str("</SunshineVersion>")?;
+        }
 
         // <uniqueid>
         body_writer.write_str("<uniqueid>")?;
@@ -235,6 +260,13 @@ impl TextResponse for ServerInfoResponse {
         serialize_text_xml(body_writer, self.state.as_str())?;
         body_writer.write_str("</state>")?;
 
+        // <appListEtag> (Foundation Extension)
+        if let Some(foundation_app_list_etag) = &self.foundation_app_list_etag {
+            body_writer.write_str("<appListEtag>")?;
+            serialize_text_xml(body_writer, foundation_app_list_etag)?;
+            body_writer.write_str("</appListEtag>")?;
+        }
+
         // close root
         body_writer.write_str("</root>")?;
 
@@ -264,13 +296,39 @@ impl FromStr for ServerInfoResponse {
 
         let mut app_version: ServerVersion = parse_xml_child_text(root, "appversion")?.parse()?;
 
+        let apollo_game_uuid = match parse_xml_child_text(root, "currentgameuuid") {
+            Ok(value) => Some(Some(value.parse()?)),
+            Err(ParseError::XmlTextNotFound(_)) => Some(None),
+            Err(_) => None,
+        };
         // https://github.com/ClassicOldSong/Apollo/blob/a40b179886856bba1dfe311f430a25b9f3c44390/src/nvhttp.cpp#L931
         let apollo_permissions = match parse_xml_child_text(root, "Permission") {
             Ok(permissions) => Some(ApolloPermissions::from_bits_truncate(permissions.parse()?)),
             Err(_) => None,
         };
-        if apollo_permissions.is_some() {
+        if apollo_permissions.is_some() || apollo_game_uuid.is_some() {
             app_version.server_type = ServerType::Apollo;
+        }
+
+        // https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L988
+        let foundation_sunshine_version = match parse_xml_child_text(root, "SunshineVersion") {
+            Ok(foundation_sunshine_version) => Some(foundation_sunshine_version.to_owned()),
+            Err(_) => None,
+        };
+        let foundation_app_list_etag = match parse_xml_child_text(root, "appListEtag") {
+            Ok(foundation_sunshine_app_list_etag) => {
+                Some(foundation_sunshine_app_list_etag.to_owned())
+            }
+            Err(_) => None,
+        };
+        if foundation_sunshine_version.is_some() || foundation_app_list_etag.is_some() {
+            if apollo_permissions.is_some() {
+                warn!(
+                    "Got a \"/serverinfo\" response that could both match an Apollo host and Sunshine Foundation host. This could lead to incorrect feature detection."
+                );
+            }
+
+            app_version.server_type = ServerType::FoundationSunshine;
         }
 
         // Real Nvidia host software (GeForce Experience and RTX Experience) both use the 'Mjolnir'
@@ -283,6 +341,7 @@ impl FromStr for ServerInfoResponse {
             host_name: parse_xml_child_text(root, "hostname")?.to_string(),
             app_version,
             gfe_version: parse_xml_child_text(root, "GfeVersion")?.to_string(),
+            foundation_sunshine_version,
             unique_id: parse_xml_child_text(root, "uniqueid")?.parse()?,
             https_port: parse_xml_child_text(root, "HttpsPort")?.parse()?,
             external_port: parse_xml_child_text(root, "ExternalPort")?.parse()?,
@@ -296,11 +355,8 @@ impl FromStr for ServerInfoResponse {
             current_game: parse_xml_child_text(root, "currentgame")?.parse()?,
             state: ServerState::from_str(&state_string)?,
             apollo_permissions,
-            apollo_game_uuid: match parse_xml_child_text(root, "currentgameuuid") {
-                Ok(value) => Some(Some(value.parse()?)),
-                Err(ParseError::XmlTextNotFound(_)) => Some(None),
-                Err(_) => None,
-            },
+            apollo_game_uuid,
+            foundation_app_list_etag,
         })
     }
 }

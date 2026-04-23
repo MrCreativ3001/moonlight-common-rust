@@ -14,6 +14,7 @@ use crate::stream::{
         control::{ControlMessage, packet::ControlPacket},
         crypto::{CryptoBackend, CryptoError},
         packet::{SunshinePing, SunshinePingPacket},
+        ping::PING_RETRY_TIMEOUT,
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
             packet::FrameType,
@@ -31,8 +32,6 @@ pub mod payloader;
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod test;
-
-const PING_RETRY: Duration = Duration::from_millis(500);
 
 /// The time window a frame has for all packets to be received
 const FULL_FRAME_RECEIVE_TIMEOUT: Duration = Duration::from_millis(100);
@@ -196,9 +195,9 @@ where
             } => {
                 // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/VideoStream.c#L54-L82
                 if let Some(last_send) = last_send
-                    && *last_send + PING_RETRY > self.last_now
+                    && *last_send + PING_RETRY_TIMEOUT > self.last_now
                 {
-                    return Ok(VideoStreamOutput::Timeout(*last_send + PING_RETRY));
+                    return Ok(VideoStreamOutput::Timeout(*last_send + PING_RETRY_TIMEOUT));
                 }
 
                 let packet = if let Some(ping) = sunshine_ping.as_mut() {

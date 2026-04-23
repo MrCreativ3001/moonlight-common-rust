@@ -16,7 +16,8 @@ use crate::{
     ServerVersion,
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        EncryptionFlags, MoonlightStreamConfig, MoonlightStreamSettings, StreamingConfig,
+        EncryptionFlags, HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
+        RawHostFeatures, StreamingConfig,
         audio::{AudioConfig, OpusMultistreamConfig},
         proto::{
             audio::{AudioStream, AudioStreamConfig},
@@ -25,6 +26,10 @@ use crate::{
                 peer::ControlEncryptionMethod,
             },
             crypto::CryptoBackend,
+            microphone::foundation::{
+                FOUNDATION_DEFAULT_MIC_PORT, FoundationMicStream, FoundationMicStreamConfig,
+                rtsp::{RtspSetupFoundationMicRequest, RtspSetupFoundationMicResponse},
+            },
             rtsp::{
                 client::{RtspClient, RtspClientConfig, RtspClientError, RtspInput, RtspOutput},
                 moonlight::{
@@ -61,6 +66,7 @@ pub mod audio;
 pub mod control;
 pub mod crypto;
 pub mod microphone;
+pub mod ping;
 pub mod video;
 
 mod rtsp;
@@ -121,12 +127,19 @@ pub enum MoonlightStreamSetupOutput<Crypto> {
         video_stream: VideoStream<Crypto>,
     },
     /// Can only be called once by the implementation
+    FoundationStartMic {
+        addr: SocketAddr,
+        mic_stream: FoundationMicStream<Crypto>,
+    },
+    /// Can only be called once by the implementation
     StartControlStream {
         addr: SocketAddr,
         control_stream: ControlStream<Crypto>,
     },
     /// The stream is now fully started and the [MoonlightStreamSetup] can be discarded
-    Connected,
+    Connected {
+        features: HostFeatures,
+    },
 }
 
 #[derive(Debug)]
@@ -160,6 +173,7 @@ pub struct MoonlightStreamSetup<Crypto> {
     session_id: Option<String>,
     last_now: Instant,
     state: State,
+    host_features: HostFeatures,
 }
 
 #[derive(Debug)]
@@ -167,11 +181,21 @@ enum State {
     RtspOptionsReceive,
     RtspDescribeReceive,
     SetupAudio,
-    RtspSetupAudioReceive { response: RtspSetupAudioResponse },
+    RtspSetupAudioReceive {
+        response: RtspSetupAudioResponse,
+    },
     SetupVideo,
-    RtspSetupVideoReceive { _response: RtspSetupVideoResponse },
+    RtspSetupVideoReceive {
+        _response: RtspSetupVideoResponse,
+    },
+    SetupFoundationMic,
+    RtspSetupFoundationMicReceive {
+        _response: RtspSetupFoundationMicResponse,
+    },
     SetupControl,
-    RtspSetupControlReceive { _response: RtspSetupControlResponse },
+    RtspSetupControlReceive {
+        _response: RtspSetupControlResponse,
+    },
     RtspAnnounceReceive,
     RtspPlayReceive,
     Connected,
@@ -262,6 +286,7 @@ where
             sdp: None,
             session_id: None,
             state: State::RtspOptionsReceive,
+            host_features: HostFeatures::default(),
         };
 
         this.rtsp.send(
@@ -304,12 +329,24 @@ where
                         State::RtspDescribeReceive => {
                             let describe = RtspDescribeResponse::try_from_response(&response)?;
 
-                            debug!(sdp = ?describe.sdp, "Received Server Sdp");
+                            debug!(sdp = ?describe.sdp, "received server sdp");
 
                             // The server won't send more information about itself so we can already create our client sdp
                             let (client_sdp, opus_config, video_format) =
                                 self.generate_client_sdp(&describe.sdp)?;
                             let server_sdp = describe.sdp;
+
+                            // Enable host features based on sdp
+                            debug_assert_eq!(
+                                self.host_features,
+                                HostFeatures::default(),
+                                "set host features after the server sdp was initialized!"
+                            );
+                            self.host_features = server_sdp
+                                .sunshine_feature_flags
+                                .clone()
+                                .unwrap_or(RawHostFeatures::empty())
+                                .into_host_features(self.server_version);
 
                             let sdp = Sdp {
                                 server_sdp,
@@ -317,7 +354,7 @@ where
                                 opus_config,
                                 video_format,
                             };
-                            debug!(sdp = ?sdp, "Generated Client Sdp");
+                            debug!(sdp = ?sdp, "generated client sdp");
                             self.sdp = Some(sdp);
 
                             self.rtsp.send(
@@ -442,6 +479,62 @@ where
                             return Ok(MoonlightStreamSetupOutput::StartVideoStream {
                                 addr,
                                 video_stream,
+                            });
+                        }
+                        State::SetupFoundationMic => {
+                            let mic_setup =
+                                RtspSetupFoundationMicResponse::try_from_response(&response)?;
+
+                            // Session id exists at this point
+                            #[allow(clippy::unwrap_used)]
+                            let session_id = self.session_id.as_ref().unwrap();
+
+                            if &mic_setup.session_id != session_id {
+                                return Err(MoonlightStreamProtoError::WrongSessionId {
+                                    expected_session: session_id.to_string(),
+                                    session: mic_setup.session_id.to_string(),
+                                });
+                            }
+
+                            let ip = self.rtsp.target_addr().addr.ip();
+
+                            // This is allowed because sdp is initialized in states before
+                            #[allow(clippy::unwrap_used)]
+                            let sdp = self.sdp.as_mut().unwrap();
+
+                            let mic_port = mic_setup.port.unwrap_or(FOUNDATION_DEFAULT_MIC_PORT);
+                            let addr = SocketAddr::new(ip, mic_port);
+
+                            let encrypted = sdp
+                                .client_sdp
+                                .sunshine_encryption
+                                .unwrap_or(SunshineEncryptionFlags::empty())
+                                .contains(SunshineEncryptionFlags::FOUNDATION_MIC);
+
+                            let mic_stream = FoundationMicStream::new(
+                                self.last_now,
+                                FoundationMicStreamConfig {
+                                    encryption: encrypted.then_some((
+                                        self.client_config.remote_input_aes_key,
+                                        self.client_config.remote_input_aes_iv,
+                                    )),
+                                },
+                                self.crypto_backend.clone(),
+                            );
+
+                            self.state = State::RtspSetupFoundationMicReceive {
+                                _response: mic_setup,
+                            };
+
+                            info!("starting microphone stream");
+
+                            // Enable microphone extension in features
+                            self.host_features.microphone = true;
+                            self.host_features.extensions.foundation_microphone = true;
+
+                            return Ok(MoonlightStreamSetupOutput::FoundationStartMic {
+                                addr,
+                                mic_stream,
                             });
                         }
                         State::SetupControl => {
@@ -593,6 +686,37 @@ where
                     #[allow(clippy::unwrap_used)]
                     let session_id = self.session_id.as_ref().unwrap();
 
+                    if self.client_config.foundation_enable_mic {
+                        self.rtsp.send(
+                            RtspSetupFoundationMicRequest {
+                                target: self.rtsp.target_addr(),
+                                session_id: Some(session_id.clone()),
+                            }
+                            .into_request(self.server_version),
+                        )?;
+
+                        self.state = State::SetupFoundationMic;
+                    } else {
+                        self.rtsp.send(
+                            RtspSetupControlRequest {
+                                session_id: Some(session_id.clone()),
+                            }
+                            .into_request(self.server_version),
+                        )?;
+
+                        self.state = State::SetupControl;
+                    }
+                    continue;
+                }
+                State::RtspSetupFoundationMicReceive { _response } => {
+                    // Session id exists at this point
+                    #[allow(clippy::unwrap_used)]
+                    let session_id = self.session_id.as_ref().unwrap();
+
+                    // This won't panic because this state can only be reached when there's a client sdp set in RtspDescribeReceive
+                    #[allow(clippy::unwrap_used)]
+                    let sdp = self.sdp.as_ref().unwrap();
+
                     self.rtsp.send(
                         RtspSetupControlRequest {
                             session_id: Some(session_id.clone()),
@@ -624,7 +748,13 @@ where
                     continue;
                 }
                 State::Connected => {
-                    return Ok(MoonlightStreamSetupOutput::Connected);
+                    // Configure other features of the host
+                    self.host_features.extensions.apollo_permissions =
+                        self.client_config.apollo_permissions.clone();
+
+                    return Ok(MoonlightStreamSetupOutput::Connected {
+                        features: self.host_features.clone(),
+                    });
                 }
                 _ => {}
             }
@@ -736,6 +866,23 @@ where
                 warn!(
                     "Server requested audio encryption; enabling it even though the client disabled it"
                 );
+            }
+
+            if self.server_version.is_foundation() {
+                // See
+                // https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/SdpGenerator.c#L302-L309
+                // If microphone encryption is supported by the host and audio encryption is enable, enable it
+                // Microphone encryption follows audio encryption - if audio is encrypted, mic should be too
+                if server_encryption_supported.contains(SunshineEncryptionFlags::FOUNDATION_MIC)
+                    && sunshine_encryption.contains(SunshineEncryptionFlags::AUDIO)
+                {
+                    sunshine_encryption |= SunshineEncryptionFlags::FOUNDATION_MIC;
+                }
+
+                // Enable mic encryption if the host explicitly requests it
+                if server_encryption_requested.contains(SunshineEncryptionFlags::FOUNDATION_MIC) {
+                    sunshine_encryption |= SunshineEncryptionFlags::FOUNDATION_MIC;
+                }
             }
         }
 

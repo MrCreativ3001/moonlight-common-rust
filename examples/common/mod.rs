@@ -13,6 +13,7 @@ use tracing_subscriber::{
 use venator::Venator;
 
 pub mod gstreamer_audio;
+pub mod gstreamer_mic;
 pub mod gstreamer_video;
 
 pub const EXAMPLE_DATA_DIR: &str = "./example-data";

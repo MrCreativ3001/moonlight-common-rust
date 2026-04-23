@@ -596,6 +596,7 @@ where
         let server_codec_mode_support = self.server_codec_mode_support().await?;
         let gfe_version = self.gfe_version().await?.to_owned();
         let apollo_permissions = self.apollo_permissions().await?;
+        let foundation_enable_mic = settings.enable_mic && app_version.is_foundation();
 
         Ok(MoonlightStreamConfig {
             address,
@@ -606,6 +607,7 @@ where
             remote_input_aes_key: aes_key,
             version: app_version,
             apollo_permissions,
+            foundation_enable_mic,
         })
     }
 

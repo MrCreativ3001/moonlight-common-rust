@@ -1,6 +1,11 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{thread::sleep, time::Duration};
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+use tracing::info;
 
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
@@ -18,8 +23,8 @@ use moonlight_common::{
 };
 
 use crate::common::{
-    gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
-    try_load_identity,
+    gstreamer_audio::GStreamerAudioDecoder, gstreamer_mic::GStreamerMic,
+    gstreamer_video::GStreamerVideoDecoder, try_load_identity,
 };
 
 mod common;
@@ -78,6 +83,8 @@ fn main() {
         audio_config: AudioConfig::STEREO,
         gamepads_attached: ActiveGamepads::empty(),
         gamepads_persist_after_disconnect: false,
+        // Enable mic if the server supports it
+        enable_mic: true,
     };
 
     // Adjust the settings for the host, required because older hosts might not support some settings
@@ -129,7 +136,10 @@ fn main() {
     )
     .unwrap();
 
+    info!(features = ?stream.host_features(), "host features");
+
     // Move the cursor from the left side to the right side of the screen
+    info!("starting mouse test");
     for i in 0..100 {
         // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
         // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/80
@@ -143,7 +153,28 @@ fn main() {
             })
             .unwrap();
 
-        sleep(Duration::from_secs(5) / 100);
+        // sleep(Duration::from_secs(5) / 100);
+    }
+    info!("ending mouse test");
+
+    // Use mic if the server supports microphone
+    if stream.host_features().microphone {
+        let mic_encoder = GStreamerMic::new().unwrap();
+
+        mic_encoder.start();
+
+        info!("starting mic test");
+
+        let mic_end = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < mic_end {
+            if let Some((frame, timestamp)) = mic_encoder.pull_opus_frame_with_timestamp() {
+                stream.send_microphone_opus_data(timestamp, &frame);
+            }
+        }
+
+        mic_encoder.stop();
+
+        info!("ending mic test");
     }
 
     // Wait some time to stop the stream

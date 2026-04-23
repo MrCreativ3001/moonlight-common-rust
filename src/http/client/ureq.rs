@@ -2,7 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use pem::Pem;
 use thiserror::Error;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 use ureq::{
     Agent,
     config::Config,
@@ -130,7 +130,11 @@ impl RequestClient for UreqClient {
 
         debug!(response = ?response_text, "received response");
 
-        Ok(E::Response::from_str(&response_text)?)
+        let response = E::Response::from_str(&response_text)?;
+
+        trace!(parsed_response = ?response, "parsed response");
+
+        Ok(response)
     }
 
     #[instrument(target = "moonlight::client::ureq", skip(self, request), fields(path = E::path()), err)]
@@ -154,7 +158,11 @@ impl RequestClient for UreqClient {
 
         debug!(response = ?response_text, "received response");
 
-        Ok(E::Response::from_str(&response_text)?)
+        let response = E::Response::from_str(&response_text)?;
+
+        trace!(parsed_response = ?response, "parsed response");
+
+        Ok(response)
     }
 
     #[instrument(target = "moonlight::client::ureq", skip(self, request), fields(path = E::path()), err)]

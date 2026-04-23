@@ -126,9 +126,9 @@ impl RtspDescribeResponse {
     }
 }
 
-struct RtspSetupRequest {
-    target: String,
-    session_id: Option<String>,
+pub(crate) struct RtspSetupRequest {
+    pub target: String,
+    pub session_id: Option<String>,
 }
 
 impl RtspSetupRequest {
@@ -165,11 +165,11 @@ impl RtspSetupRequest {
 }
 
 #[derive(Debug)]
-struct RtspSetupResponse {
-    port: Option<u16>,
-    session_id: String,
+pub(crate) struct RtspSetupResponse {
+    pub port: Option<u16>,
+    pub session_id: String,
     /// Sunshine extension
-    sunshine_ping: Option<SunshinePing>,
+    pub sunshine_ping: Option<SunshinePing>,
 }
 
 impl RtspSetupResponse {

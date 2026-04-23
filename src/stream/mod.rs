@@ -157,6 +157,20 @@ pub struct MoonlightStreamConfig {
     ///
     /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)
     pub apollo_permissions: Option<ApolloPermissions>,
+    /// Foundation Extension
+    ///
+    /// If the foundation microphone should be enabled.
+    ///
+    /// Only enable this if the server supports foundation's microphone protocol.
+    ///
+    /// See also:
+    /// - [Foundation Microphone Module](crate::stream::proto::microphone::foundation)
+    /// - [Foundation Microphone Payloader](crate::stream::proto::microphone::foundation::payloader::FoundationMicPayloader)
+    ///
+    /// References:
+    /// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight.h#L105-L106
+    // TODO: find out a specific version (Foundation Sunshine Version in the serverinfo response?) at which this is supported
+    pub foundation_enable_mic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +192,8 @@ pub struct MoonlightStreamSettings {
     pub audio_config: AudioConfig,
     pub gamepads_attached: ActiveGamepads,
     pub gamepads_persist_after_disconnect: bool,
+    /// This will enable microphone support, if the server supports it.
+    pub enable_mic: bool,
 }
 
 impl MoonlightStreamSettings {
@@ -277,6 +293,17 @@ bitflags! {
         const AUDIO = ENCFLG_AUDIO;
         const VIDEO  = ENCFLG_VIDEO;
 
+        // Other extensions
+        // TODO: this might need to be seperated into two structs: SunshineEncryption, FoundationSunshineEncryption
+
+        /// Foundation Extension
+        ///
+        /// If microphone encryption should be enabled.
+        ///
+        /// References:
+        /// - Mic PR: https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight.h#L36
+        const FOUNDATION_MICROPHONE = 0x04;
+
         const NONE = ENCFLG_NONE;
         const ALL = ENCFLG_ALL;
     }
@@ -318,11 +345,12 @@ impl RawHostFeatures {
             touch: extensions.sunshine_touch,
             controller_touch: extensions.sunshine_controller_touch,
             extensions,
+            ..Default::default()
         }
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct HostProtocolExtensions {
     /// Sunshine Extension
     ///
@@ -367,7 +395,7 @@ pub struct HostProtocolExtensions {
     // TODO: https://github.com/AlkaidLab/foundation-sunshine/blob/c2d8de3650a2ddf65281b6694e623c865a603831/src/stream.cpp#L90-L91
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HostFeatures {
     /// The controller limit of the host.
     pub controller_limit: usize,
@@ -377,6 +405,8 @@ pub struct HostFeatures {
     pub touch: bool,
     /// If the host supports controller touch events
     pub controller_touch: bool,
+    /// If the host supports any microphone protocol.
+    pub microphone: bool,
     /// More details about the extensions this host supports
     pub extensions: HostProtocolExtensions,
 }
@@ -388,6 +418,7 @@ impl Default for HostFeatures {
             controller_touch: false,
             pen: false,
             touch: false,
+            microphone: false,
             extensions: HostProtocolExtensions::default(),
         }
     }
