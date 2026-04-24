@@ -2,10 +2,11 @@
 
 use std::{sync::Arc, thread::sleep, time::Duration};
 
+use clap::Parser;
 use moonlight_common::{
     crypto::openssl::OpenSSLCryptoBackend,
     high::std::MoonlightHost,
-    http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::ureq::UreqClient},
+    http::client::ureq::UreqClient,
     stream::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::AudioConfig,
@@ -17,7 +18,7 @@ use moonlight_common::{
 };
 
 use crate::common::{
-    gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
+    Args, gstreamer_audio::GStreamerAudioDecoder, gstreamer_video::GStreamerVideoDecoder,
     try_load_identity,
 };
 
@@ -26,22 +27,24 @@ mod common;
 fn main() {
     common::init();
 
-    let address = "192.168.178.140".to_string();
-    // let address = "localhost".to_string();
-
-    let http_port = DEFAULT_HTTP_PORT;
-    let unique_id = DEFAULT_UNIQUE_ID.to_string();
+    let Args {
+        address,
+        port,
+        unique_id,
+    } = Args::parse();
 
     // Create a new client that'll use the [UreqClient] in the background to make requests
     let client =
-        MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<UreqClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     // Because we're using moonlight common c we can just use the OpenSSL backend, no need to include other crypto libraries
     let crypto_backend = Arc::new(OpenSSLCryptoBackend);
 
     // -- Load identity
-    let Some((client_identifier, client_secret, server_identifier)) = try_load_identity() else {
+    let Some((client_identifier, client_secret, server_identifier)) =
+        try_load_identity(&address.to_string())
+    else {
         panic!("Please firstly use the pair example to pair to a host.");
     };
 

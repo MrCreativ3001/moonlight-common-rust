@@ -2,18 +2,18 @@
 
 use std::fs;
 
+use clap::Parser;
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     high::std::MoonlightHost,
     http::{
-        DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
         client::ureq::UreqClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
 use tracing::info;
 
-use crate::common::{EXAMPLE_DATA_DIR, save_identity, try_load_identity};
+use crate::common::{Args, EXAMPLE_DATA_DIR, save_identity, try_load_identity};
 
 mod common;
 
@@ -22,15 +22,15 @@ mod common;
 fn main() {
     common::init();
 
-    let address = "192.168.178.140".to_string();
-    // let address = "localhost".to_string();
-
-    let http_port = DEFAULT_HTTP_PORT;
-    let unique_id = DEFAULT_UNIQUE_ID.to_string();
+    let Args {
+        address,
+        port,
+        unique_id,
+    } = Args::parse();
 
     // Create a new client that'll use the [UreqClient] in the background to make requests
     let client =
-        MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<UreqClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_backend = RustCryptoBackend;
@@ -38,7 +38,7 @@ fn main() {
     // -- Pair to a host
 
     // Try to get existing identity
-    match try_load_identity() {
+    match try_load_identity(&address.to_string()) {
         Some((client_identifier, client_secret, server_identifier)) => {
             // Set already existing identity
             client
@@ -69,7 +69,12 @@ fn main() {
             let (_, _, server_identifier) = client.identity().unwrap();
 
             // Save identity and server identifier
-            save_identity(&client_identifier, &client_secret, &server_identifier);
+            save_identity(
+                &address.to_string(),
+                &client_identifier,
+                &client_secret,
+                &server_identifier,
+            );
         }
     };
 

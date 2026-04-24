@@ -1,17 +1,17 @@
 #![allow(clippy::unwrap_used)]
 
+use clap::Parser;
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     high::tokio::MoonlightHost,
     http::{
-        DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID,
         client::tokio_hyper::TokioHyperClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
 use tracing::info;
 
-use crate::common::{save_identity_async, try_load_identity_async};
+use crate::common::{Args, save_identity_async, try_load_identity_async};
 
 mod common;
 
@@ -19,22 +19,21 @@ mod common;
 async fn main() {
     common::init();
 
-    let address = "192.168.178.140".to_string();
-    // let address = "localhost".to_string();
-
-    let http_port = DEFAULT_HTTP_PORT;
-    let unique_id = DEFAULT_UNIQUE_ID.to_string();
+    let Args {
+        address,
+        port,
+        unique_id,
+    } = Args::parse();
 
     // Create a new client that'll use the [TokioHyperClient] in the background to make requests
     let client =
-        MoonlightHost::<TokioHyperClient>::new(address.clone(), http_port, Some(unique_id))
-            .unwrap();
+        MoonlightHost::<TokioHyperClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_provider = RustCryptoBackend;
 
     // Try to get existing identity
-    match try_load_identity_async().await {
+    match try_load_identity_async(&address.to_string()).await {
         Some((client_identifier, client_secret, server_identifier)) => {
             info!("Using existing identity");
 
@@ -75,7 +74,13 @@ async fn main() {
             let (_, _, server_identifier) = client.identity().await.unwrap();
 
             // Save identity and server identifier
-            save_identity_async(&client_identifier, &client_secret, &server_identifier).await;
+            save_identity_async(
+                &address.to_string(),
+                &client_identifier,
+                &client_secret,
+                &server_identifier,
+            )
+            .await;
 
             info!("Successfully paired to host");
         }

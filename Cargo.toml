@@ -171,6 +171,9 @@ workspace = true
 [dev-dependencies]
 tokio = { version = "1.49.0", features = ["full"] }
 
+# CLI args for examples
+clap = { version = "4.6.1", features = ["derive"] }
+
 # GStreamer for video and audio playout
 gstreamer = { version = "0.25.1" }
 gstreamer-app = { version = "0.25.0" }

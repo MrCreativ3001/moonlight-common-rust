@@ -5,12 +5,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use clap::Parser;
 use tracing::info;
 
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     high::std::MoonlightHost,
-    http::{DEFAULT_HTTP_PORT, DEFAULT_UNIQUE_ID, client::ureq::UreqClient},
+    http::client::ureq::UreqClient,
     stream::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::AudioConfig,
@@ -23,7 +24,7 @@ use moonlight_common::{
 };
 
 use crate::common::{
-    gstreamer_audio::GStreamerAudioDecoder, gstreamer_mic::GStreamerMic,
+    Args, gstreamer_audio::GStreamerAudioDecoder, gstreamer_mic::GStreamerMic,
     gstreamer_video::GStreamerVideoDecoder, try_load_identity,
 };
 
@@ -34,21 +35,23 @@ fn main() {
 
     // This implementation is not done yet, use the client-common-c
 
-    let address = "192.168.178.140".to_string();
-    // let address = "localhost".to_string();
-
-    let http_port = DEFAULT_HTTP_PORT;
-    let unique_id = DEFAULT_UNIQUE_ID.to_string();
+    let Args {
+        address,
+        port,
+        unique_id,
+    } = Args::parse();
 
     // Create a new client that'll use the [UreqClient] in the background to make requests
     let client =
-        MoonlightHost::<UreqClient>::new(address.clone(), http_port, Some(unique_id)).unwrap();
+        MoonlightHost::<UreqClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_backend = RustCryptoBackend;
 
     // -- Load identity
-    let Some((client_identifier, client_secret, server_identifier)) = try_load_identity() else {
+    let Some((client_identifier, client_secret, server_identifier)) =
+        try_load_identity(&address.to_string())
+    else {
         panic!("Please firstly use the pair example to pair to a host.");
     };
 
