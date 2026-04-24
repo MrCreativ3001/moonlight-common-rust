@@ -268,7 +268,6 @@ where
                 request
                     .options
                     .push(("Host".to_string(), self.target.addr.to_string()));
-                // TODO: host?
 
                 // Send data
                 let plaintext = request.to_string();

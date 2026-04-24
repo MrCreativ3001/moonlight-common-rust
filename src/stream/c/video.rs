@@ -118,7 +118,7 @@ unsafe fn convert_decode_unit<'a>(decode_unit: PDECODE_UNIT) -> VideoDecodeUnit<
                 (raw.frameHostProcessingLatency / 10) as u64,
             ))
         },
-        timestamp: Duration::from_nanos((raw.presentationTimeUs as u64 * 1_000_000_000) / 90_000),
+        timestamp: Duration::from_nanos((raw.presentationTimeUs * 1_000_000_000) / 90_000),
         color_space: ColorSpace::from_u8(raw.colorspace).expect("valid Colorspace"),
         buffers,
     }

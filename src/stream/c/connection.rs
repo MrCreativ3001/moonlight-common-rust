@@ -17,6 +17,7 @@ use crate::stream::{
     video::{Primary, SunshineHdrMetadata},
 };
 
+#[allow(clippy::type_complexity)]
 static GLOBAL_CONNECTION_LISTENER: Mutex<
     Option<(
         Box<dyn ConnectionListener + Send + 'static>,

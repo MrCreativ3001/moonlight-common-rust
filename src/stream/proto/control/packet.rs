@@ -987,47 +987,30 @@ impl ControlPacket {
         // See https://github.com/LizardByte/Sunshine/blob/5364b008c0ada0ab90d27bd991f21951fafffad7/src/stream.cpp#L299-L308
         if server_version.is_sunshine_like() {
             match self {
-                // request idr: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1522-L1528
-                // ltr ack: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1569-L1575
-                // invalidate ref frames: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1509-L1515
                 ControlPacket::RequestIdr
                 | ControlPacket::StartB
+                | ControlPacket::InvalidateReferenceFrames { .. }
                 | ControlPacket::LongTermReferenceFrameAcknowledgement { .. } => {
                     (EnetChannel::CHANNEL_URGENT, PacketKind::Reliable)
                 }
-                // loss stats: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1469-L1475
-                // frame fec: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1407-L1413
                 ControlPacket::LossStats { .. } | ControlPacket::FrameFec { .. } => (
                     EnetChannel::CHANNEL_GENERIC,
                     PacketKind::Unreliable { sequenced: false },
                 ),
-                // See: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1429
-                // Send the message (and don't expect a response)
-                //
-                // NB: We send this periodic message as reliable to ensure the RTT is recomputed
-                // regularly. This only happens when an ACK is received to a reliable packet.
-                // Since the other traffic on this channel is unsequenced, it doesn't really
-                // cause any negative HOL blocking side-effects.
                 ControlPacket::PeriodicPing => (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L738-L742
                 ControlPacket::MouseMoveRelative { .. } => {
                     (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
                 }
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L803-L806
                 ControlPacket::MouseMoveAbsolute { .. } => {
                     (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
                 }
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L865-L866
                 ControlPacket::MouseButton { .. } => {
                     (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
                 }
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L899-L900
                 ControlPacket::Keyboard { .. } => {
                     (EnetChannel::CHANNEL_KEYBOARD, PacketKind::Reliable)
                 }
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L980-L981
                 ControlPacket::Text { .. } => (EnetChannel::CHANNEL_UTF8, PacketKind::Reliable),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1445-L1447
                 ControlPacket::ControllerArrival {
                     controller_number, ..
                 } => (
@@ -1035,7 +1018,6 @@ impl ControlPacket {
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
                 ),
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1609-L1611
                 ControlPacket::ControllerBattery {
                     controller_number, ..
                 } => (
@@ -1043,12 +1025,6 @@ impl ControlPacket {
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
                 ),
-                // channel: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1558-L1559
-                // reliable or not: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L525-L534
-                // Motion events are so rapid that we can just drop any events that are lost in transit,
-                // but we will treat (0, 0, 0) as a special value for gyro events to allow clients to
-                // reliably set the gyro to a null state when sensor events are halted due to focus loss
-                // or similar client-side constraints.
                 ControlPacket::ControllerMotion {
                     controller_number,
                     motion_type,
@@ -1070,7 +1046,7 @@ impl ControlPacket {
                 ControlPacket::ControllerRumbleData {
                     controller_number, ..
                 } => (
-                    // Server Packet, see above
+                    // This is a server packet (see above), but it makes more sense to give it it's own channel
                     EnetChannel::controller(*controller_number as u8)
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
@@ -1078,16 +1054,15 @@ impl ControlPacket {
                 ControlPacket::ControllerRumbleTriggers {
                     controller_number, ..
                 } => (
-                    // Server Packet, see above
+                    // This is a server packet (see above), but it makes more sense to give it it's own channel
                     EnetChannel::controller(*controller_number as u8)
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
                 ),
-                //
                 ControlPacket::ControllerSetLed {
                     controller_number, ..
                 } => (
-                    // Server Packet, see above
+                    // This is a server packet (see above), but it makes more sense to give it it's own channel
                     EnetChannel::controller(*controller_number as u8)
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
@@ -1095,7 +1070,7 @@ impl ControlPacket {
                 ControlPacket::ControllerSetMotion {
                     controller_number, ..
                 } => (
-                    // Server Packet, see above
+                    // This is a server packet (see above), but it makes more sense to give it it's own channel
                     EnetChannel::controller(*controller_number as u8)
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
@@ -1109,7 +1084,34 @@ impl ControlPacket {
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Unreliable { sequenced: true },
                 ),
-                _ => todo!("{:?}", self),
+                ControlPacket::MouseScroll { .. } => {
+                    // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1252-L1253
+                    (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
+                }
+                ControlPacket::MouseHorizontalScroll { .. } => {
+                    // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1305-L1306
+                    (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
+                }
+                ControlPacket::Touch { .. } => {
+                    // TODO: see if it's batchable: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1345-L1349
+                    (EnetChannel::CHANNEL_TOUCH, PacketKind::Reliable)
+                }
+                ControlPacket::Pen { .. } => {
+                    // TODO: see if it's batchable: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1396-L1399
+                    (EnetChannel::CHANNEL_PEN, PacketKind::Reliable)
+                }
+                ControlPacket::HdrMode { .. } => {
+                    // Server Packet, see above
+                    (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable)
+                }
+                ControlPacket::FrameStats {} => {
+                    // Server Packet, see above
+                    (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable)
+                }
+                ControlPacket::ServerTermination { .. } => {
+                    // Server Packet, see above
+                    (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable)
+                }
             }
         } else {
             // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
@@ -1155,9 +1157,6 @@ impl ControlPacket {
         }
     }
 
-    /// Buffer is:
-    /// - If not encrypted: the full payload
-    /// - If encrypted: the decrypted payload -> it needs to be encrypted
     #[instrument(level = Level::TRACE, skip(config))]
     pub fn serialize(
         &self,
@@ -1740,7 +1739,9 @@ impl ControlPacket {
             } => {
                 todo!();
             }
-            Self::ControllerRumbleTriggers { controller_number: _ } => {
+            Self::ControllerRumbleTriggers {
+                controller_number: _,
+            } => {
                 todo!()
             }
             Self::ControllerSetLed {
@@ -1903,10 +1904,6 @@ impl ControlPacket {
         }
     }
 
-    // TODO: maybe replace option with an result?
-    /// Payload is:
-    /// - If not encrypted: the full payload
-    /// - If encrypted: the decrypted payload
     #[instrument(level = Level::TRACE)]
     pub fn deserialize(
         packet_direction: PacketDirection,

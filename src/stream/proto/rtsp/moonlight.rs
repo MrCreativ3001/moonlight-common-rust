@@ -132,7 +132,7 @@ pub(crate) struct RtspSetupRequest {
 }
 
 impl RtspSetupRequest {
-    pub fn into_request(self, _server_version: ServerVersion) -> RtspRequest {
+    pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
         let mut request = RtspRequest {
             message: RtspRequestMessage {
                 command: RtspCommand::Setup,
@@ -140,13 +140,17 @@ impl RtspSetupRequest {
                 protocol: RtspProtocol::V1_0,
             },
             options: vec![
-                // TODO: set based on appversionquad: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L577
                 (
                     "Transport".to_string(),
-                    // It looks like GFE doesn't care what we say our port is but
-                    // we need to give it some port to successfully complete the
-                    // handshake process.
-                    "unicast;X-GS-ClientPort=50000-50001".to_string(),
+                    if server_version.major >= 6 {
+                        // It looks like GFE doesn't care what we say our port is but
+                        // we need to give it some port to successfully complete the
+                        // handshake process.
+                        "unicast;X-GS-ClientPort=50000-50001"
+                    } else {
+                        " "
+                    }
+                    .to_string(),
                 ),
                 (
                     "If-Modified-Since".to_string(),
