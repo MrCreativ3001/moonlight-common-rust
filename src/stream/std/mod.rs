@@ -309,10 +309,17 @@ impl MoonlightStream {
 
                     tcp_stream.write_all(&data)?;
                 }
-                MoonlightStreamSetupOutput::StartAudioStream { addr, audio_stream } => {
-                    let audio_decoder = audio_decoder
+                MoonlightStreamSetupOutput::StartAudioStream {
+                    addr,
+                    config,
+                    audio_stream,
+                } => {
+                    let mut audio_decoder = audio_decoder
                         .take()
                         .expect("audio decoder was already taken");
+
+                    // TODO: get audio config?
+                    audio_decoder.setup(AudioConfig::STEREO, config);
 
                     threads.audio_stream = Some(audio_thread(
                         info_span!("audio_stream"),
@@ -323,10 +330,16 @@ impl MoonlightStream {
                         shared_inner.clone(),
                     ));
                 }
-                MoonlightStreamSetupOutput::StartVideoStream { addr, video_stream } => {
-                    let video_decoder = video_decoder
+                MoonlightStreamSetupOutput::StartVideoStream {
+                    addr,
+                    setup,
+                    video_stream,
+                } => {
+                    let mut video_decoder = video_decoder
                         .take()
                         .expect("video decoder was already taken");
+
+                    video_decoder.setup(setup);
 
                     threads.video_stream = Some(video_thread(
                         info_span!("video_stream"),
@@ -651,15 +664,10 @@ where
 
             let timeout = match poll_output {
                 AudioStreamOutput::Send { data } => {
-                    if let Err(err) = socket.send(&data) {
+                    if let Err(err) = socket.send(data) {
                         handle_error(&stop, err.into());
                         break;
                     }
-                    continue;
-                }
-                AudioStreamOutput::Setup { opus_config } => {
-                    // TODO: audio config
-                    audio_decoder.setup(AudioConfig::STEREO, opus_config);
                     continue;
                 }
                 AudioStreamOutput::AudioFrame(frame) => {
@@ -767,18 +775,12 @@ where
 
                 match poll_output {
                     VideoStreamOutput::Send { data } => {
-                        if let Err(err) = socket.send(&data) {
+                        if let Err(err) = socket.send(data) {
                             handle_error(&stop, err.into());
                             break;
                         }
                         continue;
                     }
-                    // TODO: setup?
-                    // VideoStreamOutput::Setup => {
-                    //     // TODO: audio config
-                    //
-                    //     continue;
-                    // }
                     VideoStreamOutput::VideoFrame(decode_unit) => {
                         if !started {
                             let mut first_frame = shared_inner

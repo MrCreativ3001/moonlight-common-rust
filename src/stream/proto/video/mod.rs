@@ -13,8 +13,8 @@ use crate::stream::{
         ControlMessageInner,
         control::{ControlMessage, packet::ControlPacket},
         crypto::{CryptoBackend, CryptoError},
-        packet::{SunshinePing, SunshinePingPacket},
-        ping::PING_RETRY_TIMEOUT,
+        packet::SunshinePing,
+        ping::{PingSender, PingSenderConfig, PingSenderInput, PingSenderOutput, PingSenderState},
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
             packet::FrameType,
@@ -57,7 +57,7 @@ pub enum VideoStreamInput<'a> {
 #[derive(Debug)]
 pub enum VideoStreamOutput<'a> {
     Send {
-        data: Vec<u8>,
+        data: &'a [u8],
     },
     VideoFrame(VideoDecodeUnit<'a>),
     /// Send a control message to the [ControlStream](super::control::ControlStream).
@@ -75,21 +75,13 @@ pub struct VideoStreamConfig {
     pub sunshine_encryption: Option<AesKey>,
 }
 
-enum State {
-    SendPing {
-        last_send: Option<Instant>,
-        sunshine_ping: Option<SunshinePingPacket>,
-    },
-    ReceiveVideo,
-}
-
 pub struct VideoStream<Crypto> {
     #[allow(unused)]
     crypto_backend: Crypto,
     #[allow(unused)]
     aes_key: Option<AesKey>,
     last_now: Instant,
-    state: State,
+    ping_sender: PingSender,
     depayloader: VideoDepayloader,
     first_frame: Option<Instant>,
     last_frame: Instant,
@@ -109,13 +101,12 @@ where
         Self {
             crypto_backend,
             aes_key: config.sunshine_encryption,
-            state: State::SendPing {
-                last_send: None,
-                sunshine_ping: config.sunshine_ping.map(|payload| SunshinePingPacket {
-                    payload,
-                    sequence_number: 0,
-                }),
-            },
+            ping_sender: PingSender::new(
+                now,
+                PingSenderConfig {
+                    sunshine_ping: config.sunshine_ping,
+                },
+            ),
             last_now: now,
             first_frame: None,
             frames_first_seen: Default::default(),
@@ -188,126 +179,102 @@ where
     }
 
     pub fn poll_output(&mut self) -> Result<VideoStreamOutput<'_>, VideoStreamError> {
-        match &mut self.state {
-            State::SendPing {
-                last_send,
-                sunshine_ping,
-            } => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/VideoStream.c#L54-L82
-                if let Some(last_send) = last_send
-                    && *last_send + PING_RETRY_TIMEOUT > self.last_now
-                {
-                    return Ok(VideoStreamOutput::Timeout(*last_send + PING_RETRY_TIMEOUT));
-                }
+        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+            return match self.ping_sender.poll_output() {
+                PingSenderOutput::Send { data } => Ok(VideoStreamOutput::Send { data }),
+                PingSenderOutput::Timeout(timeout) => Ok(VideoStreamOutput::Timeout(timeout)),
+                PingSenderOutput::Finished => unreachable!(),
+            };
+        }
 
-                let packet = if let Some(ping) = sunshine_ping.as_mut() {
-                    ping.sequence_number += 1;
+        let mut frame_to_return = None;
 
-                    let mut data = [0; 20];
-                    ping.serialize(&mut data);
-                    data.to_vec()
-                } else {
-                    // Just some magic bytes
-                    vec![0x50, 0x49, 0x4E, 0x47]
-                };
+        // Add the first seen numbers
+        for frame_index in self.depayloader.known_frames() {
+            self.frames_first_seen
+                .entry(frame_index)
+                .or_insert(self.last_now);
+        }
 
-                debug!(packet = ?packet, "sending initial video ping");
-
-                last_send.replace(self.last_now);
-
-                Ok(VideoStreamOutput::Send { data: packet })
-            }
-            State::ReceiveVideo => {
-                let mut frame_to_return = None;
-
-                // Add the first seen numbers
-                for frame_index in self.depayloader.known_frames() {
-                    self.frames_first_seen
-                        .entry(frame_index)
-                        .or_insert(self.last_now);
-                }
-
-                if let Some(current_frame) = self.current_frame {
-                    // discard the old frame
-                    {
-                        // TODO: maybe add a lower bound in the depayloader directly?
-                        let mut known_frames_len = 0;
-                        let mut known_frames: [FrameIndex; 200] = [FrameIndex(0); _];
-                        let mut known_frames_iter = self.depayloader.known_frames();
-                        for known_frame in known_frames_iter.by_ref() {
-                            if known_frames.len() <= known_frames_len {
-                                break;
-                            }
-
-                            known_frames[known_frames_len] = known_frame;
-                            known_frames_len += 1;
-                        }
-                        drop(known_frames_iter);
-
-                        for known_frame in known_frames[0..known_frames_len].iter() {
-                            if *known_frame < current_frame {
-                                self.depayloader.discard_frame(*known_frame);
-                            }
-                        }
+        if let Some(current_frame) = self.current_frame {
+            // discard the old frame
+            {
+                // TODO: maybe add a lower bound in the depayloader directly?
+                let mut known_frames_len = 0;
+                let mut known_frames: [FrameIndex; 200] = [FrameIndex(0); _];
+                let mut known_frames_iter = self.depayloader.known_frames();
+                for known_frame in known_frames_iter.by_ref() {
+                    if known_frames.len() <= known_frames_len {
+                        break;
                     }
 
-                    // If we're synced just use the current frame
-                    if self.depayloader.is_frame_available(current_frame) {
-                        frame_to_return = Some(current_frame);
-                    }
+                    known_frames[known_frames_len] = known_frame;
+                    known_frames_len += 1;
                 }
+                drop(known_frames_iter);
 
-                if self.waiting_for_idr_since.is_some() || self.current_frame.is_none() {
-                    // Search for idrs, if we're waiting for one, or we're not in sync
-                    for frame_index in self.depayloader.available_frames() {
-                        let frame = self
-                            .depayloader
-                            .frame_metadata(frame_index)?
-                            .expect("frame is available but couldn't be produced");
-
-                        if frame.frame_type == FrameType::Idr {
-                            debug!(now = ?self.last_now, frame_metadata = ?frame, "received idr");
-                            self.waiting_for_idr_since = None;
-
-                            frame_to_return = Some(frame.frame_index);
-                        }
+                for known_frame in known_frames[0..known_frames_len].iter() {
+                    if *known_frame < current_frame {
+                        self.depayloader.discard_frame(*known_frame);
                     }
-                }
-
-                if let Some(frame_index) = frame_to_return {
-                    if self.first_frame.is_none() {
-                        self.first_frame = Some(self.last_now);
-                    }
-
-                    let frame = self
-                        .depayloader
-                        .frame(frame_index)?
-                        .expect("failed to get frame");
-
-                    self.current_frame = Some(FrameIndex(*frame_index + 1));
-                    self.last_frame = self.last_now;
-
-                    return Ok(VideoStreamOutput::VideoFrame(VideoDecodeUnit {
-                        frame_number: frame.metadata.frame_index,
-                        frame_type: frame.parsed_frame_type,
-                        frame_processing_latency: frame.metadata.host_processing_latency,
-                        timestamp: frame.metadata.timestamp,
-                        color_space: ColorSpace::Rec709,
-                        buffers: frame.buffers,
-                    }));
-                }
-
-                if let Some(timeout) = self.do_request_idr()? {
-                    Ok(VideoStreamOutput::Timeout(timeout))
-                } else {
-                    Ok(VideoStreamOutput::SendControlMessage {
-                        message: ControlMessage(ControlMessageInner::SendPacket {
-                            packet: ControlPacket::RequestIdr,
-                            force: true,
-                        }),
-                    })
                 }
             }
+
+            // If we're synced just use the current frame
+            if self.depayloader.is_frame_available(current_frame) {
+                frame_to_return = Some(current_frame);
+            }
+        }
+
+        if self.waiting_for_idr_since.is_some() || self.current_frame.is_none() {
+            // Search for idrs, if we're waiting for one, or we're not in sync
+            for frame_index in self.depayloader.available_frames() {
+                let frame = self
+                    .depayloader
+                    .frame_metadata(frame_index)?
+                    .expect("frame is available but couldn't be produced");
+
+                if frame.frame_type == FrameType::Idr {
+                    debug!(now = ?self.last_now, frame_metadata = ?frame, "received idr");
+                    self.waiting_for_idr_since = None;
+
+                    frame_to_return = Some(frame.frame_index);
+                }
+            }
+        }
+
+        if let Some(frame_index) = frame_to_return {
+            if self.first_frame.is_none() {
+                self.first_frame = Some(self.last_now);
+            }
+
+            let frame = self
+                .depayloader
+                .frame(frame_index)?
+                .expect("failed to get frame");
+
+            self.current_frame = Some(FrameIndex(*frame_index + 1));
+            self.last_frame = self.last_now;
+
+            return Ok(VideoStreamOutput::VideoFrame(VideoDecodeUnit {
+                frame_number: frame.metadata.frame_index,
+                frame_type: frame.parsed_frame_type,
+                frame_processing_latency: frame.metadata.host_processing_latency,
+                timestamp: frame.metadata.timestamp,
+                color_space: ColorSpace::Rec709,
+                buffers: frame.buffers,
+            }));
+        }
+
+        if let Some(timeout) = self.do_request_idr()? {
+            Ok(VideoStreamOutput::Timeout(timeout))
+        } else {
+            Ok(VideoStreamOutput::SendControlMessage {
+                message: ControlMessage(ControlMessageInner::SendPacket {
+                    packet: ControlPacket::RequestIdr,
+                    force: true,
+                }),
+            })
         }
     }
 
@@ -315,17 +282,19 @@ where
         match input {
             VideoStreamInput::Timeout(now) => {
                 self.last_now = now;
+                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
 
                 Ok(())
             }
             VideoStreamInput::Receive { now, data } => {
                 self.last_now = now;
+                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
 
-                if matches!(self.state, State::SendPing { .. }) {
-                    info!(now = ?self.last_now, "received first video packet");
+                if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+                    info!(now = ?now, "received first video packet");
+
+                    self.ping_sender.set_finished();
                 }
-
-                self.state = State::ReceiveVideo;
 
                 self.depayloader.handle_packet(data)?;
 

@@ -34,7 +34,7 @@ fn main() {
 
     // This implementation is not done yet, use the client-common-c
 
-    let address = "192.168.178.139".to_string();
+    let address = "192.168.178.140".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;
@@ -153,7 +153,7 @@ fn main() {
             })
             .unwrap();
 
-        // sleep(Duration::from_secs(5) / 100);
+        sleep(Duration::from_secs(5) / 100);
     }
     info!("ending mouse test");
 
@@ -175,6 +175,8 @@ fn main() {
         mic_encoder.stop();
 
         info!("ending mic test");
+    } else {
+        info!("skipping mic test because the server doesn't support microphone passthrough");
     }
 
     // Wait some time to stop the stream

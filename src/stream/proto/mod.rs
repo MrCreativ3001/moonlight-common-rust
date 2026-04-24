@@ -49,7 +49,7 @@ use crate::{
         },
         video::{
             DEFAULT_VIDEO_PORT, ServerCodecModeSupport, VideoCapabilities, VideoFormat,
-            VideoFormats,
+            VideoFormats, VideoSetup,
         },
     },
 };
@@ -119,11 +119,13 @@ pub enum MoonlightStreamSetupOutput<Crypto> {
     /// Can only be called once by the implementation
     StartAudioStream {
         addr: SocketAddr,
+        config: OpusMultistreamConfig,
         audio_stream: AudioStream<Crypto>,
     },
     /// Can only be called once by the implementation
     StartVideoStream {
         addr: SocketAddr,
+        setup: VideoSetup,
         video_stream: VideoStream<Crypto>,
     },
     /// Can only be called once by the implementation
@@ -391,7 +393,7 @@ where
                                 self.last_now,
                                 AudioStreamConfig {
                                     addr,
-                                    opus_config,
+                                    opus_config: opus_config.clone(),
                                     // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpAudioQueue.c#L28-L44
                                     // Older versions of GFE violate some invariants that our FEC code requires, so we turn it off for
                                     // anything older than GFE 3.19 just to be safe. GFE seems to have changed to the "modern" behavior
@@ -422,6 +424,7 @@ where
 
                             return Ok(MoonlightStreamSetupOutput::StartAudioStream {
                                 addr,
+                                config: opus_config,
                                 audio_stream,
                             });
                         }
@@ -478,6 +481,18 @@ where
 
                             return Ok(MoonlightStreamSetupOutput::StartVideoStream {
                                 addr,
+                                setup: VideoSetup {
+                                    format: sdp.video_format,
+                                    width: sdp
+                                        .client_sdp
+                                        .client_viewport_width
+                                        .expect("width in client sdp"),
+                                    height: sdp
+                                        .client_sdp
+                                        .client_viewport_height
+                                        .expect("height in client sdp"),
+                                    redraw_rate: sdp.client_sdp.max_fps.expect("fps in client sdp"),
+                                },
                                 video_stream,
                             });
                         }
@@ -712,10 +727,6 @@ where
                     // Session id exists at this point
                     #[allow(clippy::unwrap_used)]
                     let session_id = self.session_id.as_ref().unwrap();
-
-                    // This won't panic because this state can only be reached when there's a client sdp set in RtspDescribeReceive
-                    #[allow(clippy::unwrap_used)]
-                    let sdp = self.sdp.as_ref().unwrap();
 
                     self.rtsp.send(
                         RtspSetupControlRequest {

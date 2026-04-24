@@ -223,7 +223,7 @@ impl Deref for FrameIndex {
     }
 }
 
-pub type VideoDecodeUnitBuffers<'a> = SmallVec<[VideoFrameBuffer<&'a [u8]>; 32]>;
+pub type VideoDecodeUnitBuffers<'a> = SmallVec<[VideoFrameBuffer<&'a [u8]>; 4]>;
 
 /// A decode unit describes a buffer chain of video data from multiple packets
 // TODO: combine this type with the VideoFrame from the proto impl

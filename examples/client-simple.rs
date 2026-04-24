@@ -22,7 +22,7 @@ mod common;
 fn main() {
     common::init();
 
-    let address = "192.168.178.139".to_string();
+    let address = "192.168.178.140".to_string();
     // let address = "localhost".to_string();
 
     let http_port = DEFAULT_HTTP_PORT;

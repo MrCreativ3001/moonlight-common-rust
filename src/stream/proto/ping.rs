@@ -6,8 +6,6 @@ use crate::stream::proto::packet::{SunshinePing, SunshinePingPacket};
 
 pub const PING_RETRY_TIMEOUT: Duration = Duration::from_millis(500);
 
-// TODO: integrate this into the video and audio stream
-
 #[derive(Debug)]
 pub struct PingSenderConfig {
     pub sunshine_ping: Option<SunshinePing>,
@@ -60,7 +58,7 @@ impl PingSender {
         }
     }
 
-    pub fn poll_output(&mut self) -> PingSenderOutput {
+    pub fn poll_output(&mut self) -> PingSenderOutput<'_> {
         match &mut self.state {
             PingSenderState::Pinging { last_attempt } => {
                 // Check if we've reached the timeout
@@ -75,7 +73,7 @@ impl PingSender {
                 }
 
                 // Send Ping
-                let current_attempt = last_attempt.unwrap_or(0);
+                let current_attempt = last_attempt.map(|x| x + 1).unwrap_or(0);
 
                 let packet_len = if let Some(ping) = self.config.sunshine_ping.as_ref() {
                     // Use Sunshine ping
@@ -98,6 +96,7 @@ impl PingSender {
                 debug!(packet = ?packet, "sending ping");
 
                 *last_attempt = Some(current_attempt);
+                self.last_ping_send = Some(self.last_now);
 
                 PingSenderOutput::Send {
                     data: &self.current_ping_packet,

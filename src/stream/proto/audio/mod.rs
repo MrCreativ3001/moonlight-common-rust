@@ -19,8 +19,10 @@ use crate::{
                 packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
             },
             crypto::CryptoBackend,
-            packet::{SunshinePing, SunshinePingPacket},
-            ping::PING_RETRY_TIMEOUT,
+            packet::SunshinePing,
+            ping::{
+                PingSender, PingSenderConfig, PingSenderInput, PingSenderOutput, PingSenderState,
+            },
         },
     },
 };
@@ -61,29 +63,18 @@ pub enum AudioStreamInput<'a> {
 }
 
 #[derive(Debug)]
-pub enum AudioStreamOutput {
-    Send { data: Vec<u8> },
-    Setup { opus_config: OpusMultistreamConfig },
+pub enum AudioStreamOutput<'a> {
+    Send { data: &'a [u8] },
+    // TODO: use lifetime?
     AudioFrame(AudioFrame<Vec<u8>>),
     Timeout(Instant),
 }
 
-#[derive(Debug)]
-enum State {
-    SendPing {
-        last_send: Option<Instant>,
-        sunshine_ping: Option<SunshinePingPacket>,
-    },
-    Setup,
-    ReceiveAudio,
-}
-
 pub struct AudioStream<Crypto> {
-    opus_config: OpusMultistreamConfig,
     last_now: Instant,
     last_sample: Instant,
-    state: State,
-    queue: AudioDepayloader<Crypto>,
+    ping_sender: PingSender,
+    depayloader: AudioDepayloader<Crypto>,
 }
 
 impl AudioStream<DisabledCryptoBackend> {
@@ -99,17 +90,16 @@ where
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: Crypto) -> Self {
         Self {
-            opus_config: config.opus_config,
             last_now: now,
             last_sample: now,
-            state: State::SendPing {
-                last_send: None,
-                sunshine_ping: config.sunshine_ping.map(|payload| SunshinePingPacket {
-                    payload,
-                    sequence_number: 0,
-                }),
-            },
-            queue: AudioDepayloader::new(
+            ping_sender: PingSender::new(
+                now,
+                PingSenderConfig {
+                    sunshine_ping: config.sunshine_ping,
+                },
+            ),
+            depayloader: AudioDepayloader::new(
+                // TODO: use opus config for packet size?
                 AudioDepayloaderConfig {
                     fec: config.fec,
                     encryption: config.sunshine_encryption,
@@ -119,86 +109,58 @@ where
         }
     }
 
-    pub fn poll_output(&mut self) -> Result<AudioStreamOutput, AudioStreamError> {
-        match &mut self.state {
-            State::SendPing {
-                last_send,
-                sunshine_ping,
-            } => {
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/master/src/AudioStream.c#L38-L65
-                if let Some(last_send) = last_send
-                    && *last_send + PING_RETRY_TIMEOUT > self.last_now
-                {
-                    return Ok(AudioStreamOutput::Timeout(*last_send + PING_RETRY_TIMEOUT));
-                }
+    pub fn poll_output(&mut self) -> Result<AudioStreamOutput<'_>, AudioStreamError> {
+        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+            return match self.ping_sender.poll_output() {
+                PingSenderOutput::Send { data } => Ok(AudioStreamOutput::Send { data }),
+                PingSenderOutput::Timeout(timeout) => Ok(AudioStreamOutput::Timeout(timeout)),
+                PingSenderOutput::Finished => unreachable!(),
+            };
+        }
 
-                let packet = if let Some(ping) = sunshine_ping.as_mut() {
-                    ping.sequence_number += 1;
+        if let Some(data) = self.depayloader.poll_frame()? {
+            self.last_sample = self.last_now;
 
-                    let mut data = [0; 20];
-                    ping.serialize(&mut data);
-                    data.to_vec()
-                } else {
-                    // Just some magic bytes
-                    vec![0x50, 0x49, 0x4E, 0x47]
-                };
-                debug!(packet = ?packet, "Sending initial audio ping");
+            return Ok(AudioStreamOutput::AudioFrame(data));
+        } else if self.last_sample + MAXIMUM_SAMPLE_WAIT < self.last_now {
+            // TODO: use the timestamp to better estimate when we should skip samples
+            debug!(
+                "Dropping audio sample because it took too long to receive: Last Sample: {:?}, Current Time: {:?}",
+                self.last_sample, self.last_now
+            );
 
-                last_send.replace(self.last_now);
+            self.depayloader.try_skip_samples()?;
 
-                Ok(AudioStreamOutput::Send { data: packet })
-            }
-            State::Setup => {
-                self.state = State::ReceiveAudio;
-
-                Ok(AudioStreamOutput::Setup {
-                    opus_config: self.opus_config.clone(),
-                })
-            }
-            State::ReceiveAudio => {
-                if let Some(data) = self.queue.poll_frame()? {
-                    self.last_sample = self.last_now;
-
-                    return Ok(AudioStreamOutput::AudioFrame(data));
-                } else if self.last_sample + MAXIMUM_SAMPLE_WAIT < self.last_now {
-                    // TODO: use the timestamp to better estimate when we should skip samples
-                    debug!(
-                        "Dropping audio sample because it took too long to receive: Last Sample: {:?}, Current Time: {:?}",
-                        self.last_sample, self.last_now
-                    );
-
-                    self.queue.try_skip_samples()?;
-
-                    self.last_sample = self.last_now;
-                    if let Some(data) = self.queue.poll_frame()? {
-                        return Ok(AudioStreamOutput::AudioFrame(data));
-                    }
-                }
-
-                Ok(AudioStreamOutput::Timeout(
-                    self.last_now + MAXIMUM_SAMPLE_WAIT,
-                ))
+            self.last_sample = self.last_now;
+            if let Some(data) = self.depayloader.poll_frame()? {
+                return Ok(AudioStreamOutput::AudioFrame(data));
             }
         }
+
+        Ok(AudioStreamOutput::Timeout(
+            self.last_now + MAXIMUM_SAMPLE_WAIT,
+        ))
     }
 
     pub fn handle_input(&mut self, input: AudioStreamInput) -> Result<(), AudioStreamError> {
         match input {
             AudioStreamInput::Timeout(now) => {
                 self.last_now = now;
+                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
 
                 Ok(())
             }
             AudioStreamInput::Receive { now, data } => {
                 self.last_now = now;
+                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
 
-                if matches!(self.state, State::SendPing { .. }) {
-                    info!("received first audio packet");
+                if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+                    info!(now = ?now, "received first audio packet");
 
-                    self.state = State::Setup;
+                    self.ping_sender.set_finished();
                 }
 
-                self.queue.handle_packet(data)?;
+                self.depayloader.handle_packet(data)?;
 
                 Ok(())
             }
