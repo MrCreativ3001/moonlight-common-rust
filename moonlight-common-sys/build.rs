@@ -54,6 +54,26 @@ fn compile_moonlight(allow_vendored: bool) -> Option<(String, PathBuf)> {
     config.define("BUILD_SHARED_LIBS", "OFF");
     config.define("CMAKE_TRY_COMPILE_TARGET_TYPE", "STATIC_LIBRARY");
 
+    // 判断是否在编译 Android 平台
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() == "android" {
+        if let Ok(ndk_root) = var("ANDROID_NDK_HOME") {
+            // 引导至 NDK 官方 CMake 配置文件
+            config.define("CMAKE_TOOLCHAIN_FILE", format!("{}/build/cmake/android.toolchain.cmake", ndk_root));
+
+            // 设置架构 ABI (例如 arm64-v8a)
+            if let Ok(abi) = var("ANDROID_ABI") {
+                config.define("ANDROID_ABI", abi);
+            }
+
+            // 设置 Android API 版本，优先读取命令行参数，找不到则默认为 21
+            let platform = var("NDK_PLATFORM_TARGET")
+                .or_else(|_| var("ANDROID_PLATFORM"))
+                .unwrap_or_else(|_| "21".to_string());
+            
+            config.define("ANDROID_PLATFORM", platform);
+        }
+    }
+
     // -- Link OpenSSL: Some environment variables are exported from openssl-sys for all dependents
     if let Ok(ssl_root) = var("DEP_OPENSSL_ROOT").or_else(|_| var("OPENSSL_ROOT_DIR")) {
         config.define("OPENSSL_ROOT_DIR", ssl_root);
