@@ -356,23 +356,23 @@ mod proto {
             Ok(len)
         }
     }
-}
 
-#[cfg(test)]
-mod test {
-    use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
+    #[cfg(test)]
+    mod test {
+        use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
 
-    use super::*;
+        use super::*;
 
-    #[test]
-    fn rustcrypto_cbc() {
-        let backend = RustCryptoBackend;
-        test_aes_cbc_roundtrip(&backend);
-    }
+        #[test]
+        fn rustcrypto_cbc() {
+            let backend = RustCryptoBackend;
+            test_aes_cbc_roundtrip(&backend);
+        }
 
-    #[test]
-    fn rustcrypto_gcm() {
-        let backend = RustCryptoBackend;
-        test_aes_gcm_roundtrip(&backend);
+        #[test]
+        fn rustcrypto_gcm() {
+            let backend = RustCryptoBackend;
+            test_aes_gcm_roundtrip(&backend);
+        }
     }
 }

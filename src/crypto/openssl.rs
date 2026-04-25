@@ -307,23 +307,23 @@ mod proto {
             Ok(count)
         }
     }
-}
 
-#[cfg(test)]
-mod test {
-    use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
+    #[cfg(test)]
+    mod test {
+        use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
 
-    use super::*;
+        use super::*;
 
-    #[test]
-    fn openssl_cbc() {
-        let backend = OpenSSLCryptoBackend;
-        test_aes_cbc_roundtrip(&backend);
-    }
+        #[test]
+        fn openssl_cbc() {
+            let backend = OpenSSLCryptoBackend;
+            test_aes_cbc_roundtrip(&backend);
+        }
 
-    #[test]
-    fn openssl_gcm() {
-        let backend = OpenSSLCryptoBackend;
-        test_aes_gcm_roundtrip(&backend);
+        #[test]
+        fn openssl_gcm() {
+            let backend = OpenSSLCryptoBackend;
+            test_aes_gcm_roundtrip(&backend);
+        }
     }
 }
