@@ -53,7 +53,9 @@ jobs:
             gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad \
             gstreamer1.0-plugins-ugly \
-            gstreamer1.0-libav
+            gstreamer1.0-libav \
+            libglib2.0-dev \
+            libgirepository1.0-dev
 
       # Format check
       - name: Rustfmt
