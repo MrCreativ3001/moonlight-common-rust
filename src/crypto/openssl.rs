@@ -16,21 +16,14 @@ use openssl::{
     rand::rand_bytes,
     rsa::Rsa,
     sha::{sha1, sha256},
-    symm::{self, Crypter, Mode},
     x509::{X509, X509Builder, X509NameBuilder},
 };
 use pem::Pem;
 use tracing::{Level, instrument, trace};
 
-use crate::{
-    http::{
-        ClientIdentifier, ClientSecret, ServerIdentifier,
-        pair::{HashAlgorithm, PairingCryptoBackend},
-    },
-    stream::proto::crypto::{
-        CryptoBackend, CryptoError, add_pkcs_7_padding, remove_pkcs_7_padding,
-        round_to_pkcs7_safe_len,
-    },
+use crate::http::{
+    ClientIdentifier, ClientSecret, ServerIdentifier,
+    pair::{HashAlgorithm, PairingCryptoBackend},
 };
 
 #[derive(Debug, Clone)]
@@ -199,100 +192,120 @@ impl PairingCryptoBackend for OpenSSLCryptoBackend {
     }
 }
 
-fn crypto_err(error: ErrorStack) -> CryptoError {
-    CryptoError::from_error(error)
-}
+#[cfg(feature = "stream-proto")]
+mod proto {
+    use openssl::{
+        error::ErrorStack,
+        symm::{self, Crypter, Mode},
+    };
 
-impl CryptoBackend for OpenSSLCryptoBackend {
-    fn encrypt_aes_gcm(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        output: &mut [u8],
-        tag: &mut [u8],
-    ) -> Result<(), CryptoError> {
-        let cipher = symm::Cipher::aes_128_gcm();
+    use crate::{
+        crypto::openssl::OpenSSLCryptoBackend,
+        stream::proto::crypto::{
+            CryptoBackend, CryptoError, add_pkcs_7_padding, remove_pkcs_7_padding,
+            round_to_pkcs7_safe_len,
+        },
+    };
 
-        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
-
-        let mut count = crypter.update(input, output).map_err(crypto_err)?;
-        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
-
-        crypter.get_tag(tag).map_err(crypto_err)?;
-
-        debug_assert_eq!(count, input.len());
-        Ok(())
+    fn crypto_err(error: ErrorStack) -> CryptoError {
+        CryptoError::from_error(error)
     }
 
-    fn decrypt_aes_gcm(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        tag: &[u8],
-        output: &mut [u8],
-    ) -> Result<(), CryptoError> {
-        let cipher = symm::Cipher::aes_128_gcm();
+    impl CryptoBackend for OpenSSLCryptoBackend {
+        fn encrypt_aes_gcm(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+            tag: &mut [u8],
+        ) -> Result<(), CryptoError> {
+            let cipher = symm::Cipher::aes_128_gcm();
 
-        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
-        crypter.pad(false);
+            let mut crypter =
+                Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
 
-        let mut count = crypter.update(input, output).map_err(crypto_err)?;
+            let mut count = crypter.update(input, output).map_err(crypto_err)?;
+            count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
-        crypter.set_tag(tag).map_err(crypto_err)?;
-        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+            crypter.get_tag(tag).map_err(crypto_err)?;
 
-        debug_assert_eq!(count, input.len());
-        Ok(())
-    }
+            debug_assert_eq!(count, input.len());
+            Ok(())
+        }
 
-    fn encrypt_aes_cbc(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<usize, CryptoError> {
-        let cipher = symm::Cipher::aes_128_cbc();
+        fn decrypt_aes_gcm(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            tag: &[u8],
+            output: &mut [u8],
+        ) -> Result<(), CryptoError> {
+            let cipher = symm::Cipher::aes_128_gcm();
 
-        // add padding
-        // TODO: remove temporary vec
-        let mut padded = vec![0; round_to_pkcs7_safe_len(input.len())];
-        padded[0..input.len()].copy_from_slice(input);
+            let mut crypter =
+                Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
+            crypter.pad(false);
 
-        let len = add_pkcs_7_padding(&mut padded, input.len());
+            let mut count = crypter.update(input, output).map_err(crypto_err)?;
 
-        // encrypt
-        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
-        crypter.pad(false);
+            crypter.set_tag(tag).map_err(crypto_err)?;
+            count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
-        let mut count = crypter.update(&padded[..len], output).map_err(crypto_err)?;
-        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+            debug_assert_eq!(count, input.len());
+            Ok(())
+        }
 
-        Ok(count)
-    }
+        fn encrypt_aes_cbc(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+        ) -> Result<usize, CryptoError> {
+            let cipher = symm::Cipher::aes_128_cbc();
 
-    fn decrypt_aes_cbc(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<usize, CryptoError> {
-        let cipher = symm::Cipher::aes_128_cbc();
+            // add padding
+            // TODO: remove temporary vec
+            let mut padded = vec![0; round_to_pkcs7_safe_len(input.len())];
+            padded[0..input.len()].copy_from_slice(input);
 
-        // decrypt
-        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
-        crypter.pad(false);
+            let len = add_pkcs_7_padding(&mut padded, input.len());
 
-        let mut count = crypter.update(input, output).map_err(crypto_err)?;
-        count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+            // encrypt
+            let mut crypter =
+                Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
+            crypter.pad(false);
 
-        // remove padding
-        count = remove_pkcs_7_padding(&mut output[0..count]);
+            let mut count = crypter.update(&padded[..len], output).map_err(crypto_err)?;
+            count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
-        Ok(count)
+            Ok(count)
+        }
+
+        fn decrypt_aes_cbc(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+        ) -> Result<usize, CryptoError> {
+            let cipher = symm::Cipher::aes_128_cbc();
+
+            // decrypt
+            let mut crypter =
+                Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
+            crypter.pad(false);
+
+            let mut count = crypter.update(input, output).map_err(crypto_err)?;
+            count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
+
+            // remove padding
+            count = remove_pkcs_7_padding(&mut output[0..count]);
+
+            Ok(count)
+        }
     }
 }
 

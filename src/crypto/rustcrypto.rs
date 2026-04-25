@@ -7,13 +7,8 @@ use std::{str::FromStr, time::Duration};
 
 use aes::{
     Aes128,
-    cipher::{
-        BlockDecrypt, BlockDecryptMut, BlockEncrypt, BlockEncryptMut, InvalidLength, KeyInit,
-        block_padding::Pkcs7, generic_array::GenericArray,
-    },
+    cipher::{BlockDecrypt, BlockEncrypt, InvalidLength, KeyInit, generic_array::GenericArray},
 };
-use aes_gcm::{Aes128Gcm, aead::AeadMutInPlace};
-use cbc::{Decryptor, Encryptor, cipher::KeyIvInit};
 use der::Decode;
 use pem::Pem;
 use pkcs8::{DecodePrivateKey, EncodePrivateKey, SubjectPublicKeyInfo, der::Encode};
@@ -37,12 +32,9 @@ use x509_cert::{
     time::Validity,
 };
 
-use crate::{
-    http::{
-        ClientIdentifier, ClientSecret, ServerIdentifier,
-        pair::{HashAlgorithm, PairingCryptoBackend},
-    },
-    stream::proto::crypto::{CryptoBackend, CryptoError},
+use crate::http::{
+    ClientIdentifier, ClientSecret, ServerIdentifier,
+    pair::{HashAlgorithm, PairingCryptoBackend},
 };
 
 #[derive(Debug, Error)]
@@ -261,91 +253,108 @@ impl PairingCryptoBackend for RustCryptoBackend {
     }
 }
 
-impl CryptoBackend for RustCryptoBackend {
-    fn encrypt_aes_gcm(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        output: &mut [u8],
-        tag: &mut [u8],
-    ) -> Result<(), CryptoError> {
-        debug_assert_eq!(key.len(), 16, "AES-128 key must be 16 bytes");
-        debug_assert_eq!(iv.len(), 12, "GCM nonce must be 12 bytes");
-        debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
-        debug_assert!(output.len() >= input.len(), "output buffer too small");
+#[cfg(feature = "stream-proto")]
+mod proto {
+    use aes::{
+        Aes128,
+        cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7},
+    };
+    use aes_gcm::{AeadInPlace, Aes128Gcm, KeyInit};
+    use cbc::{Decryptor, Encryptor};
 
-        let mut cipher = Aes128Gcm::new(key.into());
+    use crate::{
+        crypto::rustcrypto::{RustCryptoBackend, RustCryptoError},
+        stream::proto::crypto::{CryptoBackend, CryptoError},
+    };
 
-        output[0..input.len()].copy_from_slice(input);
+    impl CryptoBackend for RustCryptoBackend {
+        fn encrypt_aes_gcm(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+            tag: &mut [u8],
+        ) -> Result<(), CryptoError> {
+            debug_assert_eq!(key.len(), 16, "AES-128 key must be 16 bytes");
+            debug_assert_eq!(iv.len(), 12, "GCM nonce must be 12 bytes");
+            debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
+            debug_assert!(output.len() >= input.len(), "output buffer too small");
 
-        let new_tag = cipher
-            .encrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()])
-            .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
+            let cipher = Aes128Gcm::new(key.into());
 
-        tag.copy_from_slice(&new_tag);
+            output[0..input.len()].copy_from_slice(input);
 
-        Ok(())
-    }
+            let new_tag = cipher
+                .encrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()])
+                .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
 
-    fn decrypt_aes_gcm(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        tag: &[u8],
-        output: &mut [u8],
-    ) -> Result<(), CryptoError> {
-        debug_assert_eq!(key.len(), 16, "AES-128 key must be 16 bytes");
-        debug_assert_eq!(iv.len(), 12, "GCM nonce must be 12 bytes");
-        debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
-        debug_assert!(output.len() >= input.len(), "output buffer too small");
+            tag.copy_from_slice(&new_tag);
 
-        let mut cipher = Aes128Gcm::new(key.into());
+            Ok(())
+        }
 
-        output[0..input.len()].copy_from_slice(input);
+        fn decrypt_aes_gcm(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            tag: &[u8],
+            output: &mut [u8],
+        ) -> Result<(), CryptoError> {
+            debug_assert_eq!(key.len(), 16, "AES-128 key must be 16 bytes");
+            debug_assert_eq!(iv.len(), 12, "GCM nonce must be 12 bytes");
+            debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
+            debug_assert!(output.len() >= input.len(), "output buffer too small");
 
-        cipher
-            .decrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()], tag.into())
-            .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
+            let cipher = Aes128Gcm::new(key.into());
 
-        Ok(())
-    }
+            output[0..input.len()].copy_from_slice(input);
 
-    fn encrypt_aes_cbc(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<usize, CryptoError> {
-        let cipher = Encryptor::<Aes128>::new_from_slices(key, iv)
-            .map_err(|err| CryptoError::from_error(RustCryptoError::AesCbcInvalidLength(err)))?;
+            cipher
+                .decrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()], tag.into())
+                .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
 
-        let len = cipher
-            .encrypt_padded_b2b_mut::<Pkcs7>(input, output)
-            .map_err(|_| CryptoError::from_error(RustCryptoError::AesCbcPadError))?
-            .len();
+            Ok(())
+        }
 
-        Ok(len)
-    }
+        fn encrypt_aes_cbc(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+        ) -> Result<usize, CryptoError> {
+            let cipher = Encryptor::<Aes128>::new_from_slices(key, iv).map_err(|err| {
+                CryptoError::from_error(RustCryptoError::AesCbcInvalidLength(err))
+            })?;
 
-    fn decrypt_aes_cbc(
-        &self,
-        key: &[u8],
-        iv: &[u8],
-        input: &[u8],
-        output: &mut [u8],
-    ) -> Result<usize, CryptoError> {
-        let cipher = Decryptor::<Aes128>::new_from_slices(key, iv)
-            .map_err(|err| CryptoError::from_error(RustCryptoError::AesCbcInvalidLength(err)))?;
+            let len = cipher
+                .encrypt_padded_b2b_mut::<Pkcs7>(input, output)
+                .map_err(|_| CryptoError::from_error(RustCryptoError::AesCbcPadError))?
+                .len();
 
-        let len = cipher
-            .decrypt_padded_b2b_mut::<Pkcs7>(input, output)
-            .map_err(|_| CryptoError::from_error(RustCryptoError::AesCbcUnpadError))?
-            .len();
+            Ok(len)
+        }
 
-        Ok(len)
+        fn decrypt_aes_cbc(
+            &self,
+            key: &[u8],
+            iv: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+        ) -> Result<usize, CryptoError> {
+            let cipher = Decryptor::<Aes128>::new_from_slices(key, iv).map_err(|err| {
+                CryptoError::from_error(RustCryptoError::AesCbcInvalidLength(err))
+            })?;
+
+            let len = cipher
+                .decrypt_padded_b2b_mut::<Pkcs7>(input, output)
+                .map_err(|_| CryptoError::from_error(RustCryptoError::AesCbcUnpadError))?
+                .len();
+
+            Ok(len)
+        }
     }
 }
 

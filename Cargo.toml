@@ -120,9 +120,6 @@ sdp-types = "0.1.8"
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
-# TODO: remove this
-rand = "0.10.0"
-
 [features]
 default = ["ureq", "std", "rustcrypto"]
 
@@ -190,6 +187,9 @@ venator = { version = "1.1.0" }
 # See https://github.com/openssl/openssl/issues/29818
 openssl-src = "=300.5.3"
 openssl-sys = "=0.9.109"
+
+[package.metadata.cargo-shear]
+ignored = ["openssl-src", "openssl-sys"]
 
 [[example]]
 name = "client-simple"

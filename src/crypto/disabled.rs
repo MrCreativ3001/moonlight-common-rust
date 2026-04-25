@@ -1,11 +1,8 @@
 use thiserror::Error;
 
-use crate::{
-    http::{
-        ClientIdentifier, ClientSecret,
-        pair::{HashAlgorithm, PairingCryptoBackend},
-    },
-    stream::proto::crypto::{CryptoBackend, CryptoError},
+use crate::http::{
+    ClientIdentifier, ClientSecret,
+    pair::{HashAlgorithm, PairingCryptoBackend},
 };
 
 #[derive(Debug, Error)]
@@ -75,6 +72,10 @@ impl PairingCryptoBackend for DisabledCryptoBackend {
     }
 }
 
+#[cfg(feature = "stream-proto")]
+use crate::stream::proto::crypto::{CryptoBackend, CryptoError};
+
+#[cfg(feature = "stream-proto")]
 impl CryptoBackend for DisabledCryptoBackend {
     fn encrypt_aes_gcm(
         &self,
