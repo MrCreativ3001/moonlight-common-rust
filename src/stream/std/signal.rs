@@ -5,7 +5,6 @@ use std::sync::{
 
 use tracing::debug;
 
-
 #[derive(Clone)]
 pub struct StopSignal {
     inner: Arc<AtomicBool>,

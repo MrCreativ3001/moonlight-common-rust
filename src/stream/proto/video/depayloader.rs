@@ -20,8 +20,8 @@ use crate::{
             },
         },
         video::{
-            self, BufferType, FrameIndex, VideoFormats, VideoDecodeUnitBuffers,
-            VideoFormat, VideoFrameBuffer,
+            self, BufferType, FrameIndex, VideoDecodeUnitBuffers, VideoFormat, VideoFormats,
+            VideoFrameBuffer,
         },
     },
 };
@@ -392,11 +392,7 @@ impl VideoDepayloader {
             // Add a buffer to the video frame buffer and finds out the buffer type
             let mut add_buffer = |nalu_start: usize, buffer: &'a [u8]| {
                 let buffer_type = {
-                    if self
-                        .config
-                        .format
-                        .contained_in(VideoFormats::MASK_H264)
-                    {
+                    if self.config.format.contained_in(VideoFormats::MASK_H264) {
                         if buffer.len() < nalu_start + 1 {
                             warn!("Couldn't read nal header because nalu is too short!");
                             trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");
@@ -414,11 +410,7 @@ impl VideoDepayloader {
 
                             nal_header.nal_unit_type.to_buffer_type()
                         }
-                    } else if self
-                        .config
-                        .format
-                        .contained_in(VideoFormats::MASK_H265)
-                    {
+                    } else if self.config.format.contained_in(VideoFormats::MASK_H265) {
                         if buffer.len() < nalu_start + 2 {
                             warn!("Couldn't read nal header because nalu is too short!");
                             trace!(frame = ?frame_data, buffer = ?buffer, nalu_start = nalu_start, "data");

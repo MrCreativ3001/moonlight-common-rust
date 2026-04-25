@@ -5,7 +5,7 @@ use gstreamer::{
 };
 use gstreamer_app::AppSrc;
 use moonlight_common::stream::video::{
-    DecodeResult, VideoFormats, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoSetup,
+    DecodeResult, VideoDecodeUnit, VideoDecoder, VideoFormat, VideoFormats, VideoSetup,
 };
 
 pub struct GStreamerVideoDecoder {
