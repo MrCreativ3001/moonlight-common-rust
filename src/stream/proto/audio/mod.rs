@@ -31,8 +31,8 @@ pub mod depayloader;
 mod packet;
 pub mod payloader;
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused)]
 mod test;
 
 // TODO: this needs to be adjustable based on the audio sample length

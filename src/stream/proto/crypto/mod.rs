@@ -3,7 +3,7 @@ use std::{error::Error, sync::Arc};
 use thiserror::Error;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, unused)]
 pub(crate) mod test;
 
 #[derive(Debug, Error)]

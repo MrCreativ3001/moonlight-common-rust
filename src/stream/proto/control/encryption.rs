@@ -262,7 +262,7 @@ fn generate_iv(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, unused)]
 mod test {
     use crate::stream::{
         AesIv, AesKey,

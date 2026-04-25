@@ -4,6 +4,6 @@ pub mod moonlight;
 mod packet;
 pub mod raw;
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused)]
 pub mod test;
