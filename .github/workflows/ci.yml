@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test x86_64-unknown-linux-gnu
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+        # base features
+        - ""
+        - "std"
+        - "ureq"
+        - "tokio"
+        - "tokio-hyper"
+        - "stream-proto"
+        - "stream-c"
+        - "openssl"
+        - "rustcrypto"
+        # feature combinations
+        - "ureq openssl stream-c"
+        - "ureq std"
+  
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-02-13
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      # Format check
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
+      # Clippy
+      - name: Clippy
+        run: cargo clippy --all-targets --no-default-features --features "${{ matrix.features }}" -- -D warnings
+
+      # Binstall
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      # Cargo Shear
+      - name: Install cargo-shear
+        run: cargo binstall --force --no-confirm cargo-shear
+      - name: Cargo Shear
+        run: cargo shear --expand
+  
+      # Test
+      - name: Test
+        run: cargo test --workspace --locked --no-default-features --features "${{ matrix.features }}"
