@@ -600,8 +600,8 @@ where
     Ok(hash)
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
+#[allow(clippy::unwrap_used, unused)]
 mod test {
     use std::{fmt::Debug, str::FromStr};
 
