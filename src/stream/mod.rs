@@ -21,7 +21,6 @@ use crate::{
     },
 };
 
-// TODO: move more stuff out of c into mod, e.g. VideoDecoder, AudioDecoder
 #[cfg(feature = "stream-c")]
 pub mod c;
 

@@ -580,6 +580,7 @@ pub const SS_CONTROLLER_BATTERY_MAGIC: u32 = 0x55000007;
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32
 pub const UTF8_TEXT_EVENT_MAGIC: u32 = 0x00000017;
 
+/// A control packet for the [ControlHost](super::peer::ControlHost).
 #[derive(Debug, PartialEq)]
 pub enum ControlPacket {
     // -- Server Sent Events

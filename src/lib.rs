@@ -38,6 +38,8 @@ pub mod crypto;
 
 pub mod high;
 
+pub mod webrtc;
+
 #[cfg(test)]
 pub(crate) mod test;
 
