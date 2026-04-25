@@ -64,8 +64,29 @@ pub struct PairPhase3Response {
 }
 
 impl TextResponse for PairPhase3Response {
-    fn serialize_into(&self, _body_writer: &mut impl fmt::Write) -> fmt::Result {
-        todo!()
+    fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
+        // XML header + root
+        body_writer.write_str(r#"<?xml version="1.0" encoding="utf-8"?>"#)?;
+        body_writer.write_str(r#"<root status_code="200">"#)?;
+
+        // <pairingsecret>
+        let pairing_secret = hex::encode_upper(&self.server_pairing_secret);
+        write!(
+            body_writer,
+            "<pairingsecret>{pairing_secret}</pairingsecret>"
+        )?;
+
+        // <paired>
+        write!(
+            body_writer,
+            "<paired>{}</paired>",
+            if self.paired { 1 } else { 0 }
+        )?;
+
+        // close root
+        body_writer.write_str("</root>")?;
+
+        Ok(())
     }
 }
 

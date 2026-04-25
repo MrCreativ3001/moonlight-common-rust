@@ -73,7 +73,7 @@ impl FromStr for ResumeResponse {
             Ok(value) => Some(value.to_string()),
             Err(ParseError::DetailNotFound(_)) => None,
             Err(err) => {
-                return Err(err.into());
+                return Err(err);
             }
         };
 

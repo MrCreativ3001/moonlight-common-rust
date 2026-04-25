@@ -38,11 +38,11 @@ impl RingBuffer {
     }
 
     pub fn push(&self, packet: &[u8]) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("ringbuffer lock");
         assert!(packet.len() <= self.max_packet_size);
 
         while inner.len == self.capacity {
-            inner = self.not_full.wait(inner).unwrap();
+            inner = self.not_full.wait(inner).expect("ringbuffer wait");
         }
 
         let tail = inner.tail;
@@ -62,12 +62,12 @@ impl RingBuffer {
     /// - Some(packet_len) if a packet was read
     /// - None if timeout expired
     pub fn pop(&self, out_buf: &mut [u8], timeout: Option<Duration>) -> Option<usize> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("ringbuffer lock");
 
         match timeout {
             None => {
                 while inner.len == 0 {
-                    inner = self.not_empty.wait(inner).unwrap();
+                    inner = self.not_empty.wait(inner).expect("ringbuffer wait");
                 }
             }
             Some(total_timeout) => {
@@ -80,8 +80,10 @@ impl RingBuffer {
                     }
 
                     let remaining = deadline - now;
-                    let (guard, wait_result) =
-                        self.not_empty.wait_timeout(inner, remaining).unwrap();
+                    let (guard, wait_result) = self
+                        .not_empty
+                        .wait_timeout(inner, remaining)
+                        .expect("ringbuffer wait timeout");
 
                     inner = guard;
 
@@ -117,6 +119,7 @@ impl RingBuffer {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::sync::Arc;

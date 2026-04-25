@@ -146,7 +146,6 @@ pub enum MoonlightStreamSetupOutput<Crypto> {
 
 #[derive(Debug)]
 struct Sdp {
-    server_sdp: ServerSdp,
     client_sdp: ClientSdp,
     opus_config: OpusMultistreamConfig,
     video_format: VideoFormat,
@@ -351,7 +350,6 @@ where
                                 .into_host_features(self.server_version);
 
                             let sdp = Sdp {
-                                server_sdp,
                                 client_sdp,
                                 opus_config,
                                 video_format,

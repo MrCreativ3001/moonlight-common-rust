@@ -37,7 +37,7 @@ pub mod phase5;
 pub mod client;
 
 #[cfg(test)]
-#[allow(unused)]
+#[allow(unused, clippy::unwrap_used)]
 mod test;
 
 /// A pin which contains four values in the range 0..10

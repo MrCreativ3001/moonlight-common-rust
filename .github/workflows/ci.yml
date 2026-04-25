@@ -30,9 +30,10 @@ jobs:
         - "stream-c"
         - "openssl"
         - "rustcrypto"
-        # feature combinations
+        # common feature combinations
         - "ureq openssl stream-c"
-        - "ureq std"
+        - "ureq rustcrypto std"
+        - "ureq std openssl stream-c rustcrypto std tokio tokio-hyper"
   
     steps:
       - uses: actions/checkout@v5

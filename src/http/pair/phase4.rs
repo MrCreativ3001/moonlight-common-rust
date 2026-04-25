@@ -61,8 +61,22 @@ pub struct PairPhase4Response {
 }
 
 impl TextResponse for PairPhase4Response {
-    fn serialize_into(&self, _body_writer: &mut impl fmt::Write) -> fmt::Result {
-        todo!()
+    fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
+        // XML header + root
+        body_writer.write_str(r#"<?xml version="1.0" encoding="utf-8"?>"#)?;
+        body_writer.write_str(r#"<root status_code="200">"#)?;
+
+        // <paired>
+        write!(
+            body_writer,
+            "<paired>{}</paired>",
+            if self.paired { 1 } else { 0 }
+        )?;
+
+        // close root
+        body_writer.write_str("</root>")?;
+
+        Ok(())
     }
 }
 

@@ -91,7 +91,7 @@ fn normalize_xml(doc: &str) -> String {
         .replace("\r", "")
         .replace("\t", "")
 }
-fn test_response<R>(response_expected: R, doc_expected: &str)
+pub fn test_response<R>(response_expected: R, doc_expected: &str)
 where
     R: TextResponse + Debug + PartialEq,
     R::Err: Debug,
