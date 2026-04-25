@@ -43,13 +43,17 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
 
-      # Install gstreamer
-      - name: Setup GStreamer
-        id:   setup_gstreamer
-        uses: blinemedical/setup-gstreamer@v1.4.0
-        with:
-          version: '1.19.90'
-          arch: 'x86'
+      # Install GStreamer
+      - name: Install GStreamer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav
 
       # Format check
       - name: Rustfmt
