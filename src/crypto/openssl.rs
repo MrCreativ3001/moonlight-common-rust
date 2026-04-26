@@ -201,10 +201,7 @@ mod proto {
 
     use crate::{
         crypto::openssl::OpenSSLCryptoBackend,
-        stream::proto::crypto::{
-            CryptoBackend, CryptoError, add_pkcs_7_padding, remove_pkcs_7_padding,
-            round_to_pkcs7_safe_len,
-        },
+        stream::proto::crypto::{CryptoBackend, CryptoError},
     };
 
     fn crypto_err(error: ErrorStack) -> CryptoError {
@@ -266,19 +263,12 @@ mod proto {
         ) -> Result<usize, CryptoError> {
             let cipher = symm::Cipher::aes_128_cbc();
 
-            // add padding
-            // TODO: remove temporary vec
-            let mut padded = vec![0; round_to_pkcs7_safe_len(input.len())];
-            padded[0..input.len()].copy_from_slice(input);
-
-            let len = add_pkcs_7_padding(&mut padded, input.len());
-
             // encrypt
             let mut crypter =
                 Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).map_err(crypto_err)?;
-            crypter.pad(false);
+            crypter.pad(true);
 
-            let mut count = crypter.update(&padded[..len], output).map_err(crypto_err)?;
+            let mut count = crypter.update(input, output).map_err(crypto_err)?;
             count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
 
             Ok(count)
@@ -296,13 +286,10 @@ mod proto {
             // decrypt
             let mut crypter =
                 Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).map_err(crypto_err)?;
-            crypter.pad(false);
+            crypter.pad(true);
 
             let mut count = crypter.update(input, output).map_err(crypto_err)?;
             count += crypter.finalize(&mut output[count..]).map_err(crypto_err)?;
-
-            // remove padding
-            count = remove_pkcs_7_padding(&mut output[0..count]);
 
             Ok(count)
         }
