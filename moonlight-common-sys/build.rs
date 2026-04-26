@@ -54,6 +54,26 @@ fn compile_moonlight(allow_vendored: bool) -> Option<(String, PathBuf)> {
     config.define("BUILD_SHARED_LIBS", "OFF");
     config.define("CMAKE_TRY_COMPILE_TARGET_TYPE", "STATIC_LIBRARY");
 
+    // Check if the target OS is Android
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() == "android" {
+        if let Ok(ndk_root) = var("ANDROID_NDK_HOME") {
+            // Point to the official NDK CMake toolchain file
+            config.define("CMAKE_TOOLCHAIN_FILE", format!("{}/build/cmake/android.toolchain.cmake", ndk_root));
+
+            // Set the target Architecture ABI (e.g., arm64-v8a)
+            if let Ok(abi) = var("ANDROID_ABI") {
+                config.define("ANDROID_ABI", abi);
+            }
+
+            // Set Android API level. Defaults to 21 if not specified in environment variables.
+            let platform = var("NDK_PLATFORM_TARGET")
+                .or_else(|_| var("ANDROID_PLATFORM"))
+                .unwrap_or_else(|_| "21".to_string());
+            
+            config.define("ANDROID_PLATFORM", platform);
+        }
+    }
+
     // -- Link OpenSSL: Some environment variables are exported from openssl-sys for all dependents
     if let Ok(ssl_root) = var("DEP_OPENSSL_ROOT").or_else(|_| var("OPENSSL_ROOT_DIR")) {
         config.define("OPENSSL_ROOT_DIR", ssl_root);
