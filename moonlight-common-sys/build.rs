@@ -58,7 +58,10 @@ fn compile_moonlight(allow_vendored: bool) -> Option<(String, PathBuf)> {
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default() == "android" {
         if let Ok(ndk_root) = var("ANDROID_NDK_HOME") {
             // Point to the official NDK CMake toolchain file
-            config.define("CMAKE_TOOLCHAIN_FILE", format!("{}/build/cmake/android.toolchain.cmake", ndk_root));
+            config.define(
+                "CMAKE_TOOLCHAIN_FILE",
+                format!("{}/build/cmake/android.toolchain.cmake", ndk_root),
+            );
 
             // Set the target Architecture ABI (e.g., arm64-v8a)
             if let Ok(abi) = var("ANDROID_ABI") {
@@ -69,7 +72,7 @@ fn compile_moonlight(allow_vendored: bool) -> Option<(String, PathBuf)> {
             let platform = var("NDK_PLATFORM_TARGET")
                 .or_else(|_| var("ANDROID_PLATFORM"))
                 .unwrap_or_else(|_| "21".to_string());
-            
+
             config.define("ANDROID_PLATFORM", platform);
         }
     }

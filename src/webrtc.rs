@@ -10,7 +10,7 @@ const CONTROL_STREAM_ENET: &str = "x-moonlight-control-stream:enet";
 
 /// This contains moonlight feature support of a WebRTC session.
 #[derive(Debug, Default)]
-pub struct WebRtcFeatures {
+pub struct WebRtcClientFeatures {
     /// If the simple control stream is supported.
     ///
     /// The server will create the data channel.
@@ -30,7 +30,7 @@ pub struct WebRtcFeatures {
     // TODO: other extensions: e.g. apollo?
 }
 
-impl WebRtcFeatures {
+impl WebRtcClientFeatures {
     /// Get all custom WebRtc values from the session.
     pub fn from_session(session: &Session) -> Self {
         let mut this = Self::default();
