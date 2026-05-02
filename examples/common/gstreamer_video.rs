@@ -59,7 +59,7 @@ impl VideoDecoder for GStreamerVideoDecoder {
         self.pipeline.set_state(State::Playing);
     }
 
-    fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<'_>) -> DecodeResult {
+    fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<&[u8]>) -> DecodeResult {
         for buffer in unit.buffers {
             let mut gst_buffer = Buffer::with_size(buffer.data.len()).unwrap();
             {

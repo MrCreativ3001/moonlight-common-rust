@@ -86,7 +86,7 @@ unsafe extern "C" fn submit_decode_unit(decode_unit: PDECODE_UNIT) -> c_int {
     global_decoder(|decoder| decoder.submit_decode_unit(unit) as i32)
 }
 /// Converts the cpp decode unit into the rust one
-unsafe fn convert_decode_unit<'a>(decode_unit: PDECODE_UNIT) -> VideoDecodeUnit<'a> {
+unsafe fn convert_decode_unit<'a>(decode_unit: PDECODE_UNIT) -> VideoDecodeUnit<&'a [u8]> {
     let raw = unsafe { *decode_unit };
 
     let mut buffers = SmallVec::new();
@@ -194,7 +194,7 @@ impl VideoDecoder for PullVideoDecoder {
         self.active.store(false, Ordering::Release);
     }
 
-    fn submit_decode_unit(&mut self, _unit: VideoDecodeUnit<'_>) -> DecodeResult {
+    fn submit_decode_unit(&mut self, _unit: VideoDecodeUnit<&[u8]>) -> DecodeResult {
         unreachable!()
     }
 
@@ -363,7 +363,7 @@ impl PullVideoManager {
 
 pub struct PullVideoDecodeUnit<'a> {
     frame_handle: VIDEO_FRAME_HANDLE,
-    decode_unit: VideoDecodeUnit<'a>,
+    decode_unit: VideoDecodeUnit<&'a [u8]>,
     result: DecodeResult,
 }
 
@@ -374,7 +374,7 @@ impl<'a> PullVideoDecodeUnit<'a> {
 }
 
 impl<'a> Deref for PullVideoDecodeUnit<'a> {
-    type Target = VideoDecodeUnit<'a>;
+    type Target = VideoDecodeUnit<&'a [u8]>;
 
     fn deref(&self) -> &Self::Target {
         &self.decode_unit

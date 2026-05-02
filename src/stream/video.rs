@@ -130,12 +130,14 @@ impl VideoFormat {
         ]
     }
 
-    pub fn contained_in(&self, supported_video_formats: VideoFormats) -> bool {
-        let Some(single_format) = VideoFormats::from_bits(*self as u32) else {
-            return false;
-        };
+    pub fn into_formats(&self) -> VideoFormats {
+        VideoFormats::from_bits(*self as u32).expect("convert video format into video formats")
+    }
 
-        supported_video_formats.contains(single_format)
+    pub fn contained_in(&self, supported_video_formats: VideoFormats) -> bool {
+        let format = self.into_formats();
+
+        supported_video_formats.contains(format)
     }
 }
 
@@ -223,12 +225,12 @@ impl Deref for FrameIndex {
     }
 }
 
-pub type VideoDecodeUnitBuffers<'a> = SmallVec<[VideoFrameBuffer<&'a [u8]>; 4]>;
+pub type VideoDecodeUnitBuffers<Buf> = SmallVec<[VideoFrameBuffer<Buf>; 4]>;
 
 /// A decode unit describes a buffer chain of video data from multiple packets
 // TODO: combine this type with the VideoFrame from the proto impl
 #[derive(Debug)]
-pub struct VideoDecodeUnit<'a> {
+pub struct VideoDecodeUnit<Buf> {
     /// Frame Number
     pub frame_number: FrameIndex,
 
@@ -263,7 +265,7 @@ pub struct VideoDecodeUnit<'a> {
     /// Note: This is not currently parsed from the actual bitstream, so if your
     /// client has access to a bitstream parser, prefer that over this field.
     pub color_space: ColorSpace,
-    pub buffers: VideoDecodeUnitBuffers<'a>,
+    pub buffers: VideoDecodeUnitBuffers<Buf>,
 }
 
 #[derive(Debug, Default)]
@@ -288,7 +290,7 @@ pub trait VideoDecoder {
     /// This callback provides Annex B formatted elementary stream data to the
     /// decoder. If the decoder is unable to process the submitted data for some reason,
     /// it must return DR_NEED_IDR to generate a keyframe.
-    fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<'_>) -> DecodeResult;
+    fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<&[u8]>) -> DecodeResult;
 
     /// This callback notifies the decoder that the stream is stopping. Frames may still be submitted but they may be safely discarded.
     fn stop(&mut self);

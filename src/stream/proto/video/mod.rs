@@ -59,7 +59,8 @@ pub enum VideoStreamOutput<'a> {
     Send {
         data: &'a [u8],
     },
-    VideoFrame(VideoDecodeUnit<'a>),
+    VideoFrame(VideoDecodeUnit<&'a [u8]>),
+    // TODO: this should be a RequestIdr or RFI or LTR request instead of an not visible type to the consumer of this interface
     /// Send a control message to the [ControlStream](super::control::ControlStream).
     SendControlMessage {
         message: ControlMessage,

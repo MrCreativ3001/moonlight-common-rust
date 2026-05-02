@@ -59,7 +59,7 @@ pub mod unpair;
 
 pub mod client;
 
-mod helper;
+pub(crate) mod helper;
 
 #[allow(clippy::unwrap_used)]
 #[cfg(test)]
@@ -108,6 +108,29 @@ pub enum FromQueryError {
 pub trait QueryMap {
     fn has(&self, param: &str) -> bool;
     fn get<'a>(&'a self, param: &str) -> Result<Cow<'a, str>, FromQueryError>;
+}
+
+impl QueryMap for &str {
+    // TODO: handle %20 and so on
+
+    fn get<'b>(&'b self, param: &str) -> Result<Cow<'b, str>, FromQueryError> {
+        for pair in self.split('&') {
+            let mut parts = pair.splitn(2, '=');
+            let key = parts.next().unwrap_or("");
+            if key == param {
+                let value = parts.next().unwrap_or("");
+                return Ok(Cow::Borrowed(value));
+            }
+        }
+        Err(FromQueryError::QueryParamNotFound(param.to_string()))
+    }
+
+    fn has(&self, param: &str) -> bool {
+        self.split('&').any(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            parts.next().unwrap_or("") == param
+        })
+    }
 }
 
 /// This represents an endpoint on the http or https server that a client can query for information or initiate a stream with.

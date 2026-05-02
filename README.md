@@ -1,10 +1,8 @@
-# moonlight-common-rust [WIP]
+# moonlight-common-rust
 
 `moonlight-common-rust` is a Rust implementation of the Moonlight game streaming protocol built around a Sans-IO architecture.
 
 It provides a transport-agnostic protocol core with packet parsing and state management fully decoupled from networking and async runtimes. The crate also includes bindings to Moonlight Common C for interoperability with the existing implementation.
-
-The Sans IO implementation is not finished yet.
 
 ## Why Sans-IO?
 

@@ -116,7 +116,7 @@ pub struct VideoFrame<'a> {
     /// - H264: each buffer starts with an annex b start code followed by a h264 nalu.
     /// - H265: each buffer starts with an annex b start code followed by a h265 nalu.
     /// - Av1: no specific point where they're being split
-    pub buffers: VideoDecodeUnitBuffers<'a>,
+    pub buffers: VideoDecodeUnitBuffers<&'a [u8]>,
 }
 
 #[derive(Debug)]

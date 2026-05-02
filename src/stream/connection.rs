@@ -1,6 +1,8 @@
 use crate::stream::video::SunshineHdrMetadata;
 
 pub trait ConnectionListener {
+    // TODO: add on stop / fail function?
+
     /// This callback is invoked to notify the client of a change in HDR mode on
     /// the host. The client will probably want to update the local display mode
     /// to match the state of HDR on the host. This callback may be invoked even

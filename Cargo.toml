@@ -52,6 +52,8 @@ moonlight-common-sys = { workspace = true, optional = true }
 tokio = { version = "1.49.0", default-features = false, features = [
     "full",
 ], optional = true }
+futures = "0.3.32"
+async-trait = "0.1.89"
 
 # -- Request clients
 http = { version = "1.4.0", default-features = false, optional = true }
@@ -89,6 +91,8 @@ sha2 = { version = "0.10.9", features = [
 ], default-features = false, optional = true }
 # rsa requires this rand version for private key generation
 rand_v8 = { package = "rand", version = "0.8.5", default-features = false, optional = true }
+# when generating js bindings we need get random
+getrandom = { version = "0.2.17", features = ["js"] }
 aes = { version = "0.8.4", default-features = false, optional = true }
 rsa = { version = "0.9.10", features = [
     "std",

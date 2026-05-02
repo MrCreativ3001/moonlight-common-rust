@@ -450,6 +450,13 @@ impl MoonlightStream {
 
         Ok(())
     }
+    pub fn send_input_raw(&self, packet: ControlPacket) -> Result<(), ControlError> {
+        trace!(packet = ?packet, "received packet from application");
+
+        self.use_control_stream(|stream| stream.send_raw(packet))?;
+
+        Ok(())
+    }
 
     /// Use [host_features](Self::host_features) to detect support for microphone.
     pub fn send_microphone_opus_data(&self, timestamp: Duration, frame: &[u8]) -> bool {
@@ -527,6 +534,7 @@ impl MoonlightStream {
         Ok(true)
     }
 
+    // TODO: make this use a &self ref
     pub fn stop(mut self) {
         // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
 

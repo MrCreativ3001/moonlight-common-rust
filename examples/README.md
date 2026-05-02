@@ -11,23 +11,23 @@ Pair to a host and get all app images.
 Those images will be stored inside of the [`example-data/apps`](../example-data/apps) folder.
 
 ```
-cargo run --example client-simple
+cargo run --example client-simple 192.168.178.1
 ```
 
-## client-stream (NOT WORKING)
+## client-stream
 
 Connects to a host using the rust moonlight protocol implementation.
 
 ```
-cargo run --example client-stream
+cargo run --example client-stream 192.168.178.1
 ```
 
-## client-tokio (NOT WORKING)
+## client-tokio
 
 Pair to a host and start a stream in an async context using the tokio library.
 
 ```
-cargo run --example client-tokio --features tokio-hyper,tokio
+cargo run --example client-tokio --features tokio-hyper,tokio 192.168.178.1
 ```
 
 ## client-common-c
@@ -40,5 +40,5 @@ This is currently only possible using [rust nightly](https://rust-lang.github.io
 - A [bindgen installation](https://rust-lang.github.io/rust-bindgen/requirements.html) for generating the bindings to the [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c) library
 
 ```
-cargo run --example client-common-c --features stream-c
+cargo run --example client-common-c --features stream-c 192.168.178.1
 ```

@@ -128,6 +128,7 @@ impl AudioConfig {
     }
 
     pub const fn from_surround_audio_info(info: u32) -> Self {
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L211-L213
         Self {
             channel_count: info & 0xFFFF,
             channel_mask: info >> 16,

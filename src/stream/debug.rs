@@ -21,7 +21,7 @@ impl VideoDecoder for NullListener {
 
     fn start(&mut self) {}
 
-    fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<'_>) -> DecodeResult {
+    fn submit_decode_unit(&mut self, unit: VideoDecodeUnit<&[u8]>) -> DecodeResult {
         let _ = unit;
 
         DecodeResult::Ok
