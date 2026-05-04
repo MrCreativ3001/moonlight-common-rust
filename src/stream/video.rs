@@ -56,7 +56,7 @@ pub enum ColorRange {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct VideoFormats(u32);
 
 bitflags! {

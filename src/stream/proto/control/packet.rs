@@ -581,7 +581,7 @@ pub const SS_CONTROLLER_BATTERY_MAGIC: u32 = 0x55000007;
 pub const UTF8_TEXT_EVENT_MAGIC: u32 = 0x00000017;
 
 /// A control packet for the [ControlHost](super::peer::ControlHost).
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ControlPacket {
     // -- Server Sent Events
     /// Sent from the server to set the controller rumble for a specific controller.

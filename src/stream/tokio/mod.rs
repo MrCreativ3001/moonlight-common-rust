@@ -82,7 +82,6 @@ pub trait MoonlightStreamHandler {
     async fn on_stop(&self);
 }
 
-#[derive(Clone)]
 pub struct MoonlightStream {
     features: HostFeatures,
     inner: Arc<Inner>,

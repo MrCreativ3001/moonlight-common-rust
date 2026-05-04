@@ -71,6 +71,7 @@ mod test;
 pub const DEFAULT_HTTP_PORT: u16 = 47989;
 pub const DEFAULT_HTTPS_PORT: u16 = 47984;
 
+// TODO: move query related things into their own module, with default impls for &str and String
 #[derive(Debug)]
 pub struct QueryParam<'a> {
     pub key: &'a str,
@@ -85,6 +86,20 @@ pub enum QueryBuilderError {
 
 pub trait QueryBuilder {
     fn append(&mut self, param: QueryParam) -> Result<(), QueryBuilderError>;
+}
+
+impl QueryBuilder for String {
+    fn append(&mut self, param: QueryParam) -> Result<(), QueryBuilderError> {
+        // TODO: filter for characters that need % serialization
+        if !self.is_empty() {
+            self.push('&');
+        }
+        self.push_str(param.key);
+        self.push('=');
+        self.push_str(param.value);
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Error)]
