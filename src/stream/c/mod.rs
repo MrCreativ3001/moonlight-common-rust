@@ -236,7 +236,7 @@ impl MoonlightStream {
 
         let features = unsafe { LiGetHostFeatureFlags() };
 
-        Ok(HostFeatures::from_bits(features).expect("valid host feature flags"))
+        Ok(HostFeatures::from_bits_truncate(features))
     }
 
     /// This function returns an estimate of the current RTT to the host PC obtained via ENet
