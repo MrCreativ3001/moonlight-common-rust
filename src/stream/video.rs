@@ -206,7 +206,7 @@ pub enum FrameType {
     Idr = FRAME_TYPE_IDR,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VideoFrameBuffer<Buf> {
     /// The type of this buffer.
     /// See [BufferType] for more information.
@@ -229,7 +229,7 @@ pub type VideoDecodeUnitBuffers<Buf> = SmallVec<[VideoFrameBuffer<Buf>; 4]>;
 
 /// A decode unit describes a buffer chain of video data from multiple packets
 // TODO: combine this type with the VideoFrame from the proto impl
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VideoDecodeUnit<Buf> {
     /// Frame Number
     pub frame_number: FrameIndex,
