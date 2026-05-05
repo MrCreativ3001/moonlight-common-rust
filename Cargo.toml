@@ -129,7 +129,7 @@ serde = ["dep:serde"]
 
 # Different "runtimes"
 std = ["stream-proto"]
-tokio = ["dep:tokio"]
+tokio = ["dep:tokio", "stream-proto"]
 
 # Stream implementations
 stream-proto = ["dep:fec-rs", "dep:rusty_enet"]
