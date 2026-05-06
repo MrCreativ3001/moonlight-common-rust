@@ -214,6 +214,18 @@ pub struct VideoFrameBuffer<Buf> {
     pub data: Buf,
 }
 
+impl<Buf> VideoFrameBuffer<Buf> {
+    pub fn to_vec(&self) -> VideoFrameBuffer<Vec<u8>>
+    where
+        Buf: AsRef<[u8]>,
+    {
+        VideoFrameBuffer {
+            buffer_type: self.buffer_type,
+            data: Buf::as_ref(&self.data).to_vec(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FrameIndex(pub u32);
 
@@ -266,6 +278,22 @@ pub struct VideoDecodeUnit<Buf> {
     /// client has access to a bitstream parser, prefer that over this field.
     pub color_space: ColorSpace,
     pub buffers: VideoDecodeUnitBuffers<Buf>,
+}
+
+impl<Buf> VideoDecodeUnit<Buf> {
+    pub fn to_vec(&self) -> VideoDecodeUnit<Vec<u8>>
+    where
+        Buf: AsRef<[u8]>,
+    {
+        VideoDecodeUnit {
+            frame_number: self.frame_number,
+            frame_type: self.frame_type,
+            frame_processing_latency: self.frame_processing_latency,
+            timestamp: self.timestamp,
+            color_space: self.color_space,
+            buffers: self.buffers.iter().map(|x| x.to_vec()).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
