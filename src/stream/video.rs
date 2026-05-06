@@ -224,6 +224,16 @@ impl<Buf> VideoFrameBuffer<Buf> {
             data: Buf::as_ref(&self.data).to_vec(),
         }
     }
+
+    pub fn as_ref(&self) -> VideoFrameBuffer<&[u8]>
+    where
+        Buf: AsRef<[u8]>,
+    {
+        VideoFrameBuffer {
+            buffer_type: self.buffer_type,
+            data: self.data.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -292,6 +302,20 @@ impl<Buf> VideoDecodeUnit<Buf> {
             timestamp: self.timestamp,
             color_space: self.color_space,
             buffers: self.buffers.iter().map(|x| x.to_vec()).collect(),
+        }
+    }
+
+    pub fn as_ref(&self) -> VideoDecodeUnit<&[u8]>
+    where
+        Buf: AsRef<[u8]>,
+    {
+        VideoDecodeUnit {
+            frame_number: self.frame_number,
+            frame_type: self.frame_type,
+            frame_processing_latency: self.frame_processing_latency,
+            timestamp: self.timestamp,
+            color_space: self.color_space,
+            buffers: self.buffers.iter().map(|x| x.as_ref()).collect(),
         }
     }
 }
