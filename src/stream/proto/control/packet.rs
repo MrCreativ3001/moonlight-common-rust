@@ -171,7 +171,7 @@ impl Deref for RawControlPacketType {
 // Packets:
 // - New values: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html
 // - Old Value: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L146-L216
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ControlPacketConfig {
     /// Required because some packets have version depedent data
     pub server_version: ServerVersion,
