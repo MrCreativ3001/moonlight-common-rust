@@ -83,7 +83,6 @@ where
 pub fn decrypt_client_rtsp_message_into<Crypto>(
     crypto_backend: &Crypto,
     aes_key: AesKey,
-    sequence_number: usize,
     encrypted_message: &[u8],
     message: &mut [u8],
 ) -> Result<usize, RtspEncryptionError>
@@ -116,7 +115,7 @@ where
         &encrypted_message[RtspEncryptionHeader::SIZE..RtspEncryptionHeader::SIZE + header.len];
 
     let mut iv = [0; 12];
-    iv[0..4].copy_from_slice(&u32::to_le_bytes(sequence_number as u32));
+    iv[0..4].copy_from_slice(&u32::to_le_bytes(header.sequence_number as u32));
 
     iv[10] = b'C'; // Client
     iv[11] = b'R'; // RTSP
@@ -191,7 +190,6 @@ where
 pub fn decrypt_server_rtsp_message_into<Crypto>(
     crypto_backend: &Crypto,
     aes_key: AesKey,
-    sequence_number: usize,
     encrypted_message: &[u8],
     message: &mut [u8],
 ) -> Result<usize, RtspEncryptionError>
@@ -224,7 +222,7 @@ where
         &encrypted_message[RtspEncryptionHeader::SIZE..RtspEncryptionHeader::SIZE + header.len];
 
     let mut iv = [0; 12];
-    iv[0..4].copy_from_slice(&u32::to_le_bytes(sequence_number as u32));
+    iv[0..4].copy_from_slice(&u32::to_le_bytes(header.sequence_number as u32));
 
     iv[10] = b'H'; // Host
     iv[11] = b'R'; // RTSP
@@ -285,7 +283,6 @@ mod test {
         let decrypted_message_len = decrypt_client_rtsp_message_into(
             crypto,
             aes_key,
-            sequence_number,
             expected_encrypted_message,
             &mut decrypted_message,
         )
@@ -324,7 +321,6 @@ mod test {
         let decrypted_message_len = decrypt_server_rtsp_message_into(
             crypto,
             aes_key,
-            sequence_number,
             expected_encrypted_message,
             &mut decrypted_message,
         )

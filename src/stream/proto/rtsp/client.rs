@@ -183,7 +183,6 @@ where
                         let len = decrypt_server_rtsp_message_into(
                             &self.crypto_backend,
                             aes_key,
-                            self.sequence_number,
                             &receive,
                             &mut plaintext,
                         )?;
