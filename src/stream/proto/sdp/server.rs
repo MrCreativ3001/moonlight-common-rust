@@ -13,20 +13,20 @@ pub struct ServerSdp {
     /// Stereo doesn't have any surround-params elements in the RTSP data
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L734
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L734>
     pub audio_surround_params: Vec<OpusMultistreamConfig>,
     /// The supported video formats based on the sdp.
     /// You should not only rely on this value alone and should also use the [serverCodecModeSupport](crate::http::server_info::ServerInfoResponse::server_codec_mode_support) from the serverinfo.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1076-L1122
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1076-L1122>
     pub video_formats: VideoFormats,
     pub video_reference_frame_invalidation: Option<bool>,
-    /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1130
+    /// Sunshine extension: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1130>
     pub sunshine_feature_flags: Option<RawHostFeatures>,
-    /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1135
+    /// Sunshine extension: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1135>
     pub sunshine_encryption_supported: Option<SunshineEncryptionFlags>,
-    /// Sunshine extension: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1139
+    /// Sunshine extension: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1139>
     pub sunshine_encryption_requested: Option<SunshineEncryptionFlags>,
 }
 

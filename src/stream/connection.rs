@@ -9,7 +9,7 @@ pub trait ConnectionListener {
     /// if the stream is not using an HDR-capable codec.
     ///
     /// See also:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L963-L988
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L963-L988>
     fn set_hdr_mode(&mut self, enabled: bool, sunshine: Option<SunshineHdrMetadata>);
 
     /// This callback is invoked to rumble a gamepad. The rumble effect values

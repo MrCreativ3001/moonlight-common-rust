@@ -7,6 +7,9 @@ use crate::{
 };
 use std::fmt::Write as _;
 
+/// The launch request on the host.
+///
+/// This request is a `POST` request.
 #[derive(Debug, PartialEq)]
 pub struct WebRtcLaunchRequest {
     /// The app the server should start.

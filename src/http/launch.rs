@@ -56,9 +56,9 @@ pub struct ClientStreamRequest {
     /// You can set this empty and use [Self::additional_query_parameters] if you're using moonlight-common-c.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L550-L554
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L550-L554>
     pub core_version: Option<u32>,
-    /// Useful for serializing using moonlight-common-c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L38-L42
+    /// Useful for serializing using moonlight-common-c: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L38-L42>
     ///
     /// When deserializing this will always be empty
     pub additional_query_parameters: String,

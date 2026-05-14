@@ -5,10 +5,10 @@ use crate::http::{
 };
 
 /// This endpoint is only used to terminate a pairing attempt
-/// See https://github.com/moonlight-stream/moonlight-embedded/issues/825
+/// See <https://github.com/moonlight-stream/moonlight-embedded/issues/825>
 ///
 /// References:
-/// - Moonlight-Embedded: https://github.com/moonlight-stream/moonlight-embedded/blob/775444287305849ebdf4736c75298ad0713e2d5d/libgamestream/client.c#L408-L424
+/// - Moonlight-Embedded: <https://github.com/moonlight-stream/moonlight-embedded/blob/775444287305849ebdf4736c75298ad0713e2d5d/libgamestream/client.c#L408-L424>
 pub struct UnpairEndpoint;
 
 impl Endpoint for UnpairEndpoint {

@@ -69,8 +69,8 @@ pub mod microphone;
 pub mod ping;
 pub mod video;
 
-mod rtsp;
-mod sdp;
+pub mod rtsp;
+pub mod sdp;
 
 mod packet;
 
@@ -161,6 +161,8 @@ struct Sdp {
 /// ## Usage
 /// ```
 /// // TODO
+/// // let mut setup = MoonlightStreamSetup::new();
+/// todo!()
 /// ```
 ///
 pub struct MoonlightStreamSetup<Crypto> {

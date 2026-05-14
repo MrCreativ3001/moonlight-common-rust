@@ -1,7 +1,7 @@
 //! This implements most functionality of the sdp generator for the client.
 //!
 //! References:
-//! - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L255
+//! - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L255>
 
 use std::{net::IpAddr, time::Duration};
 
@@ -20,7 +20,7 @@ use crate::{
 
 bitflags! {
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L87
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L87>
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct MoonlightFeatureFlags: u32 {
         // ML_FF_FEC_STATUS 0x01 // Client sends SS_FRAME_FEC_STATUS for frame losses
@@ -32,7 +32,7 @@ bitflags! {
 
 bitflags! {
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L47
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L47>
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct SunshineEncryptionFlags: u32 {
         /// This enables control encryption
@@ -45,7 +45,7 @@ bitflags! {
         /// Make sure to check if the server is a Sunshine Foundation server before using this
         ///
         /// References:
-        /// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L53
+        /// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L53>
         const FOUNDATION_MIC = 0x08;
     }
 }
@@ -71,10 +71,10 @@ bitflags! {
 #[derive(Debug, Default, Clone)]
 pub struct ClientSdp {
     /// Required: Default is 14
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L546
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L546>
     pub rtsp_client_version: Option<usize>,
     /// Required: Use the target ip
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L546
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L546>
     pub target_ip: Option<IpAddr>,
     pub client_viewport_width: Option<u32>,
     pub client_viewport_height: Option<u32>,
@@ -112,7 +112,7 @@ pub struct ClientSdp {
     /// default is 5000
     pub video_quality_score_update_time: Option<u32>,
     /// default is 0, but if streaming local it's 5
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L399
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L399>
     /// If the remote host is local (RFC 1918), enable QoS tagging for our traffic. Windows qWave
     /// will disable it if the host is off-link, *however* Windows may get it wrong in cases where
     /// the host is directly connected to the Internet without a NAT. In this case, it may send DSCP
@@ -124,10 +124,10 @@ pub struct ClientSdp {
     /// former, it may have the same problem as other IPv4 traffic.
     pub vqos_traffic_type: Option<u32>,
     /// default is 0, but if streaming local it's 4
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L399
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L399>
     pub aqos_traffic_type: Option<u32>,
     /// This seems to be just "0.0.0.0" to get around some audio restrictions:
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L945
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L945>
     /// Gen 3: ???
     /// Gen 4: ???
     pub server_address: Option<String>,
@@ -140,10 +140,10 @@ pub struct ClientSdp {
     pub bw_flags: Vec<u32>,
     /// This seems to be vec![0, 0, 0, 0]
     pub video_qos_max_consecutive_drops: Vec<u32>,
-    // -- Gen 3 options: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L124
+    // -- Gen 3 options: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L124>
     /// This seems to be the value 0x42774141
     /// These are all NvFeatureFlags turned on (BASE | AUDIO_ENCRYPTION | RI_ENCRYPTION)
-    // -- Gen 5 options: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L180
+    // -- Gen 5 options: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L180>
     /// APP_VERSION_AT_LEAST(7, 1, 431)
     /// RI encryption is always enabled
     pub features_flags: Option<NvFeatureFlags>,
@@ -169,7 +169,7 @@ pub struct ClientSdp {
     pub use_control_channel: Option<bool>,
     /// APP_VERSION_AT_SMALLER_EQ(7, 1, 431)
     /// When streaming 4K, lower FEC levels to reduce stream overhead
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L224C9-L224C73
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L224C9-L224C73>
     pub fec_repair_percent: Option<u32>,
     /// true if APP_VERSION_AT_LEAST(7, 1, 446) && (StreamConfig.width < 720 || StreamConfig.height < 540)
     /// We enable DRC with a static DRC table for very low resoutions on GFE 3.26 to work around
@@ -180,7 +180,7 @@ pub struct ClientSdp {
     /// the host otherwise.
     pub enable_drc: Option<bool>,
     /// Use if drc_enable is true: set to 2
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L241
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L241>
     pub drc_table_type: Option<u32>,
     /// Recovery mode can cause the FEC percentage to change mid-frame, which
     /// breaks many assumptions in RTP FEC queue.
@@ -210,8 +210,8 @@ pub struct ClientSdp {
     pub audio_surround_channel_mask: Option<u32>,
     pub audio_surround_enable: Option<bool>,
     /// Enabled when more than 2 channels, this also influences the opus config
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/AudioStream.c#L428-L438
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L492-L530
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/AudioStream.c#L428-L438>
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L492-L530>>>>
     pub audio_surround_quality: Option<bool>,
     pub audio_packet_duration: Option<Duration>,
     pub encoder_csc_mode: Option<(ColorSpace, ColorRange)>,
@@ -220,7 +220,7 @@ pub struct ClientSdp {
     /// Sunshine extension: moonlight feature flags
     pub sunshine_moonlight_feature_flags: Option<MoonlightFeatureFlags>,
     /// Sunshine extension: only use when advertise, New-style control stream encryption is low overhead
-    /// Important for video: Adjust the video packet size to account for encryption overhead, https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L322C8-L322C71
+    /// Important for video: Adjust the video packet size to account for encryption overhead, <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L322C8-L322C71>
     pub sunshine_encryption: Option<SunshineEncryptionFlags>,
     /// Sunshine extension: Enable YUV444 if requested
     pub sunshine_chroma_sampling_type: Option<ChromaSamplingType>,
@@ -231,13 +231,13 @@ impl ClientSdp {
     ///
     /// Some other values are changed which this function won't do:
     /// - adjust packet size:
-    ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L322
-    ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L293-L295
-    ///   - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L412-L423
-    /// - adjust bitrate: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L336-L354
-    /// - When streaming 4K, lower FEC levels to reduce stream overhead: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L224C9-L230
-    /// - Slices per frame: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L424-L431
-    /// - Max Num Reference Frames: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L462-L474
+    ///   - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L322>
+    ///   - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L293-L295>
+    ///   - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Connection.c#L412-L423>
+    /// - adjust bitrate: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L336-L354>
+    /// - When streaming 4K, lower FEC levels to reduce stream overhead: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L224C9-L230>
+    /// - Slices per frame: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L424-L431>
+    /// - Max Num Reference Frames: <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/SdpGenerator.c#L462-L474>
     ///
     /// Other hints:
     /// - server_address: look in the struct

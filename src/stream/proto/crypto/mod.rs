@@ -121,7 +121,7 @@ where
 const BLOCK_SIZE: usize = 16;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/PlatformCrypto.h#L22
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/PlatformCrypto.h#L22>
 pub const fn round_to_pkcs7_padded_len(x: usize) -> usize {
     x.div_ceil(BLOCK_SIZE) * BLOCK_SIZE
 }

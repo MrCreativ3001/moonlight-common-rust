@@ -57,8 +57,8 @@ pub enum ControlEncryptionMethod {
     /// Enabled if APP_VERSION_AT_LEAST(7, 1, 431)
     ///
     /// References:
-    /// - Server Version: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L309
-    /// - Encryption: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L568-L574
+    /// - Server Version: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L309>
+    /// - Encryption: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L568-L574>
     Nvidia,
     /// Enabled if [SunshineEncryptionFlags::CONTROL_V2](super::sdp::client::SunshineEncryptionFlags::CONTROL_V2).
     Sunshine,

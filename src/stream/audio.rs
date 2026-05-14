@@ -45,7 +45,7 @@ impl OpusMultistreamConfig {
     /// Parse a single surround-param integer into an OpusMultistreamConfig
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L733-L834
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L733-L834>
     pub fn from_surround_param(param: u64) -> Self {
         // Default values
         let mut config = OpusMultistreamConfig {
@@ -118,7 +118,7 @@ impl AudioConfig {
     pub const SURROUND_71: AudioConfig = Self::new(8, 0x63F);
 
     /// Specifies an audio configuration by channel count and channel mask
-    /// See https://docs.microsoft.com/en-us/windows-hardware/drivers/audio/channel-mask for channelMask values
+    /// See <https://docs.microsoft.com/en-us/windows-hardware/drivers/audio/channel-mask> for channelMask values
     /// NOTE: Not all combinations are supported by GFE and/or this library.
     pub const fn new(channel_count: u32, channel_mask: u32) -> Self {
         Self {
@@ -151,7 +151,7 @@ impl AudioConfig {
 
     /// Helper function to retreive the surroundAudioInfo parameter value that must be passed in the /launch and /resume HTTPS requests when starting the session.
     ///
-    /// References: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L215-L218
+    /// References: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L215-L218>
     pub fn to_surround_audio_info(&self) -> u32 {
         (self.channel_mask << 16) | self.channel_count
     }
@@ -169,7 +169,7 @@ pub struct AudioFrame<Buf> {
     /// This means that they could theoretically desync.
     ///
     /// References:
-    /// - Sunshine https://github.com/LizardByte/Sunshine/blob/d157bb1d1eb7b0731cbf4caa7287bc7d715c5612/src/stream.cpp#L1646 and https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp#L971
+    /// - Sunshine <https://github.com/LizardByte/Sunshine/blob/d157bb1d1eb7b0731cbf4caa7287bc7d715c5612/src/stream.cpp#L1646> and <https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp#L971>
     /// - Also see [crate::stream::proto::sdp::client::ClientSdp::audio_packet_duration]
     pub timestamp: Duration,
     pub buffer: Buf,

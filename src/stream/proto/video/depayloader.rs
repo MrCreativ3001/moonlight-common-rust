@@ -43,7 +43,7 @@ pub struct VideoDepayloaderConfig {
     /// This means PAYLOAD_SIZE = ACTUAL_PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = ACTUAL_PACKET_SIZE - 32.
     ///
     /// References:
-    /// - Games on Whales docs: https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
+    /// - Games on Whales docs: <https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets>
     pub packet_size: usize,
     pub format: VideoFormat,
     /// The version of the server.
@@ -91,12 +91,12 @@ pub struct VideoFrameMetadata {
     /// 90kHz clock time representation.
     ///
     /// References:
-    /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
+    /// - Moonlight common c: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157>
     pub timestamp: Duration,
     /// The processing latency of the host
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L151-L155
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L151-L155>
     pub host_processing_latency: Option<Duration>,
 }
 
@@ -162,7 +162,7 @@ impl VideoDepayloader {
     /// Creates a new VideoDepayloader
     ///
     /// Our FEC recovery code doesn't work properly until Gen 5
-    /// https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258
+    /// <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258>
     pub fn new(config: VideoDepayloaderConfig) -> Self {
         Self {
             config,

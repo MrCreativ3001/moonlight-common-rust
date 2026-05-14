@@ -152,7 +152,7 @@ pub struct VideoSetup {
 /// Sunshine Extension
 ///
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L967-L988
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L967-L988>
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SunshineHdrMetadata {
     pub display_primaries: [Primary; 3],
@@ -280,7 +280,7 @@ pub struct VideoDecodeUnit<Buf> {
     /// 90kHz clock time representation.
     ///
     /// References:
-    /// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157
+    /// - Moonlight common c: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/RtpVideoQueue.c#L157>
     pub timestamp: Duration,
     /// Provides the colorspace of this frame (see COLORSPACE_* defines above)
     ///

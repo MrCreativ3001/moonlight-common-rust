@@ -1,8 +1,8 @@
 //! Moonlilght Pairing
 //!
 //! References:
-//! - https://games-on-whales.github.io/wolf/stable/protocols/http-pairing.html
-//! - Moonlight-Embedded: https://github.com/moonlight-stream/moonlight-embedded/blob/master/libgamestream/client.c#L426
+//! - <https://games-on-whales.github.io/wolf/stable/protocols/http-pairing.html>
+//! - Moonlight-Embedded: <https://github.com/moonlight-stream/moonlight-embedded/blob/master/libgamestream/client.c#L426>
 
 use std::{
     fmt::{self, Debug, Display},
@@ -131,7 +131,7 @@ pub const CHALLENGE_LENGTH: usize = 16;
 /// The last request (pairing phase 5) MUST be made over https in order to make sure that the certificate can make https requests.
 ///
 /// References:
-/// - Wolf: https://games-on-whales.github.io/wolf/stable/protocols/http-pairing.html
+/// - Wolf: <https://games-on-whales.github.io/wolf/stable/protocols/http-pairing.html>
 pub struct PairEndpoint;
 
 impl Endpoint for PairEndpoint {

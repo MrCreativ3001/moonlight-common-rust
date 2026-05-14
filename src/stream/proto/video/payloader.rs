@@ -36,7 +36,7 @@ pub struct VideoPayloaderConfig {
     /// This means PAYLOAD_SIZE = PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = PACKET_SIZE - 32.
     ///
     /// References:
-    /// - Games on Whales docs: https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
+    /// - Games on Whales docs: <https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets>
     pub packet_size: usize,
     pub fec: Option<VideoPayloaderFecConfig>,
 }

@@ -21,7 +21,7 @@ use crate::stream::{
 };
 
 /// References:
-/// - https://github.com/qiin2333/moonlight-common-c/blob/7ed14144d1aef1d6d234ea98b17eedc083a5ac36/src/RtspConnection.c#L1438-L1439
+/// - <https://github.com/qiin2333/moonlight-common-c/blob/7ed14144d1aef1d6d234ea98b17eedc083a5ac36/src/RtspConnection.c#L1438-L1439>
 pub const FOUNDATION_DEFAULT_MIC_PORT: u16 = 47996;
 
 pub mod packet;

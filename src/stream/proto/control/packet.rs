@@ -22,10 +22,10 @@ use crate::{
 /// The server must be pinged every few milliseconds
 ///
 /// References:
-/// - Moonlight Interval: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L298
+/// - Moonlight Interval: <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L298>
 pub const PERIODIC_PING_INTERVAL: Duration = Duration::from_millis(100);
 /// References:
-/// - Moonlight Version Check: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L354
+/// - Moonlight Version Check: <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L354>
 pub const PERIODIC_PING_VERSION: ServerVersion = ServerVersion::new(7, 1, 415, 0);
 
 #[derive(Debug, Error)]
@@ -33,7 +33,7 @@ pub const PERIODIC_PING_VERSION: ServerVersion = ServerVersion::new(7, 1, 415, 0
 pub struct ControlPacketNotSupported;
 
 /// Control Header:
-/// - Definition: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L20-L23
+/// - Definition: <https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L20-L23>
 ///
 /// The header of the decrypted payload which follows after the EncryptedControlHeader
 pub struct ControlHeaderV2 {
@@ -60,17 +60,17 @@ impl ControlHeaderV2 {
 pub const ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH: usize = 16;
 
 /// References:
-/// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1222
+/// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1222>
 pub const ENCRYPTED_CONTROL_PACKET_TYPE: u16 = 0x0001;
 
 /// Encrypted Control Header:
 ///
 /// Encryption requires version APP_VERSION_AT_LEAST(7, 1, 431):
 ///
-/// - Version: https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L308
+/// - Version: <https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L308>
 /// - Definition:
-///   - https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_encrypted_packet_format
-///   - https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L25-L32
+///   - <https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_encrypted_packet_format>
+///   - <https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L25-L32>
 #[derive(Debug, PartialEq)]
 pub struct EncryptedControlHeader {
     /// The type of message, fixed at 0x0001 for this type of packet
@@ -121,7 +121,7 @@ impl EncryptedControlHeader {
 }
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight-internal.h#L56-L66
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight-internal.h#L56-L66>
 #[derive(Debug, Clone, Copy)]
 pub struct EnetChannel(pub u8);
 
@@ -249,7 +249,7 @@ pub struct ControlPacketConfig {
 
 impl ControlPacketConfig {
     /// References:
-    /// - moonlight common c https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L310-L341
+    /// - moonlight common c <https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/ControlStream.c#L310-L341>
     pub fn new(server_version: ServerVersion, encrypted: bool) -> Option<Self> {
         match server_version.major {
             5 => Some(Self {
@@ -450,134 +450,134 @@ impl TerminationReason {
     /// Also known as NVST_DISCONN_SERVER_TERMINATED_CLOSED, ML_ERROR_GRACEFUL_TERMINATION or ML_ERROR_UNEXPECTED_EARLY_TERMINATION based on context and state.
     ///
     /// References:
-    /// - Wolf: https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/src/moonlight-protocol/moonlight/control.hpp#L300
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1320-L1330
+    /// - Wolf: <https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/src/moonlight-protocol/moonlight/control.hpp#L300>
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1320-L1330>
     pub const GRACEFUL: TerminationReason = TerminationReason::Long(0x80030023);
     /// References:
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1314-L1316
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1314-L1316>
     pub const NVST_DISCONN_SERVER_VIDEO_ENCODER_CONVERT_INPUT_FRAME_FAILED: TerminationReason =
         TerminationReason::Long(0x800e9403);
     /// References:
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1317-L1319
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1317-L1319>
     pub const NVST_DISCONN_SERVER_VFP_PROTECTED_CONTENT: TerminationReason =
         TerminationReason::Long(0x800e9302);
 }
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L33
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L33>
 pub const UTF8_TEXT_MAX_COUNT: usize = 32;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L22
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L22>
 pub const KEY_DOWN_EVENT_MAGIC: u32 = 0x00000003;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L23
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L23>
 pub const KEY_UP_EVENT_MAGIC: u32 = 0x00000004;
 
 /// This is for version ServerVersion::major < 4.
 /// Those are not supported by this implementation
 ///
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L39
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L39>
 pub const MOUSE_MOVE_REL_MAGIC: u32 = 0x00000006;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L39
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L39>
 pub const MOUSE_MOVE_REL_MAGIC_GEN5: u32 = 0x00000007;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L47
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L47>
 pub const MOUSE_MOVE_ABS_MAGIC: u32 = 0x00000005;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L62
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L62>
 pub const MOUSE_BUTTON_DOWN_EVENT_MAGIC_GEN5: u32 = 0x00000008;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L63
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L63>
 pub const MOUSE_BUTTON_UP_EVENT_MAGIC_GEN5: u32 = 0x00000009;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L69
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L69>
 pub const CONTROLLER_MAGIC: u32 = 0x0000000A;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L70
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L70>
 pub const C_HEADER_B: u32 = 0x1400;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L71
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L71>
 pub const C_TAIL_A: u32 = 0x0000009C;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72>
 pub const C_TAIL_B: u32 = 0x0055;
 
 /// This is for version ServerVersion::major < 4.
 /// Those are not supported by this implementation
 ///
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L87
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L87>
 pub const MULTI_CONTROLLER_MAGIC: u32 = 0x0000000D;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L88
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L88>
 pub const MULTI_CONTROLLER_MAGIC_GEN5: u32 = 0x0000000C;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L89
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L89>
 pub const MC_HEADER_B: i16 = 0x001A;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L72>
 pub const MC_MID_B: i16 = 0x0014;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L91
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L91>
 pub const MC_TAIL_A: i16 = 0x009C;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L92
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L92>
 pub const MC_TAIL_B: i16 = 0x0055;
 
 /// This is for version ServerVersion::major < 4.
 /// Those are not supported by this implementation
 ///
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L111
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L111>
 pub const SCROLL_MAGIC: u32 = 0x00000009;
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L112
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L112>
 pub const SCROLL_MAGIC_GEN5: u32 = 0x0000000A;
 /// Matches Win32 WHEEL_DELTA definition
 ///
 /// References:
-/// - definition https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L36-L37
-/// - usage: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1182-L1275
+/// - definition <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L36-L37>
+/// - usage: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1182-L1275>
 pub const SCROLL_DELTA: i16 = 120;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L120
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L120>
 pub const SS_HSCROLL_MAGIC: u32 = 0x55000001;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L126
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L126>
 pub const SS_TOUCH_MAGIC: u32 = 0x55000002;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L140
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L140>
 pub const SS_PEN_MAGIC: u32 = 0x55000003;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L157
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L157>
 pub const SS_CONTROLLER_ARRIVAL_MAGIC: u32 = 0x55000004;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L166
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L166>
 pub const SS_CONTROLLER_TOUCH_MAGIC: u32 = 0x55000005;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L178
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L178>
 pub const SS_CONTROLLER_MOTION_MAGIC: u32 = 0x55000006;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L189
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L189>
 pub const SS_CONTROLLER_BATTERY_MAGIC: u32 = 0x55000007;
 
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32>
 pub const UTF8_TEXT_EVENT_MAGIC: u32 = 0x00000017;
 
 /// A control packet for the [ControlHost](super::peer::ControlHost).
@@ -587,8 +587,8 @@ pub enum ControlPacket {
     /// Sent from the server to set the controller rumble for a specific controller.
     ///
     /// References:
-    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1046-L1054
-    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_data
+    /// - moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1046-L1054>
+    /// - gow: <https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_data>
     ControllerRumbleData {
         unused: u32,
         controller_number: u16,
@@ -600,8 +600,8 @@ pub enum ControlPacket {
     /// Sent from the server to set the controller trigger rumble for a specific controller.
     ///
     /// References:
-    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1055-L1061
-    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_triggers
+    /// - moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1055-L1061>
+    /// - gow: <https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_triggers>
     ControllerRumbleTriggers {
         controller_number: u16,
     },
@@ -611,16 +611,16 @@ pub enum ControlPacket {
     /// By default Moonlight disables these events in order to save bandwith.
     ///
     /// References:
-    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1062-L1068
-    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_motion_event
+    /// - moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1062-L1068>
+    /// - gow: <https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_motion_event>
     ControllerSetMotion {
         controller_number: u16,
         rate: u16,
         motion_type: MotionType,
     },
     /// References:
-    /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L958-L981
-    /// - gow: https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rgb_led
+    /// - moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L958-L981>
+    /// - gow: <https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rgb_led>
     ControllerSetLed {
         controller_number: u16,
         r: u8,
@@ -636,24 +636,24 @@ pub enum ControlPacket {
     /// APP_VERSION_AT_LEAST(7, 1, 415) is required.
     ///
     /// References:
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1439
-    /// - Moonlight Interval: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L298
-    /// - Moonlight Version Check: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L354
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L1424-L1439>
+    /// - Moonlight Interval: <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L298>
+    /// - Moonlight Version Check: <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L354>
     PeriodicPing,
     HdrMode {
         enabled: bool,
         /// Sunshine Extension
         ///
         /// References:
-        /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293
+        /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1265-L1293>
         sunshine: Option<SunshineHdrMetadata>,
     },
     /// Send the video loss statistics.
     /// This is used very regularly to update the server on the packet loss.
     ///
     /// References:
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1451-L1484
-    /// - Sunshine: https://github.com/LizardByte/Sunshine/blob/5fba591e6e856a3455d4c8a1cf2f62b68e699d02/src/stream.cpp#L935-L949
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1451-L1484>
+    /// - Sunshine: <https://github.com/LizardByte/Sunshine/blob/5fba591e6e856a3455d4c8a1cf2f62b68e699d02/src/stream.cpp#L935-L949>
     LossStats {
         /// This is 0.
         unknown1: u32,
@@ -675,8 +675,8 @@ pub enum ControlPacket {
     /// But it exists and is unused.
     ///
     /// References:
-    /// - Moonlight unused: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L208
-    /// - Sunshine unused: https://github.com/LizardByte/Sunshine/blob/ba4db46ac0bfbe478ad017f0b388bfcb346ad8ce/src/stream.cpp#L58
+    /// - Moonlight unused: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L208>
+    /// - Sunshine unused: <https://github.com/LizardByte/Sunshine/blob/ba4db46ac0bfbe478ad017f0b388bfcb346ad8ce/src/stream.cpp#L58>
     FrameStats {},
     /// Sunshine Extension
     ///
@@ -686,9 +686,9 @@ pub enum ControlPacket {
     /// Reports the video fec status to the server so it can adjust the amount of fec packets it sends.
     ///
     /// References:
-    /// - moonlight sending: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1406-L1421
-    /// - moonlight definition: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L56-L70
-    /// - Sunshine not used: https://github.com/LizardByte/Sunshine/blob/5fba591e6e856a3455d4c8a1cf2f62b68e699d02/src/stream.cpp#L922-L1174
+    /// - moonlight sending: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1406-L1421>
+    /// - moonlight definition: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Video.h#L56-L70>
+    /// - Sunshine not used: <https://github.com/LizardByte/Sunshine/blob/5fba591e6e856a3455d4c8a1cf2f62b68e699d02/src/stream.cpp#L922-L1174>
     FrameFec {
         frame_index: u32,
         highest_received_sequence_number: u16,
@@ -706,9 +706,9 @@ pub enum ControlPacket {
     /// Moves the mouse using relative motion
     ///
     /// References:
-    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_relative_move
-    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L130-L133
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L41-L45
+    /// - <https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_relative_move>
+    /// - <https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L130-L133>
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L41-L45>
     MouseMoveRelative {
         delta_x: i16,
         delta_y: i16,
@@ -716,8 +716,8 @@ pub enum ControlPacket {
     /// Moves the mouse to x and y based on the reference width and height
     ///
     /// References:
-    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L135-L141
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L48-L60
+    /// - <https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L135-L141>
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L48-L60>
     MouseMoveAbsolute {
         x: i16,
         y: i16,
@@ -727,9 +727,9 @@ pub enum ControlPacket {
         reference_height: i16,
     },
     /// References:
-    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_button
-    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L143-L145
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L64-L67
+    /// - <https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_button>
+    /// - <https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L143-L145>
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L64-L67>
     MouseButton {
         action: MouseButtonAction,
         button: MouseButton,
@@ -737,11 +737,11 @@ pub enum ControlPacket {
     /// Sends a keyboard event to the host.
     ///
     /// Weird side effects:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L902-L943
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L902-L943>
     ///
     /// References:
-    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_keyboard
-    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L157-L162
+    /// - <https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_keyboard>
+    /// - <https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L157-L162>
     Keyboard {
         action: KeyAction,
         flags: KeyFlags,
@@ -752,8 +752,8 @@ pub enum ControlPacket {
     /// Sends utf8 encoded text to the host.
     ///
     /// References:
-    /// - Moonlight layout: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32-L37
-    /// - Moonlight construction: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L983-L985
+    /// - Moonlight layout: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32-L37>
+    /// - Moonlight construction: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/InputStream.c#L983-L985>
     Text {
         text: [u8; UTF8_TEXT_MAX_COUNT],
         /// Must be smaller or equal to 32
@@ -764,9 +764,9 @@ pub enum ControlPacket {
     /// Only use scroll_amount_1.
     ///
     /// References:
-    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_scroll
-    /// - https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L147-L151
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L113-L118
+    /// - <https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_scroll>
+    /// - <https://github.com/games-on-whales/wolf/blob/5a393daafac36ff86453504d96faea50d160780d/src/moonlight-protocol/moonlight/control.hpp#L147-L151>
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L113-L118>
     MouseScroll {
         scroll_amount_1: i16,
         /// This is unused
@@ -777,8 +777,8 @@ pub enum ControlPacket {
     /// Horizontal Scrolling
     ///
     /// References:
-    /// - https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_horizontal_scroll
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L121-L124
+    /// - <https://games-on-whales.github.io/wolf/stable/protocols/input-data.html#_mouse_horizontal_scroll>
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L121-L124>
     MouseHorizontalScroll {
         scroll_amount: i16,
     },
@@ -789,11 +789,11 @@ pub enum ControlPacket {
     /// These are detect using the sdp
     ///
     /// See also:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L615-L650
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L615-L650>
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L127-L138
-    /// - sdp detection: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/RtspConnection.c#L1145-L1147
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L127-L138>
+    /// - sdp detection: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/RtspConnection.c#L1145-L1147>
     Touch {
         event_type: TouchEventType,
         /// This is 0.
@@ -811,8 +811,8 @@ pub enum ControlPacket {
     /// Sends pen related events to the host.
     ///
     /// References:
-    /// - definition: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L141-L155
-    /// - other types related: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L663-L682
+    /// - definition: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L141-L155>
+    /// - other types related: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L663-L682>
     Pen {
         event_type: TouchEventType,
         tool_type: ToolType,
@@ -834,8 +834,8 @@ pub enum ControlPacket {
     /// This is the MultiController packet in moonlight, but we only have this because we only support Gen5 server and only server below Gen5 use the old packet.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L93-L109
-    /// - how to use correctly: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L93-L109>
+    /// - how to use correctly: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L998-L1162>
     ControllerState {
         header_b: i16,
         controller_number: i16,
@@ -858,7 +858,7 @@ pub enum ControlPacket {
         /// For GFE always 0.
         ///
         /// References:
-        /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L107
+        /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L107>
         button_flags_2: i16,
         /// This is [MC_TAIL_B]
         tail_b: i16,
@@ -868,7 +868,7 @@ pub enum ControlPacket {
     /// Send the arrival of a controller to the host.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L158-L164
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L158-L164>
     ControllerArrival {
         controller_number: u8,
         ty: ControllerType,
@@ -880,7 +880,7 @@ pub enum ControlPacket {
     /// Send controller motion to the host.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L179-L187
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L179-L187>
     ControllerMotion {
         controller_number: u8,
         motion_type: MotionType,
@@ -890,8 +890,8 @@ pub enum ControlPacket {
         z: f32,
     },
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L190-L196
-    /// - how to use: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1588-L1628
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L190-L196>
+    /// - how to use: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1588-L1628>
     ControllerBattery {
         // TODO: what does this do exactly?
         controller_number: u8,
@@ -903,7 +903,7 @@ pub enum ControlPacket {
     /// Invalidates references frames. Make sure the server supports this using the sdp before requesting this.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Video.h#L79-L86
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Video.h#L79-L86>
     InvalidateReferenceFrames {
         first_frame_index: u32,
         reserved1: u32,
@@ -913,7 +913,7 @@ pub enum ControlPacket {
     /// Acknowledges a long term reference frame.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Video.h#L72-L77
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Video.h#L72-L77>
     LongTermReferenceFrameAcknowledgement {
         frame_index: u32,
         reserved: u32,
@@ -924,10 +924,10 @@ pub enum ControlPacket {
     /// Client Termination works by disconnecting using enet.
     ///
     /// References:
-    /// - Wolf: https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/src/moonlight-protocol/moonlight/control.hpp#L300-L310
-    /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1299-L1379
-    /// - Moonlight short: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1336-L1355
-    /// - Moonlight Client Disconnect: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Misc.c#L43-L85
+    /// - Wolf: <https://github.com/games-on-whales/wolf/blob/de3101881a7942dd67074d8ac0831febf50f6705/src/moonlight-protocol/moonlight/control.hpp#L300-L310>
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1299-L1379>
+    /// - Moonlight short: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L1336-L1355>
+    /// - Moonlight Client Disconnect: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Misc.c#L43-L85>
     ServerTermination {
         reason: TerminationReason,
     },

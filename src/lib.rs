@@ -89,9 +89,9 @@ pub enum ServerType {
     #[default]
     NvidiaGameStream,
     Sunshine,
-    /// See https://github.com/ClassicOldSong/Apollo
+    /// See <https://github.com/ClassicOldSong/Apollo>
     Apollo,
-    /// See https://github.com/AlkaidLab/foundation-sunshine/
+    /// See <https://github.com/AlkaidLab/foundation-sunshine/>
     FoundationSunshine,
 }
 

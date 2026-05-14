@@ -125,10 +125,8 @@ impl Deref for AesIv {
 
 /// This contains technical details that are required for a stream to start.
 ///
-/// Before starting a stream [MoonlightStreamConfig::adjust_for_server] should be called to support older servers.
-///
 /// References:
-/// - Moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L524-L539
+/// - Moonlight common c: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L524-L539>
 #[derive(Debug)]
 pub struct MoonlightStreamConfig {
     /// The address of the server
@@ -170,11 +168,14 @@ pub struct MoonlightStreamConfig {
     /// - [Foundation Microphone Payloader](crate::stream::proto::microphone::foundation::payloader::FoundationMicPayloader)
     ///
     /// References:
-    /// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight.h#L105-L106
+    /// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight.h#L105-L106>
     // TODO: find out a specific version (Foundation Sunshine Version in the serverinfo response?) at which this is supported
     pub foundation_enable_mic: bool,
 }
 
+///
+/// Before starting a stream [MoonlightStreamConfig::adjust_for_server] should be called to support older servers.
+///
 #[derive(Debug, Clone)]
 pub struct MoonlightStreamSettings {
     pub width: u32,
@@ -359,21 +360,21 @@ pub struct HostProtocolExtensions {
     /// If the host supports pen touch events.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1003
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1003>
     pub sunshine_pen: bool,
     /// Sunshine Extension
     ///
     /// If the host supports general touch events.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1003
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1003>
     pub sunshine_touch: bool,
     /// Sunshine Extension
     ///
     /// If the host supports controller touch events.
     ///
     /// References:
-    /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1004
+    /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L1004>
     pub sunshine_controller_touch: bool,
     /// Apollo Extension
     ///
@@ -385,14 +386,14 @@ pub struct HostProtocolExtensions {
     /// - [ApolloPermissions]
     ///
     /// References:
-    /// - packet definitions: https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/stream.cpp#L73-L74
-    /// - server commands: https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/stream.cpp#L1004-L1035
-    /// - set / get clipboard: https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/nvhttp.cpp#L1526-L1634
+    /// - packet definitions: <https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/stream.cpp#L73-L74>
+    /// - server commands: <https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/stream.cpp#L1004-L1035>
+    /// - set / get clipboard: <https://github.com/ClassicOldSong/Apollo/blob/dd99a82247de72ad16b8804ae85822ddc8222c3a/src/nvhttp.cpp#L1526-L1634>
     pub apollo_permissions: Option<ApolloPermissions>,
     /// Foundation Sunshine Extension
     ///
     /// References:
-    /// - https://github.com/AlkaidLab/foundation-sunshine/blob/c2d8de3650a2ddf65281b6694e623c865a603831/src/stream.cpp#L88-L89
+    /// - <https://github.com/AlkaidLab/foundation-sunshine/blob/c2d8de3650a2ddf65281b6694e623c865a603831/src/stream.cpp#L88-L89>
     pub foundation_microphone: bool,
     // TODO: https://github.com/AlkaidLab/foundation-sunshine/blob/c2d8de3650a2ddf65281b6694e623c865a603831/src/stream.cpp#L90-L91
 }

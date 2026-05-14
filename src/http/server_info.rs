@@ -97,7 +97,7 @@ bitflags! {
 }
 
 /// References:
-/// - Moonlight Embedded: https://github.com/moonlight-stream/moonlight-embedded/blob/775444287305849ebdf4736c75298ad0713e2d5d/libgamestream/client.c#L167-L269
+/// - Moonlight Embedded: <https://github.com/moonlight-stream/moonlight-embedded/blob/775444287305849ebdf4736c75298ad0713e2d5d/libgamestream/client.c#L167-L269>
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerInfoResponse {
     pub host_name: String,
@@ -128,7 +128,7 @@ pub struct ServerInfoResponse {
     /// The version of Foundation Sunshine
     ///
     /// References:
-    /// - https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L988
+    /// - <https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L988>
     pub foundation_sunshine_version: Option<String>,
     /// Foundation Extension
     ///
@@ -139,7 +139,7 @@ pub struct ServerInfoResponse {
     /// need to be re-fetched.
     ///
     /// References:
-    /// - https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L1053
+    /// - <https://github.com/AlkaidLab/foundation-sunshine/blob/798d57e693f14769533abd8be43c2b82f5ca0957/src/nvhttp.cpp#L1053>
     pub foundation_app_list_etag: Option<String>,
 }
 

@@ -1,26 +1,26 @@
 // TODO: Control Stream Extensions: https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Input.h#L198-L214
 
 /// References:
-/// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L4
+/// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L4>
 pub const FOUNDATION_MIC_IV_LEN: usize = 16;
 /// References:
-/// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L5
+/// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L5>
 pub const FOUNDATION_MIC_HEADER_FLAGS: u8 = 0x0;
 
 /// References:
-/// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L60
+/// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L60>
 pub const FOUNDATION_MIC_MAGIC: u32 = 0x12345678;
 
 /// References:
-/// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L61
+/// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L61>
 pub const FOUNDATION_MIC_PACKET_TYPE_OPUS: u8 = 0x61;
 
 /// References:
-/// - https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L61
+/// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight-internal.h#L61>
 pub const FOUNDATION_MAX_MIC_PACKET_SIZE: usize = 1400;
 
 /// References:
-/// - Mic PR: https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L15-L21
+/// - Mic PR: <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L15-L21>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FoundationMicHeader {
     pub flags: u8,

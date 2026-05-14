@@ -29,7 +29,7 @@ pub struct ResumeResponse {
     ///
     /// References:
     /// - [wolf docs](https://games-on-whales.github.io/wolf/stable/protocols/rtsp.html) for more details:
-    /// - moonlight common c: https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L534-L535
+    /// - moonlight common c: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L534-L535>
     pub rtsp_session_url: Option<String>,
 }
 

@@ -229,7 +229,7 @@ bitflags! {
     }
 }
 
-/// Motion sensor types for [`LiSendControllerMotionEvent`].
+/// Motion sensor types for `LiSendControllerMotionEvent`.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, ToPrimitive)]
 pub enum MotionType {
@@ -248,10 +248,10 @@ bitflags! {
     }
 }
 
-/// Battery states for [`LiSendControllerBatteryEvent`].
+/// Battery states for `LiSendControllerBatteryEvent`.
 ///
 /// Refernces:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L811-L820
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Limelight.h#L811-L820>
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, FromPrimitive, ToPrimitive)]
 pub enum BatteryState {
