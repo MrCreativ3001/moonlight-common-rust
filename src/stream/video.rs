@@ -36,6 +36,8 @@ bitflags! {
         const HEVC_REXT10_444 = SCM_HEVC_REXT10_444;
         const AV1_HIGH8_444   = SCM_AV1_HIGH8_444;
         const AV1_HIGH10_444  = SCM_AV1_HIGH10_444;
+
+        const MASK_HEVC = SCM_HEVC | SCM_HEVC_MAIN10 | SCM_HEVC_REXT8_444 | SCM_HEVC_REXT10_444;
     }
 }
 

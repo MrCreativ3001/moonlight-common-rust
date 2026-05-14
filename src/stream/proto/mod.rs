@@ -944,9 +944,13 @@ where
         let negotiated_video_format;
 
         if self
-            .client_settings
-            .supported_video_formats
-            .intersects(VideoFormats::MASK_H265)
+            .client_config
+            .server_codec_mode_support
+            .intersects(ServerCodecModeSupport::MASK_HEVC)
+            && self
+                .client_settings
+                .supported_video_formats
+                .intersects(VideoFormats::MASK_H265)
         {
             // H265 Rext 10
             if self
