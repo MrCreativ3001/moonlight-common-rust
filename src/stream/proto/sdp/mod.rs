@@ -306,30 +306,30 @@ impl FromStr for Sdp {
 impl Display for Sdp {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if let Some(version) = self.version {
-            writeln!(f, "v={version}")?;
+            write!(f, "v={version}\r\n")?;
         }
         if let Some(origin) = &self.origin {
-            writeln!(f, "o={origin}")?;
+            write!(f, "o={origin}\r\n")?;
         }
         if let Some(session) = &self.session {
-            writeln!(f, "s={session}")?;
+            write!(f, "s={session}\r\n")?;
         }
 
         for attribute in &self.attributes {
-            writeln!(
+            write!(
                 f,
-                "a={}:{}",
+                "a={}:{}\r\n",
                 attribute.key,
                 attribute.value.as_deref().unwrap_or("")
             )?;
         }
 
         if let Some((a, b)) = self.time {
-            writeln!(f, "t={a} {b}")?;
+            write!(f, "t={a} {b}\r\n")?;
         }
 
         for media in &self.media {
-            writeln!(f, "m={} {}", media.media_type, media.port)?;
+            write!(f, "m={} {}\r\n", media.media_type, media.port)?;
         }
 
         Ok(())
@@ -402,7 +402,7 @@ mod test {
                 media: vec![],
                 time: None,
             },
-            r#"a=x-ss-general.featureFlags:3
+            &r#"a=x-ss-general.featureFlags:3
 a=x-ss-general.encryptionSupported:5
 a=x-ss-general.encryptionRequested:1
 a=fmtp:97 surround-params=21101
@@ -411,7 +411,8 @@ a=fmtp:97 surround-params=642012453
 a=fmtp:97 surround-params=660012345
 a=fmtp:97 surround-params=85301245367
 a=fmtp:97 surround-params=88001234567
-"#,
+"#
+            .replace("\n", "\r\n"),
         );
 
         // test client sdp
@@ -471,7 +472,7 @@ a=fmtp:97 surround-params=88001234567
                 }],
                 time: Some((0, 0)),
             },
-            r#"v=0
+            &r#"v=0
 o=android 0 14 IN IPv4 192.168.178.140
 s=NVIDIA Streaming Client
 a=x-ml-general.featureFlags:3
@@ -513,7 +514,8 @@ a=x-nv-aqos.packetDuration:5
 a=x-nv-video[0].encoderCscMode:5
 t=0 0
 m=video 47998
-"#,
+"#
+            .replace("\n", "\r\n"),
         );
     }
 }
