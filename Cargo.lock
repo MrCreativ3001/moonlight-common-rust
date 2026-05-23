@@ -1059,10 +1059,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "moonlight-common-bindings"
-version = "0.1.0"
-
-[[package]]
 name = "moonlight-common-sys"
 version = "0.1.0"
 dependencies = [
