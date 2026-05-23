@@ -18,7 +18,7 @@ use crate::{
     stream::{
         EncryptionFlags, HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
         RawHostFeatures, StreamingConfig,
-        audio::{AudioConfig, OpusMultistreamConfig},
+        audio::{AudioConfig, OpusMultistreamChannelMapping, OpusMultistreamConfig},
         proto::{
             audio::{AudioStream, AudioStreamConfig},
             control::{
@@ -277,7 +277,7 @@ where
                 RtspClientConfig {
                     target: rtsp_addr,
                     client_version,
-                    aes_key: Some(config.remote_input_aes_key),
+                    aes_key: Some(config.sunshine_encryption.aes_key),
                 },
                 crypto_backend,
             ),
@@ -389,7 +389,6 @@ where
                             let audio_stream = AudioStream::new(
                                 self.last_now,
                                 AudioStreamConfig {
-                                    addr,
                                     opus_config: opus_config.clone(),
                                     // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpAudioQueue.c#L28-L44
                                     // Older versions of GFE violate some invariants that our FEC code requires, so we turn it off for
@@ -405,10 +404,8 @@ where
                                     // entirely and pass all audio data straight to the decoder.
                                     fec: self.server_version >= ServerVersion::new(7, 1, 415, 0),
                                     sunshine_ping: audio_setup.sunshine_ping.clone(),
-                                    sunshine_encryption: encrypted.then_some((
-                                        self.client_config.remote_input_aes_key,
-                                        self.client_config.remote_input_aes_iv,
-                                    )),
+                                    sunshine_encryption: encrypted
+                                        .then_some(self.client_config.sunshine_encryption),
                                 },
                                 self.crypto_backend.clone(),
                             );
@@ -527,8 +524,8 @@ where
                                 self.last_now,
                                 FoundationMicStreamConfig {
                                     encryption: encrypted.then_some((
-                                        self.client_config.remote_input_aes_key,
-                                        self.client_config.remote_input_aes_iv,
+                                        self.client_config.sunshine_encryption.aes_key,
+                                        self.client_config.sunshine_encryption.aes_iv,
                                     )),
                                 },
                                 self.crypto_backend.clone(),
@@ -585,12 +582,12 @@ where
                             {
                                 Some((
                                     ControlEncryptionMethod::Sunshine,
-                                    self.client_config.remote_input_aes_key,
+                                    self.client_config.sunshine_encryption.aes_key,
                                 ))
                             } else if should_enable_encryption {
                                 Some((
                                     ControlEncryptionMethod::Nvidia,
-                                    self.client_config.remote_input_aes_key,
+                                    self.client_config.sunshine_encryption.aes_key,
                                 ))
                             } else {
                                 None
@@ -906,7 +903,7 @@ where
                 channel_count: 2,
                 streams: 1,
                 coupled_streams: 1,
-                mapping: [0, 1, 0, 0, 0, 0, 0, 0],
+                mapping: OpusMultistreamChannelMapping([0, 1, 0, 0, 0, 0, 0, 0]),
             }
         } else {
             // TODO: is this correct?
@@ -921,7 +918,7 @@ where
                 channel_count: 2,
                 streams: 1,
                 coupled_streams: 1,
-                mapping: [0, 1, 0, 0, 0, 0, 0, 0],
+                mapping: OpusMultistreamChannelMapping([0, 1, 0, 0, 0, 0, 0, 0]),
             };
 
             for opus_config in &server_sdp.audio_surround_params {
