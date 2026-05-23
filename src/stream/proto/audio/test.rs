@@ -345,8 +345,8 @@ pub fn test_audio_payloader_no_fec() {
 
     payloader.push_frame(0, first_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -358,14 +358,14 @@ pub fn test_audio_payloader_no_fec() {
                 first_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     payloader.push_frame(5, second_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -377,14 +377,14 @@ pub fn test_audio_payloader_no_fec() {
                 second_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     payloader.push_frame(10, third_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -396,14 +396,14 @@ pub fn test_audio_payloader_no_fec() {
                 third_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     payloader.push_frame(15, fourth_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -415,9 +415,9 @@ pub fn test_audio_payloader_no_fec() {
                 fourth_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 }
 
 #[test]
@@ -439,8 +439,8 @@ pub fn test_audio_payloader() {
     println!("First frame");
     payloader.push_frame(0, first_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -452,15 +452,15 @@ pub fn test_audio_payloader() {
                 first_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     println!("Second frame");
     payloader.push_frame(5, second_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -472,15 +472,15 @@ pub fn test_audio_payloader() {
                 second_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     println!("Third frame");
     payloader.push_frame(10, third_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -492,15 +492,15 @@ pub fn test_audio_payloader() {
                 third_data,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     println!("Fourth frame");
     payloader.push_frame(15, fourth_data).unwrap();
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_data_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -512,11 +512,11 @@ pub fn test_audio_payloader() {
                 fourth_data,
             )
             .as_slice()
-        ))
+        )
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_fec_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -535,11 +535,11 @@ pub fn test_audio_payloader() {
                 first_fec,
             )
             .as_slice()
-        ))
+        )
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().unwrap(),
+        Some(
             construct_fec_packet(
                 RtpAudioHeader {
                     header: RTP_AUDIO_HEADER,
@@ -558,9 +558,9 @@ pub fn test_audio_payloader() {
                 second_fec,
             )
             .as_slice()
-        ))
+        )
     );
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 }
 
 #[test]
@@ -579,22 +579,22 @@ pub fn test_audio_payloader_sunshine() {
     payloader.set_sequence_number(92);
 
     payloader.push_frame(460, frame1).unwrap();
-    assert_eq!(payloader.poll_packet(), Ok(Some(SUNSHINE_PACKET1)));
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_PACKET1));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     payloader.push_frame(465, frame2).unwrap();
-    assert_eq!(payloader.poll_packet(), Ok(Some(SUNSHINE_PACKET2)));
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_PACKET2));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     payloader.push_frame(470, frame3).unwrap();
-    assert_eq!(payloader.poll_packet(), Ok(Some(SUNSHINE_PACKET3)));
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_PACKET3));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 
     payloader.push_frame(475, frame4).unwrap();
-    assert_eq!(payloader.poll_packet(), Ok(Some(SUNSHINE_PACKET4)));
-    assert_eq!(payloader.poll_packet(), Ok(Some(SUNSHINE_PACKET5)));
-    assert_eq!(payloader.poll_packet(), Ok(Some(SUNSHINE_PACKET6)));
-    assert_eq!(payloader.poll_packet(), Ok(None));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_PACKET4));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_PACKET5));
+    assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_PACKET6));
+    assert_eq!(payloader.poll_packet().unwrap(), None);
 }
 
 fn audio_payloader_encrypted_sunshine<Crypto>(crypto: Crypto)
@@ -614,15 +614,15 @@ where
     assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET1));
     assert_eq!(payloader.poll_packet().unwrap(), None);
 
-    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED2).unwrap();
+    payloader.push_frame(5, SUNSHINE_ENC_EXPECTED2).unwrap();
     assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET2));
     assert_eq!(payloader.poll_packet().unwrap(), None);
 
-    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED3).unwrap();
+    payloader.push_frame(10, SUNSHINE_ENC_EXPECTED3).unwrap();
     assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET3));
     assert_eq!(payloader.poll_packet().unwrap(), None);
 
-    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED4).unwrap();
+    payloader.push_frame(15, SUNSHINE_ENC_EXPECTED4).unwrap();
     assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET4));
     assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET5));
     assert_eq!(payloader.poll_packet().unwrap(), Some(SUNSHINE_ENC_PACKET6));
