@@ -32,7 +32,10 @@ use crate::{
                 peer::{ControlError, ControlHostAction},
             },
             crypto::CryptoBackend,
-            microphone::foundation::FoundationMicStreamError,
+            microphone::foundation::{
+                FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
+                FoundationMicStreamOutput,
+            },
             video::{VideoStreamError, VideoStreamInput, VideoStreamOutput},
         },
         tokio::signal::StopSignal,
@@ -93,6 +96,8 @@ struct Inner {
     handler: Arc<dyn MoonlightStreamHandler + Send + Sync>,
     control_stream: Mutex<Option<ControlStream<Arc<dyn CryptoBackend + Send + Sync>>>>,
     control_stream_notify: Notify,
+    foundation_mic: Mutex<Option<FoundationMicStream<Arc<dyn CryptoBackend + Send + Sync>>>>,
+    foundation_mic_notify: Notify,
     first_frame: Mutex<FirstFrame>,
     first_frame_notify: Notify,
 }
@@ -150,6 +155,8 @@ impl MoonlightStream {
             handler,
             control_stream: Default::default(),
             control_stream_notify: Notify::new(),
+            foundation_mic: Default::default(),
+            foundation_mic_notify: Notify::new(),
             first_frame: Default::default(),
             first_frame_notify: Notify::new(),
         });
@@ -438,7 +445,87 @@ impl MoonlightStream {
                     continue;
                 }
                 MoonlightStreamSetupOutput::FoundationStartMic { addr, mic_stream } => {
-                    todo!();
+                    let inner = inner.clone();
+
+                    let socket = UdpSocket::bind("0.0.0.0").await?;
+                    socket.connect(addr).await?;
+
+                    {
+                        let mut guard = inner.foundation_mic.lock().await;
+                        debug_assert!(guard.is_none());
+                        *guard = Some(mic_stream);
+                    }
+
+                    let handle = spawn({
+                        let inner = inner.clone();
+
+                        async move {
+                            'outer: loop {
+                                if inner.stop.is_notified() {
+                                    break;
+                                }
+
+                                let timeout = {
+                                    let mut mic_stream = inner.foundation_mic.lock().await;
+                                    let Some(mic_stream) = mic_stream.as_mut() else {
+                                        debug!("stopping because of missing control stream");
+                                        inner.stop.stop();
+                                        break;
+                                    };
+
+                                    loop {
+                                        let poll_output = match mic_stream.poll_output() {
+                                            Ok(value) => value,
+                                            Err(err) => {
+                                                handle_error(&inner, err.into());
+                                                break 'outer;
+                                            }
+                                        };
+
+                                        match poll_output {
+                                            FoundationMicStreamOutput::Send { data } => {
+                                                if let Err(err) = socket.send(data).await {
+                                                    handle_error(&inner, err.into());
+                                                    break 'outer;
+                                                }
+                                                continue;
+                                            }
+                                            FoundationMicStreamOutput::Timeout(instant) => {
+                                                break instant;
+                                            }
+                                        }
+                                    }
+                                };
+
+                                let input = select! {
+                                    _ = sleep_until(timeout.into()) => {
+                                        FoundationMicStreamInput::Timeout(Instant::now())
+                                    },
+                                    _ = inner.foundation_mic_notify.notified() => {
+                                        FoundationMicStreamInput::Timeout(Instant::now())
+                                    }
+                                };
+
+                                let mut mic_stream = inner.foundation_mic.lock().await;
+                                let Some(mic_stream) = mic_stream.as_mut() else {
+                                    debug!("stopping because of missing control stream");
+                                    inner.stop.stop();
+                                    break;
+                                };
+                                if let Err(err) = mic_stream.handle_input(input) {
+                                    handle_error(&inner, err.into());
+                                    break 'outer;
+                                }
+
+                                continue;
+                            }
+                        }
+                    });
+
+                    let mut tasks = inner.tasks.lock().await;
+
+                    tasks.foundation_microphone = Some(handle);
+                    continue;
                 }
                 MoonlightStreamSetupOutput::StartControlStream {
                     addr,
@@ -529,9 +616,17 @@ impl MoonlightStream {
 
                                 let mut timeout = match poll_output {
                                     ControlStreamOutput::Action(ControlHostAction::SendUdp {
-                                        addr,
+                                        addr: send_addr,
                                         data,
                                     }) => {
+                                        if send_addr != addr {
+                                            warn!(
+                                                address = %addr,
+                                                "control stream tried to send to another address than the host address!"
+                                            );
+                                            continue;
+                                        }
+
                                         if let Err(err) = socket.send(&data).await {
                                             handle_error(&inner, err.into());
                                             break;
@@ -691,7 +786,20 @@ impl MoonlightStream {
     ///
     /// This function is not cancel safe.
     pub async fn send_microphone_opus_data(&self, timestamp: Duration, frame: &[u8]) -> bool {
-        todo!()
+        let mut foundation_mic_guard = self.inner.foundation_mic.lock().await;
+
+        if let Some(stream) = &mut *foundation_mic_guard {
+            match stream.send_microphone_opus_data(timestamp, frame) {
+                Ok(_) => true,
+                Err(err) => {
+                    warn!(error = ?err, "failed to send foundation microphone data");
+
+                    false
+                }
+            }
+        } else {
+            false
+        }
     }
 
     pub async fn host_features(&self) -> HostFeatures {
