@@ -279,6 +279,11 @@ where
         }
     }
 
+    pub fn request_idr(&mut self) {
+        // Set the waiting time for an idr very low so the next call to poll_output will give an idr request
+        self.waiting_for_idr_since = Some(self.last_now - Duration::from_secs(100));
+    }
+
     pub fn handle_input(&mut self, input: VideoStreamInput) -> Result<(), VideoStreamError> {
         match input {
             VideoStreamInput::Timeout(now) => {

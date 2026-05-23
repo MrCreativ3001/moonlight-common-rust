@@ -332,10 +332,16 @@ impl MoonlightStream {
 
                         async move {
                             let mut first_frame = true;
+                            let mut decode_result = DecodeResult::Ok;
 
                             loop {
                                 if inner.stop.is_notified() {
                                     break;
+                                }
+
+                                if matches!(decode_result, DecodeResult::NeedIdr) {
+                                    video_stream.request_idr();
+                                    decode_result = DecodeResult::Ok;
                                 }
 
                                 let poll_output = match video_stream.poll_output() {
@@ -384,7 +390,7 @@ impl MoonlightStream {
                                             first_frame = false;
                                         }
 
-                                        inner.handler.on_video_frame(frame).await;
+                                        decode_result = inner.handler.on_video_frame(frame).await;
                                         continue;
                                     }
                                     VideoStreamOutput::Timeout(timeout) => timeout,

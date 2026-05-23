@@ -34,7 +34,7 @@ use crate::{
             video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
         },
         std::{ringbuffer::RingBuffer, signal::StopSignal},
-        video::VideoDecoder,
+        video::{DecodeResult, VideoDecoder},
     },
 };
 
@@ -771,7 +771,14 @@ where
         let mut buffer = vec![0; ring_buffer.max_packet_size()];
         let mut started = false;
 
+        let mut decode_result = DecodeResult::Ok;
+
         loop {
+            if matches!(decode_result, DecodeResult::NeedIdr) {
+                video_stream.request_idr();
+                decode_result = DecodeResult::Ok;
+            }
+
             let timeout = {
                 let poll_output = match video_stream.poll_output() {
                     Ok(value) => value,
@@ -802,7 +809,8 @@ where
                             started = true;
                         }
 
-                        video_decoder.submit_decode_unit(decode_unit);
+                        decode_result = video_decoder.submit_decode_unit(decode_unit);
+
                         continue;
                     }
                     VideoStreamOutput::SendControlMessage { message } => {
