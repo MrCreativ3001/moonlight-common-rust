@@ -283,7 +283,7 @@ impl MoonlightStream {
                                 };
 
                                 // Cap duration at 1 to allow for stop signal
-                                timeout = timeout.max(Instant::now() + Duration::from_secs(1));
+                                timeout = timeout.min(Instant::now() + Duration::from_secs(1));
 
                                 select! {
                                     _ = sleep_until(timeout.into()) => {
@@ -405,7 +405,7 @@ impl MoonlightStream {
                                 drop(poll_output);
 
                                 // Cap duration at 1 to allow for stop signal
-                                timeout = timeout.max(Instant::now() + Duration::from_secs(1));
+                                timeout = timeout.min(Instant::now() + Duration::from_secs(1));
 
                                 select! {
                                     _ = sleep_until(timeout.into()) => {
@@ -465,7 +465,7 @@ impl MoonlightStream {
                                     break;
                                 }
 
-                                let timeout = {
+                                let mut timeout = {
                                     let mut mic_stream = inner.foundation_mic.lock().await;
                                     let Some(mic_stream) = mic_stream.as_mut() else {
                                         debug!("stopping because of missing control stream");
@@ -496,6 +496,9 @@ impl MoonlightStream {
                                         }
                                     }
                                 };
+
+                                // Cap duration at 1 to allow for stop signal
+                                timeout = timeout.min(Instant::now() + Duration::from_secs(1));
 
                                 let input = select! {
                                     _ = sleep_until(timeout.into()) => {
@@ -657,7 +660,7 @@ impl MoonlightStream {
                                 };
 
                                 // Cap duration at 1 to allow for stop signal
-                                timeout = timeout.max(Instant::now() + Duration::from_secs(1));
+                                timeout = timeout.min(Instant::now() + Duration::from_secs(1));
 
                                 select! {
                                     _ = sleep_until(timeout.into()) => {
