@@ -1,7 +1,7 @@
 [workspace]
 package.version = "0.1.0"
 package.license = "GPL-3.0-or-later"
-members = ["./", "moonlight-common-sys"]
+members = ["./", "moonlight-common-sys", "uniffi-bindgen"]
 
 [workspace.dependencies]
 moonlight-common-sys = { path = "./moonlight-common-sys" }
