@@ -52,7 +52,6 @@ moonlight-common-sys = { workspace = true, optional = true }
 tokio = { version = "1.49.0", default-features = false, features = [
     "full",
 ], optional = true }
-futures = "0.3.32"
 async-trait = "0.1.89"
 
 # -- Request clients
@@ -116,8 +115,8 @@ cbc = { version = "0.1.2", default-features = false, features = [
     "block-padding",
 ], optional = true }
 
-# Webrtc
-sdp-types = "0.1.8"
+# Webrtc, TODO
+# sdp-types = "0.1.8"
 
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
@@ -191,7 +190,11 @@ openssl-src = "=300.5.3"
 openssl-sys = "=0.9.109"
 
 [package.metadata.cargo-shear]
-ignored = ["openssl-src", "openssl-sys"]
+ignored = [
+    "getrandom",   # getrandom must be ignored, because rand depends on it, but without the js feature
+    "openssl-src",
+    "openssl-sys",
+]
 
 [[example]]
 name = "client-simple"

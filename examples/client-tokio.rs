@@ -4,7 +4,6 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use clap::Parser;
-use futures::executor::block_on;
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     high::tokio::MoonlightHost,
@@ -24,7 +23,7 @@ use moonlight_common::{
         },
     },
 };
-use tokio::{spawn, sync::Mutex, time::sleep};
+use tokio::{sync::Mutex, time::sleep};
 use tracing::info;
 
 use crate::common::{
