@@ -159,11 +159,8 @@ struct Sdp {
 /// Use the [MoonlightStreamProto::new] function to create a new stream.
 ///
 /// ## Usage
-/// ```
-/// // TODO
-/// // let mut setup = MoonlightStreamSetup::new();
-/// todo!()
-/// ```
+///
+// TODO
 ///
 pub struct MoonlightStreamSetup<Crypto> {
     client_config: MoonlightStreamConfig,

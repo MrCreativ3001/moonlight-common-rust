@@ -77,10 +77,7 @@ const CLIENT_PAIR_SECRET_LENGTH: usize = 16;
 ///
 /// ## Usage
 ///
-/// ```
-/// // TODO
-/// todo!()
-/// ```
+// TODO
 ///
 pub struct ClientPairing<Crypto> {
     span: Span,
