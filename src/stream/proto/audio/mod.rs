@@ -1,6 +1,5 @@
 use std::{
     fmt::{self, Debug, Formatter},
-    net::SocketAddr,
     time::Duration,
 };
 
@@ -33,6 +32,10 @@ pub mod depayloader;
 mod packet;
 pub mod payloader;
 
+#[cfg(feature = "uniffi")]
+#[doc(hidden)]
+pub mod uniffi_impl;
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, unused)]
 mod test;
@@ -53,6 +56,7 @@ pub struct AudioStreamConfig {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum AudioStreamError {
     #[error("audio queue: {0}")]
     Queue(#[from] AudioDepayloaderError),

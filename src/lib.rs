@@ -10,6 +10,9 @@ use thiserror::Error;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
+#[cfg(feature = "uniffi")]
+#[doc(hidden)]
+pub mod uniffi_impl;
 
 #[derive(Debug, Error)]
 #[non_exhaustive]

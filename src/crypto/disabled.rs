@@ -9,7 +9,7 @@ use crate::http::{
 #[error("the cryptography operations have been disabled")]
 pub struct CryptoBackendDisabledError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DisabledCryptoBackend;
 
 impl PairingCryptoBackend for DisabledCryptoBackend {

@@ -26,6 +26,8 @@ use crate::stream::{
 use tracing::{Level, info, instrument, warn};
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum AudioDepayloaderError {
     #[error("buffer too small")]
     BufferTooSmall,
