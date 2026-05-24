@@ -1042,6 +1042,7 @@ dependencies = [
  "rsa",
  "rustls",
  "rusty_enet",
+ "sans-io-time",
  "serde",
  "sha1",
  "sha2",
@@ -1611,6 +1612,12 @@ checksum = "e1c0b43e27d8d86bb3a15b9eac232b6d78a06afee258a9861deb5a0d15b65c33"
 dependencies = [
  "js-sys",
 ]
+
+[[package]]
+name = "sans-io-time"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e1c4baf93f2fbecd194191bdb8b911b14f37ae35f0d1e1cbfb4cb6e067e8c52"
 
 [[package]]
 name = "scopeguard"

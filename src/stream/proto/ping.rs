@@ -1,4 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use sans_io_time::Instant;
 
 use tracing::{Level, debug, instrument};
 

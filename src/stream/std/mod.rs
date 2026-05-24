@@ -1,3 +1,4 @@
+use sans_io_time::Instant as SInstant;
 use std::{
     any::Any,
     io::{self, Read, Write},
@@ -166,12 +167,14 @@ impl MoonlightStream {
     where
         Crypto: CryptoBackend + Clone + 'static,
     {
+        let base_time = Instant::now();
         let stop = StopSignal::new();
 
         let mut threads = Threads::default();
         let mut host_features = HostFeatures::default();
 
         let inner = match Self::connect_inner(
+            base_time,
             config,
             settings,
             video_decoder,
@@ -206,6 +209,7 @@ impl MoonlightStream {
         })
     }
     fn connect_inner<Crypto>(
+        base_time: Instant,
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         video_decoder: impl VideoDecoder + Send + 'static,
@@ -243,7 +247,7 @@ impl MoonlightStream {
         });
 
         let mut setup = MoonlightStreamSetup::new(
-            Instant::now(),
+            SInstant::from_std(base_time),
             config,
             settings,
             crypto_backend,
@@ -253,7 +257,8 @@ impl MoonlightStream {
         loop {
             match setup.poll_output()? {
                 MoonlightStreamSetupOutput::Timeout(timeout) => {
-                    let sleep_duration = timeout.saturating_duration_since(Instant::now());
+                    let sleep_duration =
+                        timeout.saturating_duration_since(SInstant::from_std(base_time));
 
                     if let Some(stream) = tcp_stream.as_mut() {
                         stream.set_read_timeout(Some(sleep_duration))?;
@@ -275,13 +280,13 @@ impl MoonlightStream {
 
                         if len == 0 {
                             setup.handle_input(MoonlightStreamInput::TcpDisconnected(
-                                Instant::now(),
+                                SInstant::from_std(base_time),
                             ))?;
 
                             tcp_stream = None;
                         } else {
                             setup.handle_input(MoonlightStreamInput::TcpReceive {
-                                now: Instant::now(),
+                                now: SInstant::from_std(base_time),
                                 data: &recv_buffer[0..len],
                             })?;
                         }
@@ -323,6 +328,7 @@ impl MoonlightStream {
 
                     threads.audio_stream = Some(audio_thread(
                         info_span!("audio_stream"),
+                        base_time,
                         stop.clone(),
                         addr,
                         audio_stream,
@@ -343,6 +349,7 @@ impl MoonlightStream {
 
                     threads.video_stream = Some(video_thread(
                         info_span!("video_stream"),
+                        base_time,
                         stop.clone(),
                         addr,
                         video_stream,
@@ -367,6 +374,7 @@ impl MoonlightStream {
 
                     threads.foundation_mic_sender = Some(foundation_mic_sender(
                         info_span!("foundation_mic_stream_sender"),
+                        base_time,
                         stop.clone(),
                         socket,
                         shared_inner.clone(),
@@ -389,6 +397,7 @@ impl MoonlightStream {
 
                     threads.control_stream_sender = Some(control_thread_sender(
                         info_span!("control_stream_sender"),
+                        base_time,
                         stop.clone(),
                         socket.clone(),
                         connection_listener
@@ -399,6 +408,7 @@ impl MoonlightStream {
 
                     threads.control_stream_receiver = Some(control_thread_receiver(
                         info_span!("control_stream_sender"),
+                        base_time,
                         stop.clone(),
                         socket.clone(),
                         shared_inner.clone(),
@@ -410,7 +420,7 @@ impl MoonlightStream {
                 }
             }
 
-            setup.handle_input(MoonlightStreamInput::Timeout(Instant::now()))?;
+            setup.handle_input(MoonlightStreamInput::Timeout(SInstant::from_std(base_time)))?;
         }
 
         drop(tcp_stream);
@@ -624,6 +634,7 @@ fn udp_receiver(
 
 fn audio_thread<Crypto>(
     span: Span,
+    base_time: Instant,
     stop: StopSignal,
     addr: SocketAddr,
     mut audio_stream: AudioStream<Crypto>,
@@ -700,15 +711,15 @@ where
                 AudioStreamOutput::Timeout(timeout) => timeout,
             };
 
-            let mut timeout = timeout.saturating_duration_since(Instant::now());
+            let mut timeout = timeout.saturating_duration_since(SInstant::from_std(base_time));
 
             // Will likely never happen, but we need to regularly check on the stop signal
             timeout = timeout.min(Duration::from_secs(1));
 
             let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
-                None => AudioStreamInput::Timeout(Instant::now()),
+                None => AudioStreamInput::Timeout(SInstant::from_std(base_time)),
                 Some(len) => AudioStreamInput::Receive {
-                    now: Instant::now(),
+                    now: SInstant::from_std(base_time),
                     data: &mut buffer[0..len],
                 },
             };
@@ -734,6 +745,7 @@ where
 
 fn video_thread<Crypto>(
     span: Span,
+    base_time: Instant,
     stop: StopSignal,
     addr: SocketAddr,
     mut video_stream: VideoStream<Crypto>,
@@ -825,7 +837,7 @@ where
                             .expect("failed to get ControlStream");
 
                         if let Err(err) = control_stream.handle_input(ControlStreamInput::Message {
-                            now: Instant::now(),
+                            now: SInstant::from_std(base_time),
                             message,
                         }) {
                             handle_error(&stop, err.into());
@@ -834,7 +846,7 @@ where
 
                         continue;
                     }
-                    VideoStreamOutput::Timeout(timeout) => timeout,
+                    VideoStreamOutput::Timeout(timeout) => timeout.to_std(base_time),
                 }
             };
 
@@ -844,9 +856,9 @@ where
             timeout = timeout.min(Duration::from_secs(1));
 
             let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
-                None => VideoStreamInput::Timeout(Instant::now()),
+                None => VideoStreamInput::Timeout(SInstant::from_std(base_time)),
                 Some(len) => VideoStreamInput::Receive {
-                    now: Instant::now(),
+                    now: SInstant::from_std(base_time),
                     data: &mut buffer[0..len],
                 },
             };
@@ -872,6 +884,7 @@ where
 
 fn foundation_mic_sender(
     span: Span,
+    base_time: Instant,
     stop: StopSignal,
     socket: UdpSocket,
     shared_inner: Arc<SharedInner>,
@@ -901,9 +914,9 @@ fn foundation_mic_sender(
                 .expect("failed to get FoundationMicStream");
 
             // Handle sans io event loop
-            if let Err(err) =
-                foundation_mic.handle_input(FoundationMicStreamInput::Timeout(Instant::now()))
-            {
+            if let Err(err) = foundation_mic.handle_input(FoundationMicStreamInput::Timeout(
+                SInstant::from_std(base_time),
+            )) {
                 handle_error(&stop, err.into());
                 break 'outer;
             }
@@ -927,7 +940,7 @@ fn foundation_mic_sender(
                     FoundationMicStreamOutput::Timeout(wait_until) => {
                         // Keep time lower or equal to 1 to allow for stopping this thread
                         timeout = wait_until
-                            .duration_since(Instant::now())
+                            .duration_since(SInstant::from_std(base_time))
                             .min(Duration::from_secs(1));
                         break;
                     }
@@ -941,6 +954,7 @@ fn foundation_mic_sender(
 
 fn control_thread_sender(
     span: Span,
+    base_time: Instant,
     stop: StopSignal,
     socket: Arc<UdpSocket>,
     mut connection_listener: impl ConnectionListener + Send + 'static,
@@ -1052,7 +1066,7 @@ fn control_thread_sender(
                 }
             };
 
-            timeout = deadline.saturating_duration_since(Instant::now());
+            timeout = deadline.saturating_duration_since(SInstant::from_std(base_time));
 
             // Will likely never happen, but we need to regularly check on the stop signal
             timeout = timeout.min(Duration::from_secs(1));
@@ -1064,6 +1078,7 @@ fn control_thread_sender(
 
 fn control_thread_receiver(
     span: Span,
+    base_time: Instant,
     stop: StopSignal,
     socket: Arc<UdpSocket>,
     control: Arc<SharedInner>,
@@ -1099,7 +1114,7 @@ fn control_thread_receiver(
             // Receive data and create input
             let input = match socket.recv_from(&mut recv_buffer) {
                 Ok((len, addr)) => ControlStreamInput::Receive {
-                    now: Instant::now(),
+                    now: SInstant::from_std(base_time),
                     addr,
                     data: &mut recv_buffer[0..len],
                 },
@@ -1110,7 +1125,7 @@ fn control_thread_receiver(
                     ) =>
                 {
                     // handles read timeout
-                    ControlStreamInput::Timeout(Instant::now())
+                    ControlStreamInput::Timeout(SInstant::from_std(base_time))
                 }
                 Err(err) => {
                     handle_error(&stop, err.into());

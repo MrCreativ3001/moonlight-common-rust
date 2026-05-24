@@ -1,8 +1,10 @@
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Formatter},
-    time::{Duration, Instant},
+    time::Duration,
 };
+
+use sans_io_time::Instant;
 
 use thiserror::Error;
 use tracing::{Level, debug, info, instrument};

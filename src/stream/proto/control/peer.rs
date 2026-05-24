@@ -1,6 +1,7 @@
-use std::{collections::HashMap, net::SocketAddr, time::Instant};
+use std::{collections::HashMap, net::SocketAddr};
 
 use rusty_enet::{Packet, PacketKind, PeerID, PeerState};
+use sans_io_time::Instant;
 use thiserror::Error;
 use tracing::{Level, debug, instrument, trace, warn};
 

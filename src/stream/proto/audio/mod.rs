@@ -1,8 +1,10 @@
 use std::{
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
-    time::{Duration, Instant},
+    time::Duration,
 };
+
+use sans_io_time::Instant;
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;

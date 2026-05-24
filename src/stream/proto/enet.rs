@@ -2,10 +2,11 @@ use std::{
     convert::Infallible,
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use rusty_enet::{Event, Host, HostSettings, Peer, PeerID, ReadWrite};
+use sans_io_time::Instant;
 use thiserror::Error;
 use tracing::{debug, trace};
 

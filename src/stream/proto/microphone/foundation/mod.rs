@@ -5,7 +5,9 @@
 // Mic receive: https://github.com/AlkaidLab/foundation-sunshine/blob/013388962e547698b34a1e6087f44b1ec2b58d17/src/stream.cpp#L1659-L1925
 // Client impl: https://github.com/moonlight-stream/moonlight-common-c/pull/123/changes
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use sans_io_time::Instant;
 
 use thiserror::Error;
 use tracing::{Level, instrument};

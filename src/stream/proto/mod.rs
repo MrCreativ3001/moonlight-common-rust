@@ -6,8 +6,10 @@
 use std::{
     fmt::Debug,
     net::{IpAddr, SocketAddr},
-    time::{Duration, Instant},
+    time::Duration,
 };
+
+use sans_io_time::Instant;
 
 use thiserror::Error;
 use tracing::{Level, debug, info, instrument, warn};
@@ -59,8 +61,6 @@ use crate::{
 // - https://github.com/LizardByte/Sunshine/blob/c9e0bb864ed263da6dd5c2fff5541c268f94cfaf/src/nvhttp.cpp#L679-L770
 // - https://github.com/ClassicOldSong/Apollo/blob/a40b179886856bba1dfe311f430a25b9f3c44390/src/nvhttp.cpp#L882-L1013
 // - OTP pairing?
-
-// TODO: replace Instant with a custom Timestamp struct for Wasm compat, https://docs.rs/sans-io-time/latest/sans_io_time/index.html
 
 pub mod audio;
 pub mod control;

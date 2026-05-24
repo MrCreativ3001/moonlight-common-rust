@@ -3,8 +3,10 @@ use std::{
     fmt::{self, Debug, Formatter},
     mem,
     net::SocketAddr,
-    time::{Duration, Instant},
+    time::Duration,
 };
+
+use sans_io_time::Instant;
 
 use rusty_enet::error::PeerSendError;
 use tracing::{Level, debug, info, instrument, trace, warn};

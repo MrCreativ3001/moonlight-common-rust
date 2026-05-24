@@ -1,3 +1,4 @@
+use sans_io_time::Instant as SInstant;
 use std::{
     io,
     sync::Arc,
@@ -141,8 +142,10 @@ impl MoonlightStream {
         Crypto: CryptoBackend + Clone + 'static,
     {
         let crypto_backend: Arc<dyn CryptoBackend + Send + Sync> = Arc::new(crypto_backend);
+        let base_time = Instant::now();
+
         let setup = MoonlightStreamSetup::new(
-            Instant::now(),
+            SInstant::from_std(base_time),
             config,
             settings,
             crypto_backend,
@@ -161,7 +164,7 @@ impl MoonlightStream {
             first_frame_notify: Notify::new(),
         });
 
-        let features = match Self::connect_inner(setup, inner.clone()).await {
+        let features = match Self::connect_inner(base_time, setup, inner.clone()).await {
             Ok(value) => value,
             Err(err) => {
                 Self::stop_inner(&inner).await;
@@ -196,6 +199,7 @@ impl MoonlightStream {
     }
 
     async fn connect_inner(
+        base_time: Instant,
         mut setup: MoonlightStreamSetup<Arc<dyn CryptoBackend + Send + Sync>>,
         inner: Arc<Inner>,
     ) -> Result<HostFeatures, MoonlightStreamError> {
@@ -279,7 +283,9 @@ impl MoonlightStream {
                                         }
                                         continue;
                                     }
-                                    AudioStreamOutput::Timeout(instant) => instant,
+                                    AudioStreamOutput::Timeout(instant) => {
+                                        instant.to_std(base_time)
+                                    }
                                 };
 
                                 // Cap duration at 1 to allow for stop signal
@@ -287,7 +293,7 @@ impl MoonlightStream {
 
                                 select! {
                                     _ = sleep_until(timeout.into()) => {
-                                        if let Err(err) = audio_stream.handle_input(AudioStreamInput::Timeout(Instant::now())) {
+                                        if let Err(err) = audio_stream.handle_input(AudioStreamInput::Timeout(SInstant::from_std(base_time))) {
                                             handle_error(&inner, err.into());
                                             break;
                                         }
@@ -302,7 +308,7 @@ impl MoonlightStream {
                                         };
 
                                         if let Err(err) = audio_stream.handle_input(AudioStreamInput::Receive {
-                                            now: Instant::now(),
+                                            now: SInstant::from_std(base_time),
                                             data: &buffer[0..len],
                                         }) {
                                             handle_error(&inner, err.into());
@@ -377,7 +383,7 @@ impl MoonlightStream {
 
                                         if let Err(err) = control_stream.handle_input(
                                             ControlStreamInput::Message {
-                                                now: Instant::now(),
+                                                now: SInstant::from_std(base_time),
                                                 message,
                                             },
                                         ) {
@@ -400,7 +406,9 @@ impl MoonlightStream {
                                         decode_result = inner.handler.on_video_frame(frame).await;
                                         continue;
                                     }
-                                    VideoStreamOutput::Timeout(timeout) => timeout,
+                                    VideoStreamOutput::Timeout(timeout) => {
+                                        timeout.to_std(base_time)
+                                    }
                                 };
                                 drop(poll_output);
 
@@ -409,7 +417,7 @@ impl MoonlightStream {
 
                                 select! {
                                     _ = sleep_until(timeout.into()) => {
-                                        if let Err(err) = video_stream.handle_input(VideoStreamInput::Timeout(Instant::now())) {
+                                        if let Err(err) = video_stream.handle_input(VideoStreamInput::Timeout(SInstant::from_std(base_time))) {
                                             handle_error(&inner, err.into());
                                             break;
                                         }
@@ -424,7 +432,7 @@ impl MoonlightStream {
                                         };
 
                                         if let Err(err) = video_stream.handle_input(VideoStreamInput::Receive {
-                                            now: Instant::now(),
+                                            now: SInstant::from_std(base_time),
                                             data: &buffer[0..len],
                                         }) {
                                             handle_error(&inner, err.into());
@@ -491,7 +499,7 @@ impl MoonlightStream {
                                                 continue;
                                             }
                                             FoundationMicStreamOutput::Timeout(instant) => {
-                                                break instant;
+                                                break instant.to_std(base_time);
                                             }
                                         }
                                     }
@@ -502,10 +510,10 @@ impl MoonlightStream {
 
                                 let input = select! {
                                     _ = sleep_until(timeout.into()) => {
-                                        FoundationMicStreamInput::Timeout(Instant::now())
+                                        FoundationMicStreamInput::Timeout(SInstant::from_std(base_time))
                                     },
                                     _ = inner.foundation_mic_notify.notified() => {
-                                        FoundationMicStreamInput::Timeout(Instant::now())
+                                        FoundationMicStreamInput::Timeout(SInstant::from_std(base_time))
                                     }
                                 };
 
@@ -638,7 +646,7 @@ impl MoonlightStream {
                                     }
                                     ControlStreamOutput::Action(ControlHostAction::Timeout(
                                         timeout,
-                                    )) => timeout,
+                                    )) => timeout.to_std(base_time),
                                     ControlStreamOutput::Event(event) => match event {
                                         ControlStreamEvent::Connect => {
                                             let mut guard = inner.first_frame.lock().await;
@@ -670,7 +678,7 @@ impl MoonlightStream {
                                             continue;
                                         };
 
-                                        if let Err(err)= control_stream.handle_input(ControlStreamInput::Timeout(Instant::now())) {
+                                        if let Err(err)= control_stream.handle_input(ControlStreamInput::Timeout(SInstant::from_std(base_time))) {
                                             handle_error(&inner, err.into());
                                             break;
                                         }
@@ -682,7 +690,7 @@ impl MoonlightStream {
                                             continue;
                                         };
 
-                                        if let Err(err)= control_stream.handle_input(ControlStreamInput::Timeout(Instant::now())) {
+                                        if let Err(err)= control_stream.handle_input(ControlStreamInput::Timeout(SInstant::from_std(base_time))) {
                                             handle_error(&inner, err.into());
                                             break;
                                         }
@@ -702,7 +710,7 @@ impl MoonlightStream {
                                             }
                                         };
 
-                                        if let Err(err)= control_stream.handle_input(ControlStreamInput::Receive { now: Instant::now(), addr, data: &buffer[0..len] }) {
+                                        if let Err(err)= control_stream.handle_input(ControlStreamInput::Receive { now: SInstant::from_std(base_time), addr, data: &buffer[0..len] }) {
                                             handle_error(&inner, err.into());
                                             break;
                                         }
@@ -724,7 +732,7 @@ impl MoonlightStream {
                 }
             };
 
-            let timeout = sleep_until(timeout.into());
+            let timeout = sleep_until(timeout.to_std(base_time).into());
             pin!(timeout);
 
             select! {
@@ -732,13 +740,13 @@ impl MoonlightStream {
                     let len = res?;
 
                     if len == 0 {
-                        setup.handle_input(MoonlightStreamInput::TcpDisconnected(Instant::now()))?;
+                        setup.handle_input(MoonlightStreamInput::TcpDisconnected(SInstant::from_std(base_time)))?;
                     } else {
-                        setup.handle_input(MoonlightStreamInput::TcpReceive { now: Instant::now(), data: &buffer[0..len] })?;
+                        setup.handle_input(MoonlightStreamInput::TcpReceive { now: SInstant::from_std(base_time), data: &buffer[0..len] })?;
                     }
                 }
                 _ = timeout => {
-                    setup.handle_input(MoonlightStreamInput::Timeout(Instant::now()))?;
+                    setup.handle_input(MoonlightStreamInput::Timeout(SInstant::from_std(base_time)))?;
                 }
             };
         };
