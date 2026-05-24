@@ -800,14 +800,17 @@ impl MoonlightStream {
         let mut foundation_mic_guard = self.inner.foundation_mic.lock().await;
 
         if let Some(stream) = &mut *foundation_mic_guard {
-            match stream.send_microphone_opus_data(timestamp, frame) {
+            let result = match stream.send_microphone_opus_data(timestamp, frame) {
                 Ok(_) => true,
                 Err(err) => {
                     warn!(error = ?err, "failed to send foundation microphone data");
 
                     false
                 }
-            }
+            };
+            self.inner.foundation_mic_notify.notify_one();
+
+            result
         } else {
             false
         }
