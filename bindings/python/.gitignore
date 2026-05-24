@@ -1,0 +1,7 @@
+
+# Python
+__pycache__
+
+# Python bindings
+moonlight_common.dll
+moonlight_common.py

@@ -13,7 +13,7 @@ use tracing::{Level, debug, info, instrument};
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        AesIv, AesKey,
+        SunshineEncryption,
         audio::{AudioFrame, OpusMultistreamConfig},
         proto::{
             audio::{
@@ -42,14 +42,14 @@ mod test;
 const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(100);
 
 #[derive(Debug)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct AudioStreamConfig {
-    pub addr: SocketAddr,
     pub opus_config: OpusMultistreamConfig,
     /// See: <https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44>
     pub fec: bool,
     pub sunshine_ping: Option<SunshinePing>,
     /// If [Some] the audio stream is encrypted.
-    pub sunshine_encryption: Option<(AesKey, AesIv)>,
+    pub sunshine_encryption: Option<SunshineEncryption>,
 }
 
 #[derive(Debug, Error)]

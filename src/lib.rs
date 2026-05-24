@@ -8,6 +8,9 @@ use std::{
 
 use thiserror::Error;
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum MoonlightError {

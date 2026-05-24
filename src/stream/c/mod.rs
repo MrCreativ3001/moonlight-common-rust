@@ -182,10 +182,11 @@ impl MoonlightStream {
                 colorSpace: stream_settings.color_space as u32 as i32,
                 colorRange: stream_settings.color_range as u32 as i32,
                 encryptionFlags: stream_settings.encryption_flags.bits() as i32,
-                remoteInputAesKey: to_c_char_array(stream_config.remote_input_aes_key.0),
+                remoteInputAesKey: to_c_char_array(stream_config.sunshine_encryption.aes_key.0),
                 remoteInputAesIv: to_c_char_array({
                     let mut iv = [0u8; 16];
-                    iv[0..4].copy_from_slice(&stream_config.remote_input_aes_iv.to_be_bytes());
+                    iv[0..4]
+                        .copy_from_slice(&stream_config.sunshine_encryption.aes_iv.to_be_bytes());
                     iv
                 }),
             };

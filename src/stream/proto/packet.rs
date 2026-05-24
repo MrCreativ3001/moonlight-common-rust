@@ -14,6 +14,31 @@ impl Deref for SunshinePing {
     }
 }
 
+#[cfg(feature = "uniffi")]
+impl TryFrom<Vec<u8>> for SunshinePing {
+    type Error = uniffi::deps::anyhow::Error;
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        use uniffi::deps::anyhow::anyhow;
+
+        let Some(array) = value.as_array::<SUNSHINE_PING_PAYLOAD_SIZE>() else {
+            return Err(anyhow!(
+                "Sunshine Ping must consist of an array of {SUNSHINE_PING_PAYLOAD_SIZE} bytes!"
+            ));
+        };
+
+        Ok(Self(*array))
+    }
+}
+
+impl From<SunshinePing> for Vec<u8> {
+    fn from(value: SunshinePing) -> Self {
+        value.0.to_vec()
+    }
+}
+
+#[cfg(feature = "uniffi")]
+uniffi::custom_type!(SunshinePing, Vec<u8>);
+
 #[derive(Debug)]
 pub struct SunshinePingPacket {
     pub payload: SunshinePing,
