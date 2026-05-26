@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::time::Duration;
 
 use crate::stream::bindings::AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT;
 use thiserror::Error;
@@ -26,55 +23,14 @@ pub const DEFAULT_AUDIO_PORT: u16 = 48000;
 /// If the mapping order does not match the channel order of the audio renderer, you may swap
 /// the values in the mismatched indices until the mapping array matches the desired channel order.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct OpusMultistreamConfig {
     pub sample_rate: u32,
     pub channel_count: u32,
     pub streams: u32,
     pub coupled_streams: u32,
     pub samples_per_frame: u32,
-    pub mapping: OpusMultistreamChannelMapping,
+    pub mapping: [u8; AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT as usize],
 }
-
-#[derive(Debug, Clone, Copy)]
-pub struct OpusMultistreamChannelMapping(pub [u8; AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT as usize]);
-
-impl Deref for OpusMultistreamChannelMapping {
-    type Target = [u8; AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT as usize];
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for OpusMultistreamChannelMapping {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[cfg(feature = "uniffi")]
-impl TryFrom<Vec<u8>> for OpusMultistreamChannelMapping {
-    type Error = uniffi::deps::anyhow::Error;
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        use uniffi::deps::anyhow::anyhow;
-
-        let Some(array) = value.as_array() else {
-            return Err(anyhow!(
-                "Opus Multistream Channel Mapping must consist of an array of {AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT} bytes!"
-            ));
-        };
-
-        Ok(Self(*array))
-    }
-}
-
-impl From<OpusMultistreamChannelMapping> for Vec<u8> {
-    fn from(value: OpusMultistreamChannelMapping) -> Self {
-        value.0.to_vec()
-    }
-}
-
-#[cfg(feature = "uniffi")]
-uniffi::custom_type!(OpusMultistreamChannelMapping, Vec<u8>);
 
 impl OpusMultistreamConfig {
     pub const STEREO: OpusMultistreamConfig = OpusMultistreamConfig {
@@ -83,7 +39,7 @@ impl OpusMultistreamConfig {
         streams: 1,
         coupled_streams: 1,
         samples_per_frame: 960,
-        mapping: OpusMultistreamChannelMapping([0, 1, 0, 0, 0, 0, 0, 0]),
+        mapping: [0, 1, 0, 0, 0, 0, 0, 0],
     };
 
     /// Parse a single surround-param integer into an OpusMultistreamConfig
@@ -98,7 +54,7 @@ impl OpusMultistreamConfig {
             streams: 0,
             coupled_streams: 0,
             samples_per_frame: 960,
-            mapping: OpusMultistreamChannelMapping([0; 8]),
+            mapping: [0; 8],
         };
 
         // Convert param to string to easily extract digits

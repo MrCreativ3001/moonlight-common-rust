@@ -31,8 +31,6 @@ jobs:
         - "ureq openssl stream-c"
         - "ureq rustcrypto std"
         - "ureq std openssl stream-c rustcrypto std tokio tokio-hyper"
-        # uniffi
-        - "uniffi ureq std openssl stream-c rustcrypto std tokio tokio-hyper"
   
     steps:
       - uses: actions/checkout@v5

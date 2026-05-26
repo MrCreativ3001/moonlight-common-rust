@@ -3,7 +3,7 @@ use std::{array, time::Duration};
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        AesIv, AesKey, SunshineEncryption,
+        AesIv, AesKey,
         audio::AudioFrame,
         proto::{
             audio::{
@@ -1647,10 +1647,7 @@ where
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            encryption: Some(SunshineEncryption {
-                aes_key: SUNSHINE_ENC_KEY,
-                aes_iv: SUNSHINE_ENC_IV,
-            }),
+            encryption: Some((SUNSHINE_ENC_KEY, SUNSHINE_ENC_IV)),
         },
         crypto.clone(),
     );
@@ -1704,10 +1701,7 @@ where
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
-            encryption: Some(SunshineEncryption {
-                aes_key: SUNSHINE_ENC_KEY,
-                aes_iv: SUNSHINE_ENC_IV,
-            }),
+            encryption: Some((SUNSHINE_ENC_KEY, SUNSHINE_ENC_IV)),
         },
         crypto,
     );

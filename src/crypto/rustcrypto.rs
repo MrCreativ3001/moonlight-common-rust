@@ -65,7 +65,7 @@ pub enum RustCryptoError {
     AesCbcUnpadError,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RustCryptoBackend;
 
 fn secure_rng() -> Result<OsRng, RustCryptoError> {

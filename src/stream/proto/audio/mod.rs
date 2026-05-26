@@ -1,5 +1,6 @@
 use std::{
     fmt::{self, Debug, Formatter},
+    net::SocketAddr,
     time::Duration,
 };
 
@@ -12,7 +13,7 @@ use tracing::{Level, debug, info, instrument};
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        SunshineEncryption,
+        AesIv, AesKey,
         audio::{AudioFrame, OpusMultistreamConfig},
         proto::{
             audio::{
@@ -32,10 +33,6 @@ pub mod depayloader;
 mod packet;
 pub mod payloader;
 
-#[cfg(feature = "uniffi")]
-#[doc(hidden)]
-pub mod uniffi_impl;
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, unused)]
 mod test;
@@ -45,18 +42,17 @@ mod test;
 const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(100);
 
 #[derive(Debug)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct AudioStreamConfig {
+    pub addr: SocketAddr,
     pub opus_config: OpusMultistreamConfig,
     /// See: <https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44>
     pub fec: bool,
     pub sunshine_ping: Option<SunshinePing>,
     /// If [Some] the audio stream is encrypted.
-    pub sunshine_encryption: Option<SunshineEncryption>,
+    pub sunshine_encryption: Option<(AesKey, AesIv)>,
 }
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
 pub enum AudioStreamError {
     #[error("audio queue: {0}")]
     Queue(#[from] AudioDepayloaderError),

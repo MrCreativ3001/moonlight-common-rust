@@ -10,7 +10,7 @@ use moonlight_common_sys::limelight::{_AUDIO_RENDERER_CALLBACKS, POPUS_MULTISTRE
 
 use crate::stream::{
     AudioConfig,
-    audio::{AudioDecoder, AudioFrame, OpusMultistreamChannelMapping, OpusMultistreamConfig},
+    audio::{AudioDecoder, AudioFrame, OpusMultistreamConfig},
     c::bindings::Capabilities,
 };
 
@@ -69,7 +69,7 @@ unsafe extern "C" fn setup(
             streams: raw_opus_config.streams as u32,
             coupled_streams: raw_opus_config.coupledStreams as u32,
             samples_per_frame: raw_opus_config.samplesPerFrame as u32,
-            mapping: OpusMultistreamChannelMapping(raw_opus_config.mapping),
+            mapping: raw_opus_config.mapping,
         };
 
         {

@@ -1,12 +1,10 @@
 [workspace]
 package.version = "0.1.0"
 package.license = "GPL-3.0-or-later"
-members = ["./", "moonlight-common-sys", "uniffi-bindgen"]
+members = ["./", "bindings", "moonlight-common-sys"]
 
 [workspace.dependencies]
 moonlight-common-sys = { path = "./moonlight-common-sys" }
-
-uniffi = "0.31.1"
 
 openssl-sys = "0.9.109"
 openssl = "0.10.73"
@@ -23,9 +21,6 @@ name = "moonlight-common"
 edition = "2024"
 version.workspace = true
 license.workspace = true
-
-[lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bitflags = "2.9.1"
@@ -124,9 +119,6 @@ cbc = { version = "0.1.2", default-features = false, features = [
 # Webrtc, TODO
 # sdp-types = "0.1.8"
 
-# UniFFI
-uniffi = { workspace = true, optional = true }
-
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
@@ -172,9 +164,6 @@ tokio-hyper = [
     "dep:hyper-rustls",
     "tokio",
 ]
-
-# UniFFI
-uniffi = ["dep:uniffi"]
 
 # Logs sensitive information: e.g. private keys and sensitive values used in encryption / decryption
 __tracing_sensitive = []

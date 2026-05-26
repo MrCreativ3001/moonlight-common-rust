@@ -81,31 +81,6 @@ impl Debug for AesKey {
     }
 }
 
-#[cfg(feature = "uniffi")]
-impl TryFrom<Vec<u8>> for AesKey {
-    type Error = uniffi::deps::anyhow::Error;
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        use uniffi::deps::anyhow::anyhow;
-
-        let Some(array) = value.as_array::<16>() else {
-            return Err(anyhow!(
-                "Sunshine Ping must consist of an array of 16 bytes!"
-            ));
-        };
-
-        Ok(Self(*array))
-    }
-}
-
-impl From<AesKey> for Vec<u8> {
-    fn from(value: AesKey) -> Self {
-        value.0.to_vec()
-    }
-}
-
-#[cfg(feature = "uniffi")]
-uniffi::custom_type!(AesKey, Vec<u8>);
-
 #[derive(Clone, Copy, PartialEq)]
 pub struct AesIv(pub u32);
 
@@ -140,40 +115,12 @@ impl Debug for AesIv {
     }
 }
 
-impl From<u32> for AesIv {
-    fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
-
-impl From<AesIv> for u32 {
-    fn from(value: AesIv) -> Self {
-        value.0
-    }
-}
-
 impl Deref for AesIv {
     type Target = u32;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
-}
-
-#[cfg(feature = "uniffi")]
-uniffi::custom_type!(AesIv, u32);
-
-#[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-pub struct SunshineEncryption {
-    /// AES encryption data for the remote input stream. This must be
-    /// the same as what was passed as rikey and rikeyid
-    /// in `/launch` and `/resume` requests.
-    pub aes_key: AesKey,
-    /// AES encryption data for the remote input stream. This must be
-    /// the same as what was passed as rikey and rikeyid
-    /// in `/launch` and `/resume` requests.
-    pub aes_iv: AesIv,
 }
 
 /// This contains technical details that are required for a stream to start.
@@ -198,8 +145,14 @@ pub struct MoonlightStreamConfig {
     pub server_codec_mode_support: ServerCodecModeSupport,
     /// The rtsp session from the `/launch` or `/resume` response
     pub rtsp_session_url: Option<String>,
-    /// See [SunshineEncryption] for more information.
-    pub sunshine_encryption: SunshineEncryption,
+    /// AES encryption data for the remote input stream. This must be
+    /// the same as what was passed as rikey and rikeyid
+    /// in `/launch` and `/resume` requests.
+    pub remote_input_aes_key: AesKey,
+    /// AES encryption data for the remote input stream. This must be
+    /// the same as what was passed as rikey and rikeyid
+    /// in `/launch` and `/resume` requests.
+    pub remote_input_aes_iv: AesIv,
     /// Apollo Extension
     ///
     /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)

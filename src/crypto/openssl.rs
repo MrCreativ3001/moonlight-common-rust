@@ -26,7 +26,7 @@ use crate::http::{
     pair::{HashAlgorithm, PairingCryptoBackend},
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OpenSSLCryptoBackend;
 
 impl PairingCryptoBackend for OpenSSLCryptoBackend {
