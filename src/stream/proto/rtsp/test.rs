@@ -6,6 +6,7 @@ use std::{
 use crate::stream::{
     AesKey,
     proto::{
+        DynCryptoBackend,
         crypto::CryptoBackend,
         rtsp::{
             client::{RtspClient, RtspClientConfig, RtspInput, RtspOutput},
@@ -453,10 +454,7 @@ fn rtsp_send_no_response_instant_disconnect() {
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 }
 
-fn send_receive_encrypted<Crypto>(crypto: Crypto)
-where
-    Crypto: CryptoBackend + Clone,
-{
+fn send_receive_encrypted(crypto: DynCryptoBackend) {
     let mut rtsp = RtspClient::new(
         RtspClientConfig {
             target: "rtspenc://192.168.178.140:48010".parse().unwrap(),
@@ -465,7 +463,7 @@ where
                 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67,
             ])),
         },
-        crypto.clone(),
+        crypto,
     );
 
     let request = RtspRequest {
@@ -554,15 +552,19 @@ where
 #[cfg(feature = "openssl")]
 #[test]
 fn send_receive_encrypted_openssl() {
+    use std::sync::Arc;
+
     use crate::crypto::openssl::OpenSSLCryptoBackend;
 
-    send_receive_encrypted(OpenSSLCryptoBackend);
+    send_receive_encrypted(Arc::new(OpenSSLCryptoBackend) as _);
 }
 
 #[cfg(feature = "rustcrypto")]
 #[test]
 fn send_receive_encrypted_rustcrypto() {
+    use std::sync::Arc;
+
     use crate::crypto::rustcrypto::RustCryptoBackend;
 
-    send_receive_encrypted(RustCryptoBackend);
+    send_receive_encrypted(Arc::new(RustCryptoBackend) as _);
 }

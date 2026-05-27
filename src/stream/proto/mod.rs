@@ -6,6 +6,7 @@
 use std::{
     fmt::Debug,
     net::{IpAddr, SocketAddr},
+    sync::Arc,
     time::Duration,
 };
 
@@ -77,6 +78,8 @@ mod packet;
 mod enet;
 pub(crate) mod fec;
 
+pub(crate) type DynCryptoBackend = Arc<dyn CryptoBackend + 'static>;
+
 // TODO: move all defaults ports to some better location
 pub const DEFAULT_RTSP_PORT: u16 = 48010;
 
@@ -103,7 +106,7 @@ pub enum MoonlightStreamInput<'a> {
 }
 
 #[derive(Debug)]
-pub enum MoonlightStreamSetupOutput<Crypto> {
+pub enum MoonlightStreamSetupOutput {
     Timeout(Instant),
     /// Connect to the address using tcp
     TcpConnect {
@@ -120,23 +123,23 @@ pub enum MoonlightStreamSetupOutput<Crypto> {
     StartAudioStream {
         addr: SocketAddr,
         config: OpusMultistreamConfig,
-        audio_stream: AudioStream<Crypto>,
+        audio_stream: AudioStream,
     },
     /// Can only be called once by the implementation
     StartVideoStream {
         addr: SocketAddr,
         setup: VideoSetup,
-        video_stream: VideoStream<Crypto>,
+        video_stream: VideoStream,
     },
     /// Can only be called once by the implementation
     FoundationStartMic {
         addr: SocketAddr,
-        mic_stream: FoundationMicStream<Crypto>,
+        mic_stream: FoundationMicStream,
     },
     /// Can only be called once by the implementation
     StartControlStream {
         addr: SocketAddr,
-        control_stream: ControlStream<Crypto>,
+        control_stream: ControlStream,
     },
     /// The stream is now fully started and the [MoonlightStreamSetup] can be discarded
     Connected {
@@ -162,12 +165,12 @@ struct Sdp {
 ///
 // TODO
 ///
-pub struct MoonlightStreamSetup<Crypto> {
+pub struct MoonlightStreamSetup {
     client_config: MoonlightStreamConfig,
     client_settings: MoonlightStreamSettings,
     video_capabilities: VideoCapabilities,
-    crypto_backend: Crypto,
-    rtsp: RtspClient<Crypto>,
+    crypto_backend: DynCryptoBackend,
+    rtsp: RtspClient,
     sdp: Option<Sdp>,
     server_version: ServerVersion,
     session_id: Option<String>,
@@ -201,7 +204,7 @@ enum State {
     Connected,
 }
 
-impl MoonlightStreamSetup<DisabledCryptoBackend> {
+impl MoonlightStreamSetup {
     pub fn new_unencrypted(
         now: Instant,
         config: MoonlightStreamConfig,
@@ -212,16 +215,13 @@ impl MoonlightStreamSetup<DisabledCryptoBackend> {
             now,
             config,
             settings,
-            DisabledCryptoBackend,
+            Arc::new(DisabledCryptoBackend) as _,
             video_capabilities,
         )
     }
 }
 
-impl<Crypto> MoonlightStreamSetup<Crypto>
-where
-    Crypto: CryptoBackend + Clone,
-{
+impl MoonlightStreamSetup {
     pub fn launch_query_parameters() -> &'static str {
         "&corever=1"
     }
@@ -236,7 +236,7 @@ where
         now: Instant,
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
-        crypto_backend: Crypto,
+        crypto_backend: DynCryptoBackend,
         video_capabilities: VideoCapabilities,
     ) -> Result<Self, MoonlightStreamProtoError> {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L976-L994
@@ -299,9 +299,7 @@ where
         Ok(this)
     }
 
-    pub fn poll_output(
-        &mut self,
-    ) -> Result<MoonlightStreamSetupOutput<Crypto>, MoonlightStreamProtoError> {
+    pub fn poll_output(&mut self) -> Result<MoonlightStreamSetupOutput, MoonlightStreamProtoError> {
         let mut timeout;
         loop {
             match self.rtsp.poll_output()? {

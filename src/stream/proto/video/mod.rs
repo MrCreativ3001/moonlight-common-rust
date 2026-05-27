@@ -12,9 +12,9 @@ use tracing::{Level, debug, info, instrument};
 use crate::stream::{
     AesKey,
     proto::{
-        ControlMessageInner,
+        ControlMessageInner, DynCryptoBackend,
         control::{ControlMessage, packet::ControlPacket},
-        crypto::{CryptoBackend, CryptoError},
+        crypto::CryptoError,
         packet::SunshinePing,
         ping::{PingSender, PingSenderConfig, PingSenderInput, PingSenderOutput, PingSenderState},
         video::{
@@ -78,9 +78,9 @@ pub struct VideoStreamConfig {
     pub sunshine_encryption: Option<AesKey>,
 }
 
-pub struct VideoStream<Crypto> {
+pub struct VideoStream {
     #[allow(unused)]
-    crypto_backend: Crypto,
+    crypto_backend: DynCryptoBackend,
     #[allow(unused)]
     aes_key: Option<AesKey>,
     last_now: Instant,
@@ -93,12 +93,9 @@ pub struct VideoStream<Crypto> {
     waiting_for_idr_since: Option<Instant>,
 }
 
-impl<Crypto> VideoStream<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl VideoStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: Crypto) -> Self {
+    pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
         let depayloader = VideoDepayloader::new(config.queue);
 
         Self {
@@ -312,13 +309,13 @@ where
     }
 }
 
-impl<Crypto> Debug for VideoStream<Crypto> {
+impl Debug for VideoStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[VideoStream]")
     }
 }
 
-impl<Crypto> Drop for VideoStream<Crypto> {
+impl Drop for VideoStream {
     fn drop(&mut self) {
         info!("terminated video stream");
     }

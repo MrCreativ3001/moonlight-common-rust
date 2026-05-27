@@ -15,7 +15,7 @@ use tracing::{Level, instrument};
 use crate::stream::{
     AesIv, AesKey,
     proto::{
-        crypto::CryptoBackend,
+        DynCryptoBackend,
         microphone::foundation::payloader::{
             FoundationMicPayloader, FoundationMicPayloaderConfig, FoundationMicPayloaderError,
         },
@@ -58,17 +58,18 @@ pub enum FoundationMicStreamOutput<'a> {
 }
 
 #[derive(Debug)]
-pub struct FoundationMicStream<Crypto> {
+pub struct FoundationMicStream {
     last_now: Instant,
-    payloader: FoundationMicPayloader<Crypto>,
+    payloader: FoundationMicPayloader,
 }
 
-impl<Crypto> FoundationMicStream<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl FoundationMicStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(now: Instant, config: FoundationMicStreamConfig, crypto_backend: Crypto) -> Self {
+    pub fn new(
+        now: Instant,
+        config: FoundationMicStreamConfig,
+        crypto_backend: DynCryptoBackend,
+    ) -> Self {
         Self {
             last_now: now,
             payloader: FoundationMicPayloader::new(

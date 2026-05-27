@@ -172,7 +172,7 @@ async fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream = MoonlightStream::connect(config, settings, crypto_backend, handler)
+    let stream = MoonlightStream::connect(config, settings, Arc::new(crypto_backend) as _, handler)
         .await
         .unwrap();
     let stream = Arc::new(stream);

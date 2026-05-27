@@ -1,4 +1,4 @@
-use std::{error::Error, sync::Arc};
+use std::{error::Error, fmt::Debug, sync::Arc};
 
 use thiserror::Error;
 
@@ -23,7 +23,7 @@ impl CryptoError {
     }
 }
 
-pub trait CryptoBackend: Send + Sync {
+pub trait CryptoBackend: Debug + Send + Sync {
     /// Encrypt using AES-GCM.
     /// Writes ciphertext to `output` and authentication tag to `tag`.
     fn encrypt_aes_gcm(

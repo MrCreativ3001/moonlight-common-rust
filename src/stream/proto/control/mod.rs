@@ -23,6 +23,7 @@ use crate::{
             TouchEventType,
         },
         proto::{
+            DynCryptoBackend,
             control::{
                 packet::{
                     ControlPacket, ControlPacketConfig, ControlPacketNotSupported, EnetChannel,
@@ -34,7 +35,6 @@ use crate::{
                     ControlHostOutput, ControlPeerConfig, ControlPeerId, ControlPeerRole,
                 },
             },
-            crypto::CryptoBackend,
             enet::EnetError,
         },
     },
@@ -211,7 +211,7 @@ pub enum ControlStreamEvent {
 /// - sending a disconnect packet on stop
 ///
 /// If it's not used with that it won't do these things, however you can manually do them using the [Self::send_raw] function.
-pub struct ControlStream<Crypto> {
+pub struct ControlStream {
     server_version: ServerVersion,
     apollo_permissions: Option<ApolloPermissions>,
     peer: ControlPeerId,
@@ -221,18 +221,15 @@ pub struct ControlStream<Crypto> {
     allow_packets: bool,
     buffered_packets: Vec<ControlPacket>,
     inputs: Inputs,
-    host: ControlHost<Crypto>,
+    host: ControlHost,
 }
 
-impl<Crypto> ControlStream<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl ControlStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(
         now: Instant,
         config: ControlStreamConfig,
-        crypto_backend: Crypto,
+        crypto_backend: DynCryptoBackend,
     ) -> Result<Self, ControlError> {
         if config.server_version.major < 5 {
             // Servers below v5 use tcp and don't have encryption support
@@ -925,13 +922,13 @@ where
     }
 }
 
-impl<Crypto> Drop for ControlStream<Crypto> {
+impl Drop for ControlStream {
     fn drop(&mut self) {
         info!("terminated control stream");
     }
 }
 
-impl<Crypto> Debug for ControlStream<Crypto> {
+impl Debug for ControlStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[ControlStream]")
     }

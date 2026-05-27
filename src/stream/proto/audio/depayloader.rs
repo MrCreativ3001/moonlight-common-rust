@@ -11,6 +11,7 @@ use crate::stream::{
     AesIv, AesKey,
     audio::AudioFrame,
     proto::{
+        DynCryptoBackend,
         audio::{
             create_audio_reed_solomon,
             packet::{
@@ -67,8 +68,8 @@ struct FecPacket {
 }
 
 #[derive(Debug)]
-pub struct AudioDepayloader<Crypto> {
-    crypto_backend: Crypto,
+pub struct AudioDepayloader {
+    crypto_backend: DynCryptoBackend,
     encryption: Option<(AesKey, AesIv)>,
     current_sequence_number: u16,
     // TODO: don't deallocate those Vec's but reuse them
@@ -78,12 +79,9 @@ pub struct AudioDepayloader<Crypto> {
     unencrypt_buffer: Vec<u8>,
 }
 
-impl<Crypto> AudioDepayloader<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl AudioDepayloader {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(config: AudioDepayloaderConfig, crypto_backend: Crypto) -> Self {
+    pub fn new(config: AudioDepayloaderConfig, crypto_backend: DynCryptoBackend) -> Self {
         let decoder = if config.fec {
             Some(create_audio_reed_solomon())
         } else {

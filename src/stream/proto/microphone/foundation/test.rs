@@ -1,10 +1,11 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
         AesIv, AesKey,
         proto::{
+            DynCryptoBackend,
             crypto::CryptoBackend,
             microphone::foundation::{
                 packet::{
@@ -70,7 +71,7 @@ fn foundation_mic_header_serialization() {
 fn payloader() {
     let mut payloader = FoundationMicPayloader::new(
         FoundationMicPayloaderConfig { encryption: None },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     payloader.push_frame(
@@ -172,10 +173,7 @@ fn payloader() {
     );
 }
 
-fn payloader_encrypted<Crypto>(crypto: Crypto)
-where
-    Crypto: CryptoBackend,
-{
+fn payloader_encrypted(crypto: DynCryptoBackend) {
     let mut payloader = FoundationMicPayloader::new(
         FoundationMicPayloaderConfig {
             encryption: Some((
@@ -296,7 +294,7 @@ where
 fn payloader_encrypted_openssl() {
     use crate::crypto::openssl::OpenSSLCryptoBackend;
 
-    payloader_encrypted(OpenSSLCryptoBackend);
+    payloader_encrypted(Arc::new(OpenSSLCryptoBackend) as _);
 }
 
 #[cfg(feature = "rustcrypto")]
@@ -304,5 +302,5 @@ fn payloader_encrypted_openssl() {
 fn payloader_encrypted_rustcrypto() {
     use crate::crypto::rustcrypto::RustCryptoBackend;
 
-    payloader_encrypted(RustCryptoBackend);
+    payloader_encrypted(Arc::new(RustCryptoBackend) as _);
 }

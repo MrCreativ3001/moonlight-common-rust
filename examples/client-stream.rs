@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use std::{
+    sync::Arc,
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -135,7 +136,7 @@ fn main() {
         video_decoder,
         audio_decoder,
         DebugListener,
-        crypto_backend,
+        Arc::new(crypto_backend) as _,
     )
     .unwrap();
 

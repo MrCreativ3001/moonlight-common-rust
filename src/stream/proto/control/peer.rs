@@ -10,6 +10,7 @@ use crate::{
     stream::{
         AesKey,
         proto::{
+            DynCryptoBackend,
             control::{
                 encryption::{
                     ControlEncryptionError, decrypt_clientbound_control_packet_into,
@@ -22,7 +23,6 @@ use crate::{
                     EncryptedControlHeader, EnetChannel, PacketDirection,
                 },
             },
-            crypto::CryptoBackend,
             enet::{EnetConfig, EnetError, EnetEvent, EnetHost, EnetInput, EnetOutput},
         },
     },
@@ -155,21 +155,18 @@ struct PeerData {
     config: ControlPeerConfig,
 }
 
-pub struct ControlHost<Crypto> {
-    crypto_backend: Crypto,
+pub struct ControlHost {
+    crypto_backend: DynCryptoBackend,
     peer_data: HashMap<ControlPeerId, PeerData>,
     host: EnetHost,
 }
 
-impl<Crypto> ControlHost<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl ControlHost {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(
         now: Instant,
         config: ControlHostConfig,
-        crypto_backend: Crypto,
+        crypto_backend: DynCryptoBackend,
     ) -> Result<Self, ControlError> {
         Ok(Self {
             crypto_backend,

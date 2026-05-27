@@ -1,6 +1,6 @@
 //! A sans io rtsp client implementation with moonlight encryption support
 
-use std::{mem::swap, net::SocketAddr, str::Utf8Error};
+use std::{mem::swap, net::SocketAddr, str::Utf8Error, sync::Arc};
 
 use thiserror::Error;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -10,7 +10,7 @@ use crate::{
     stream::{
         AesKey,
         proto::{
-            crypto::CryptoBackend,
+            DynCryptoBackend,
             rtsp::{
                 encryption::{
                     RtspEncryptionError, decrypt_server_rtsp_message_into,
@@ -82,10 +82,10 @@ pub struct RtspClientConfig {
 }
 
 #[derive(Debug)]
-pub struct RtspClient<Crypto> {
+pub struct RtspClient {
     target: RtspAddr,
     client_version: String,
-    crypto_backend: Crypto,
+    crypto_backend: DynCryptoBackend,
     aes_key: Option<AesKey>,
     sequence_number: usize,
     state: State,
@@ -108,20 +108,17 @@ enum State {
     Disconnected,
 }
 
-impl RtspClient<DisabledCryptoBackend> {
+impl RtspClient {
     #[allow(unused)]
     pub fn new_unencrypted(config: RtspClientConfig) -> Self {
-        Self::new(config, DisabledCryptoBackend)
+        Self::new(config, Arc::new(DisabledCryptoBackend) as _)
     }
 }
 
 /// Sans Io Moonlight Rtsp protocol with encryption support.
-impl<Crypto> RtspClient<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl RtspClient {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(mut config: RtspClientConfig, crypto_backend: Crypto) -> Self {
+    pub fn new(mut config: RtspClientConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
             target: config.target,
             crypto_backend,

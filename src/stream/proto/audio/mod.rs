@@ -1,6 +1,7 @@
 use std::{
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -16,11 +17,11 @@ use crate::{
         AesIv, AesKey,
         audio::{AudioFrame, OpusMultistreamConfig},
         proto::{
+            DynCryptoBackend,
             audio::{
                 depayloader::{AudioDepayloader, AudioDepayloaderConfig, AudioDepayloaderError},
                 packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
             },
-            crypto::CryptoBackend,
             packet::SunshinePing,
             ping::{
                 PingSender, PingSenderConfig, PingSenderInput, PingSenderOutput, PingSenderState,
@@ -72,25 +73,22 @@ pub enum AudioStreamOutput<'a> {
     Timeout(Instant),
 }
 
-pub struct AudioStream<Crypto> {
+pub struct AudioStream {
     last_now: Instant,
     last_sample: Instant,
     ping_sender: PingSender,
-    depayloader: AudioDepayloader<Crypto>,
+    depayloader: AudioDepayloader,
 }
 
-impl AudioStream<DisabledCryptoBackend> {
+impl AudioStream {
     pub fn new_unencrypted(now: Instant, config: AudioStreamConfig) -> Self {
-        Self::new(now, config, DisabledCryptoBackend)
+        Self::new(now, config, Arc::new(DisabledCryptoBackend) as _)
     }
 }
 
-impl<Crypto> AudioStream<Crypto>
-where
-    Crypto: CryptoBackend,
-{
+impl AudioStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
-    pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: Crypto) -> Self {
+    pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
             last_now: now,
             last_sample: now,
@@ -170,13 +168,13 @@ where
     }
 }
 
-impl<Crypto> Debug for AudioStream<Crypto> {
+impl Debug for AudioStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[AudioStream]")
     }
 }
 
-impl<Crypto> Drop for AudioStream<Crypto> {
+impl Drop for AudioStream {
     fn drop(&mut self) {
         info!("terminated audio stream");
     }

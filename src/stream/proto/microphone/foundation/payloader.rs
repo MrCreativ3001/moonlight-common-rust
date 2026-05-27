@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::stream::{
     AesIv, AesKey,
     proto::{
+        DynCryptoBackend,
         crypto::{CryptoBackend, CryptoError, round_to_pkcs7_safe_len},
         microphone::foundation::packet::{
             FOUNDATION_MAX_MIC_PACKET_SIZE, FOUNDATION_MIC_HEADER_FLAGS, FOUNDATION_MIC_IV_LEN,
@@ -28,8 +29,8 @@ pub struct FoundationMicPayloaderConfig {
 
 /// Foundation Extension
 #[derive(Debug)]
-pub struct FoundationMicPayloader<Crypto> {
-    crypto_backend: Crypto,
+pub struct FoundationMicPayloader {
+    crypto_backend: DynCryptoBackend,
     config: FoundationMicPayloaderConfig,
     current_packet: Option<Vec<u8>>,
     packets: VecDeque<Vec<u8>>,
@@ -37,11 +38,8 @@ pub struct FoundationMicPayloader<Crypto> {
     sequence_number: u16,
 }
 
-impl<Crypto> FoundationMicPayloader<Crypto>
-where
-    Crypto: CryptoBackend,
-{
-    pub fn new(config: FoundationMicPayloaderConfig, crypto_backend: Crypto) -> Self {
+impl FoundationMicPayloader {
+    pub fn new(config: FoundationMicPayloaderConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
             crypto_backend,
             config,

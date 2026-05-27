@@ -17,31 +17,28 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::{
-    crypto::disabled::DisabledCryptoBackend,
-    stream::{
-        HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
-        audio::{AudioConfig, AudioFrame, OpusMultistreamConfig},
-        proto::{
-            MoonlightStreamInput, MoonlightStreamProtoError, MoonlightStreamSetup,
-            MoonlightStreamSetupOutput,
-            audio::{AudioStreamError, AudioStreamInput, AudioStreamOutput},
-            control::{
-                ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
-                ControlStreamOutput,
-                packet::ControlPacket,
-                peer::{ControlError, ControlHostAction},
-            },
-            crypto::CryptoBackend,
-            microphone::foundation::{
-                FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
-                FoundationMicStreamOutput,
-            },
-            video::{VideoStreamError, VideoStreamInput, VideoStreamOutput},
+use crate::stream::{
+    HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
+    audio::{AudioConfig, AudioFrame, OpusMultistreamConfig},
+    proto::{
+        DynCryptoBackend, MoonlightStreamInput, MoonlightStreamProtoError, MoonlightStreamSetup,
+        MoonlightStreamSetupOutput,
+        audio::{AudioStreamError, AudioStreamInput, AudioStreamOutput},
+        control::{
+            ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
+            ControlStreamOutput,
+            packet::ControlPacket,
+            peer::{ControlError, ControlHostAction},
         },
-        tokio::signal::StopSignal,
-        video::{DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoSetup},
+        crypto::CryptoBackend,
+        microphone::foundation::{
+            FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
+            FoundationMicStreamOutput,
+        },
+        video::{VideoStreamError, VideoStreamInput, VideoStreamOutput},
     },
+    tokio::signal::StopSignal,
+    video::{DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoSetup},
 };
 
 // TODO: move to using tokio::time::Instant
@@ -95,9 +92,9 @@ struct Inner {
     stop: StopSignal,
     tasks: Mutex<Tasks>,
     handler: Arc<dyn MoonlightStreamHandler + Send + Sync>,
-    control_stream: Mutex<Option<ControlStream<Arc<dyn CryptoBackend + Send + Sync>>>>,
+    control_stream: Mutex<Option<ControlStream>>,
     control_stream_notify: Notify,
-    foundation_mic: Mutex<Option<FoundationMicStream<Arc<dyn CryptoBackend + Send + Sync>>>>,
+    foundation_mic: Mutex<Option<FoundationMicStream>>,
     foundation_mic_notify: Notify,
     first_frame: Mutex<FirstFrame>,
     first_frame_notify: Notify,
@@ -126,21 +123,18 @@ fn handle_error(inner: &Inner, error: MoonlightStreamError) {
 
 impl MoonlightStream {
     pub fn launch_query_parameters() -> &'static str {
-        MoonlightStreamSetup::<DisabledCryptoBackend>::launch_query_parameters()
+        MoonlightStreamSetup::launch_query_parameters()
     }
 
     /// # Cancel Safety
     ///
     /// This function this not cancel safe.
-    pub async fn connect<Crypto>(
+    pub async fn connect(
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
-        crypto_backend: Crypto,
+        crypto_backend: DynCryptoBackend,
         handler: Arc<dyn MoonlightStreamHandler + Send + Sync>,
-    ) -> Result<Self, MoonlightStreamError>
-    where
-        Crypto: CryptoBackend + Clone + 'static,
-    {
+    ) -> Result<Self, MoonlightStreamError> {
         let crypto_backend: Arc<dyn CryptoBackend + Send + Sync> = Arc::new(crypto_backend);
         let base_time = Instant::now();
 
@@ -200,7 +194,7 @@ impl MoonlightStream {
 
     async fn connect_inner(
         base_time: Instant,
-        mut setup: MoonlightStreamSetup<Arc<dyn CryptoBackend + Send + Sync>>,
+        mut setup: MoonlightStreamSetup,
         inner: Arc<Inner>,
     ) -> Result<HostFeatures, MoonlightStreamError> {
         let mut tcp_stream = None;
@@ -775,9 +769,7 @@ impl MoonlightStream {
 
     async fn use_control_stream<R>(
         &self,
-        f: impl FnOnce(
-            &mut ControlStream<Arc<dyn CryptoBackend + Send + Sync>>,
-        ) -> Result<R, ControlError>,
+        f: impl FnOnce(&mut ControlStream) -> Result<R, ControlError>,
     ) -> Result<R, ControlError> {
         let mut control_stream_guard = self.inner.control_stream.lock().await;
 

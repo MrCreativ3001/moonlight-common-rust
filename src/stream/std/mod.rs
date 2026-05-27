@@ -11,32 +11,29 @@ use std::{
 use thiserror::Error;
 use tracing::{Span, debug, debug_span, error, info, info_span, trace, warn};
 
-use crate::{
-    crypto::disabled::DisabledCryptoBackend,
-    stream::{
-        HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
-        audio::{AudioConfig, AudioDecoder, AudioFrame},
-        connection::ConnectionListener,
-        proto::{
-            MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
-            MoonlightStreamProtoError, MoonlightStreamSetup, MoonlightStreamSetupOutput,
-            audio::{AudioStream, AudioStreamError, AudioStreamInput, AudioStreamOutput},
-            control::{
-                ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
-                ControlStreamOutput,
-                packet::ControlPacket,
-                peer::{ControlError, ControlHostAction},
-            },
-            crypto::CryptoBackend,
-            microphone::foundation::{
-                FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
-                FoundationMicStreamOutput,
-            },
-            video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
+use crate::stream::{
+    HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
+    audio::{AudioConfig, AudioDecoder, AudioFrame},
+    connection::ConnectionListener,
+    proto::{
+        DynCryptoBackend, MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
+        MoonlightStreamProtoError, MoonlightStreamSetup, MoonlightStreamSetupOutput,
+        audio::{AudioStream, AudioStreamError, AudioStreamInput, AudioStreamOutput},
+        control::{
+            ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
+            ControlStreamOutput,
+            packet::ControlPacket,
+            peer::{ControlError, ControlHostAction},
         },
-        std::{ringbuffer::RingBuffer, signal::StopSignal},
-        video::{DecodeResult, VideoDecoder},
+        crypto::CryptoBackend,
+        microphone::foundation::{
+            FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
+            FoundationMicStreamOutput,
+        },
+        video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
     },
+    std::{ringbuffer::RingBuffer, signal::StopSignal},
+    video::{DecodeResult, VideoDecoder},
 };
 
 mod ringbuffer;
@@ -134,9 +131,9 @@ impl Threads {
 }
 
 struct SharedInner {
-    control_stream: Mutex<Option<ControlStream<Arc<dyn CryptoBackend + Send>>>>,
+    control_stream: Mutex<Option<ControlStream>>,
     control_notify: Condvar,
-    foundation_mic_stream: Mutex<Option<FoundationMicStream<Arc<dyn CryptoBackend + Send>>>>,
+    foundation_mic_stream: Mutex<Option<FoundationMicStream>>,
     foundation_mic_notify: Condvar,
     first_frame: Mutex<FirstFrame>,
     first_frame_notify: Condvar,
@@ -153,20 +150,17 @@ struct FirstFrame {
 
 impl MoonlightStream {
     pub fn launch_query_parameters() -> &'static str {
-        MoonlightStreamSetup::<DisabledCryptoBackend>::launch_query_parameters()
+        MoonlightStreamSetup::launch_query_parameters()
     }
 
-    pub fn connect<Crypto>(
+    pub fn connect(
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         video_decoder: impl VideoDecoder + Send + 'static,
         audio_decoder: impl AudioDecoder + Send + 'static,
         connection_listener: impl ConnectionListener + Send + 'static,
-        crypto_backend: Crypto,
-    ) -> Result<Self, MoonlightStreamError>
-    where
-        Crypto: CryptoBackend + Clone + 'static,
-    {
+        crypto_backend: DynCryptoBackend,
+    ) -> Result<Self, MoonlightStreamError> {
         let base_time = Instant::now();
         let stop = StopSignal::new();
 
@@ -488,9 +482,7 @@ impl MoonlightStream {
 
     fn use_control_stream(
         &self,
-        f: impl FnOnce(
-            &mut ControlStream<Arc<dyn CryptoBackend + Send + 'static>>,
-        ) -> Result<(), ControlError>,
+        f: impl FnOnce(&mut ControlStream) -> Result<(), ControlError>,
     ) -> Result<(), ControlError> {
         if self.stop.is_notified() {
             trace!("couldn't aquire control stream because the stream was stopped");
@@ -518,9 +510,7 @@ impl MoonlightStream {
     /// Returns if the closure was executed / if the stream is present
     fn try_use_foundation_microphone(
         &self,
-        f: impl FnOnce(
-            &mut FoundationMicStream<Arc<dyn CryptoBackend + Send + 'static>>,
-        ) -> Result<(), FoundationMicStreamError>,
+        f: impl FnOnce(&mut FoundationMicStream) -> Result<(), FoundationMicStreamError>,
     ) -> Result<bool, FoundationMicStreamError> {
         if self.stop.is_notified() {
             trace!("couldn't aquire foundation microphone stream because the stream was stopped");
@@ -632,18 +622,15 @@ fn udp_receiver(
     })
 }
 
-fn audio_thread<Crypto>(
+fn audio_thread(
     span: Span,
     base_time: Instant,
     stop: StopSignal,
     addr: SocketAddr,
-    mut audio_stream: AudioStream<Crypto>,
+    mut audio_stream: AudioStream,
     mut audio_decoder: impl AudioDecoder + Send + 'static,
     shared_inner: Arc<SharedInner>,
-) -> JoinHandle<()>
-where
-    Crypto: CryptoBackend + 'static,
-{
+) -> JoinHandle<()> {
     spawn(move || {
         let _enter = span.enter();
 
@@ -743,18 +730,15 @@ where
     })
 }
 
-fn video_thread<Crypto>(
+fn video_thread(
     span: Span,
     base_time: Instant,
     stop: StopSignal,
     addr: SocketAddr,
-    mut video_stream: VideoStream<Crypto>,
+    mut video_stream: VideoStream,
     mut video_decoder: impl VideoDecoder + Send + 'static,
     shared_inner: Arc<SharedInner>,
-) -> JoinHandle<()>
-where
-    Crypto: CryptoBackend + 'static,
-{
+) -> JoinHandle<()> {
     spawn(move || {
         let _enter = span.enter();
 

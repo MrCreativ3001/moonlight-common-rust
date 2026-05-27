@@ -1,4 +1,4 @@
-use std::{array, time::Duration};
+use std::{array, sync::Arc, time::Duration};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -6,6 +6,7 @@ use crate::{
         AesIv, AesKey,
         audio::AudioFrame,
         proto::{
+            DynCryptoBackend,
             audio::{
                 create_audio_reed_solomon,
                 depayloader::{AudioDepayloader, AudioDepayloaderConfig},
@@ -651,7 +652,7 @@ pub fn test_audio_depayloader_no_fec() {
             fec: false,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -753,7 +754,7 @@ fn test_audio_depayloader_no_fec_reorder() {
             fec: false,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -853,7 +854,7 @@ fn test_audio_depayloader_no_fec_packet_loss_no_recover() {
             fec: false,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -959,7 +960,7 @@ fn test_audio_depayloader() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -1089,7 +1090,7 @@ fn test_audio_depayloader_reorder() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data1 = &[0, 1, 2, 3];
@@ -1206,7 +1207,7 @@ fn test_audio_depayloader_packet_loss_no_recover() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -1277,7 +1278,7 @@ fn test_audio_depayloader_packet_loss_recover() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -1341,7 +1342,7 @@ fn test_audio_depayloader_packet_loss_recover_use_polled_packet() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -1407,7 +1408,7 @@ fn test_audio_depayloader_late_data_packet_fec_recovery() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -1473,7 +1474,7 @@ fn test_audio_depayloader_big_packet_loss() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let first_data = &[0, 1, 2, 3];
@@ -1540,7 +1541,7 @@ fn test_audio_depayloader_sunshine() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     let expected1 = &SUNSHINE_PACKET1[RtpAudioHeader::SIZE..];
@@ -1595,7 +1596,7 @@ fn test_audio_depayloader_sunshine() {
             fec: true,
             encryption: None,
         },
-        DisabledCryptoBackend,
+        Arc::new(DisabledCryptoBackend) as _,
     );
 
     depayloader.handle_packet(SUNSHINE_PACKET1).unwrap();
@@ -1640,10 +1641,7 @@ fn test_audio_depayloader_sunshine() {
     assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
-fn audio_depayloader_encrypted_sunshine<Crypto>(crypto: Crypto)
-where
-    Crypto: CryptoBackend + Clone,
-{
+fn audio_depayloader_encrypted_sunshine(crypto: DynCryptoBackend) {
     let mut depayloader = AudioDepayloader::new(
         AudioDepayloaderConfig {
             fec: true,
