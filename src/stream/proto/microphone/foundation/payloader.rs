@@ -3,7 +3,7 @@ use std::{collections::VecDeque, time::Duration};
 use thiserror::Error;
 
 use crate::stream::{
-    AesIv, AesKey,
+    SunshineEncryption,
     proto::{
         DynCryptoBackend,
         crypto::{CryptoBackend, CryptoError, round_to_pkcs7_safe_len},
@@ -24,7 +24,7 @@ pub enum FoundationMicPayloaderError {
 
 #[derive(Debug)]
 pub struct FoundationMicPayloaderConfig {
-    pub encryption: Option<(AesKey, AesIv)>,
+    pub encryption: Option<SunshineEncryption>,
 }
 
 /// Foundation Extension
@@ -75,7 +75,7 @@ impl FoundationMicPayloader {
         #[allow(clippy::unwrap_used)]
         header.serialize(packet[0..FoundationMicHeader::SIZE].as_mut_array().unwrap());
 
-        if let Some((aes_key, aes_iv)) = self.config.encryption {
+        if let Some(SunshineEncryption { aes_key, aes_iv }) = self.config.encryption {
             // See
             // https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/MicrophoneStream.c#L96-L116
 

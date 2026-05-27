@@ -123,6 +123,18 @@ impl Deref for AesIv {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SunshineEncryption {
+    /// AES encryption data for the remote input stream. This must be
+    /// the same as what was passed as rikey and rikeyid
+    /// in `/launch` and `/resume` requests.
+    pub aes_key: AesKey,
+    /// AES encryption data for the remote input stream. This must be
+    /// the same as what was passed as rikey and rikeyid
+    /// in `/launch` and `/resume` requests.
+    pub aes_iv: AesIv,
+}
+
 /// This contains technical details that are required for a stream to start.
 ///
 /// References:
@@ -145,14 +157,8 @@ pub struct MoonlightStreamConfig {
     pub server_codec_mode_support: ServerCodecModeSupport,
     /// The rtsp session from the `/launch` or `/resume` response
     pub rtsp_session_url: Option<String>,
-    /// AES encryption data for the remote input stream. This must be
-    /// the same as what was passed as rikey and rikeyid
-    /// in `/launch` and `/resume` requests.
-    pub remote_input_aes_key: AesKey,
-    /// AES encryption data for the remote input stream. This must be
-    /// the same as what was passed as rikey and rikeyid
-    /// in `/launch` and `/resume` requests.
-    pub remote_input_aes_iv: AesIv,
+    /// See [SunshineEncryption]
+    pub encryption: SunshineEncryption,
     /// Apollo Extension
     ///
     /// See [ServerInfoEndpoint](crate::http::server_info::ServerInfoEndpoint)

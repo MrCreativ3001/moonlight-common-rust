@@ -29,7 +29,7 @@ use crate::{
     },
     mac::MacAddress,
     stream::{
-        AesIv, AesKey, MoonlightStreamConfig, MoonlightStreamSettings,
+        AesIv, AesKey, MoonlightStreamConfig, MoonlightStreamSettings, SunshineEncryption,
         video::ServerCodecModeSupport,
     },
 };
@@ -586,8 +586,7 @@ where
             gfe_version: Some(gfe_version),
             server_codec_mode_support,
             rtsp_session_url,
-            remote_input_aes_iv: aes_iv,
-            remote_input_aes_key: aes_key,
+            encryption: SunshineEncryption { aes_key, aes_iv },
             version: app_version,
             apollo_permissions,
             foundation_enable_mic,

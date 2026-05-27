@@ -8,7 +8,7 @@ use fec_rs::ReedSolomon;
 use thiserror::Error;
 
 use crate::stream::{
-    AesIv, AesKey,
+    SunshineEncryption,
     audio::AudioFrame,
     proto::{
         DynCryptoBackend,
@@ -43,7 +43,7 @@ pub struct AudioDepayloaderConfig {
     /// See: <https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44>
     pub fec: bool,
     /// Use encryption if [Some].
-    pub encryption: Option<(AesKey, AesIv)>,
+    pub encryption: Option<SunshineEncryption>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ struct FecPacket {
 #[derive(Debug)]
 pub struct AudioDepayloader {
     crypto_backend: DynCryptoBackend,
-    encryption: Option<(AesKey, AesIv)>,
+    encryption: Option<SunshineEncryption>,
     current_sequence_number: u16,
     // TODO: don't deallocate those Vec's but reuse them
     data_packets: BTreeMap<u16, DataPacket>,
@@ -134,7 +134,7 @@ impl AudioDepayloader {
 
         // -- Decrypt data if necessary
         if let Some(output) = output.as_mut()
-            && let Some((aes_key, aes_iv)) = self.encryption
+            && let Some(SunshineEncryption { aes_key, aes_iv }) = self.encryption
         {
             // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
 

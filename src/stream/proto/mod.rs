@@ -277,7 +277,7 @@ impl MoonlightStreamSetup {
                 RtspClientConfig {
                     target: rtsp_addr,
                     client_version,
-                    aes_key: Some(config.remote_input_aes_key),
+                    aes_key: Some(config.encryption.aes_key),
                 },
                 crypto_backend,
             ),
@@ -403,10 +403,8 @@ impl MoonlightStreamSetup {
                                     // entirely and pass all audio data straight to the decoder.
                                     fec: self.server_version >= ServerVersion::new(7, 1, 415, 0),
                                     sunshine_ping: audio_setup.sunshine_ping.clone(),
-                                    sunshine_encryption: encrypted.then_some((
-                                        self.client_config.remote_input_aes_key,
-                                        self.client_config.remote_input_aes_iv,
-                                    )),
+                                    sunshine_encryption: encrypted
+                                        .then_some(self.client_config.encryption),
                                 },
                                 self.crypto_backend.clone(),
                             );
@@ -524,10 +522,7 @@ impl MoonlightStreamSetup {
                             let mic_stream = FoundationMicStream::new(
                                 self.last_now,
                                 FoundationMicStreamConfig {
-                                    encryption: encrypted.then_some((
-                                        self.client_config.remote_input_aes_key,
-                                        self.client_config.remote_input_aes_iv,
-                                    )),
+                                    encryption: encrypted.then_some(self.client_config.encryption),
                                 },
                                 self.crypto_backend.clone(),
                             );
@@ -583,12 +578,12 @@ impl MoonlightStreamSetup {
                             {
                                 Some((
                                     ControlEncryptionMethod::Sunshine,
-                                    self.client_config.remote_input_aes_key,
+                                    self.client_config.encryption.aes_key,
                                 ))
                             } else if should_enable_encryption {
                                 Some((
                                     ControlEncryptionMethod::Nvidia,
-                                    self.client_config.remote_input_aes_key,
+                                    self.client_config.encryption.aes_key,
                                 ))
                             } else {
                                 None

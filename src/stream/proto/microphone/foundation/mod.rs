@@ -13,7 +13,7 @@ use thiserror::Error;
 use tracing::{Level, instrument};
 
 use crate::stream::{
-    AesIv, AesKey,
+    SunshineEncryption,
     proto::{
         DynCryptoBackend,
         microphone::foundation::payloader::{
@@ -43,7 +43,7 @@ pub enum FoundationMicStreamError {
 #[derive(Debug)]
 pub struct FoundationMicStreamConfig {
     /// If [Some] the mic stream is encrypted.
-    pub encryption: Option<(AesKey, AesIv)>,
+    pub encryption: Option<SunshineEncryption>,
 }
 
 #[derive(Debug)]

@@ -14,7 +14,7 @@ use tracing::{Level, debug, info, instrument};
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        AesIv, AesKey,
+        SunshineEncryption,
         audio::{AudioFrame, OpusMultistreamConfig},
         proto::{
             DynCryptoBackend,
@@ -50,7 +50,7 @@ pub struct AudioStreamConfig {
     pub fec: bool,
     pub sunshine_ping: Option<SunshinePing>,
     /// If [Some] the audio stream is encrypted.
-    pub sunshine_encryption: Option<(AesKey, AesIv)>,
+    pub sunshine_encryption: Option<SunshineEncryption>,
 }
 
 #[derive(Debug, Error)]

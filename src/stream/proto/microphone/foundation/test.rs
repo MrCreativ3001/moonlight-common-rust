@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
-        AesIv, AesKey,
+        AesIv, AesKey, SunshineEncryption,
         proto::{
             DynCryptoBackend,
             crypto::CryptoBackend,
@@ -176,12 +176,12 @@ fn payloader() {
 fn payloader_encrypted(crypto: DynCryptoBackend) {
     let mut payloader = FoundationMicPayloader::new(
         FoundationMicPayloaderConfig {
-            encryption: Some((
-                AesKey([
+            encryption: Some(SunshineEncryption {
+                aes_key: AesKey([
                     67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 67, 1,
                 ]),
-                AesIv(42),
-            )),
+                aes_iv: AesIv(42),
+            }),
         },
         crypto,
     );
