@@ -4,15 +4,22 @@ edition = "2024"
 version.workspace = true
 license.workspace = true
 
-# TODO: use https://github.com/mozilla/uniffi-rs ?
-
 [dependencies]
+moonlight-common = { workspace = true, default-features = false, features = [
+    "stream-proto",
+    "rustcrypto",
+] }
+uniffi.workspace = true
+thiserror.workspace = true
 
-[features]
+tracing-subscriber = "0.3.23"
+tracing = "0.1.44"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "moonlight_common"
+test = false
+doctest = false
 
 [lints]
 workspace = true
-
-[lib]
-test = false
-doctest = false

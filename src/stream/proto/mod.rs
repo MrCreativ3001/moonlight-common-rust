@@ -10,8 +10,6 @@ use std::{
     time::Duration,
 };
 
-use sans_io_time::Instant;
-
 use thiserror::Error;
 use tracing::{Level, debug, info, instrument, warn};
 
@@ -73,12 +71,14 @@ pub mod video;
 pub mod rtsp;
 pub mod sdp;
 
-mod packet;
+pub mod packet;
 
 mod enet;
 pub(crate) mod fec;
 
 pub(crate) type DynCryptoBackend = Arc<dyn CryptoBackend + 'static>;
+
+pub use sans_io_time::Instant;
 
 // TODO: move all defaults ports to some better location
 pub const DEFAULT_RTSP_PORT: u16 = 48010;

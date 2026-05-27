@@ -1,0 +1,6 @@
+# Python
+__pycache__
+
+# UniFFI output
+moonlight_common.dll
+moonlight_common.py

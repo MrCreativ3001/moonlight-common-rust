@@ -1,10 +1,14 @@
 [workspace]
 package.version = "0.1.0"
 package.license = "GPL-3.0-or-later"
-members = ["./", "bindings", "moonlight-common-sys"]
+members = ["./", "bindings", "bindings/uniffi-bindgen", "moonlight-common-sys"]
 
 [workspace.dependencies]
 moonlight-common-sys = { path = "./moonlight-common-sys" }
+moonlight-common = { path = "./", default-features = false }
+
+thiserror = "2.0.18"
+uniffi = "0.31.1"
 
 openssl-sys = "0.9.109"
 openssl = "0.10.73"
@@ -30,7 +34,7 @@ num-traits = "0.2.19"
 
 tracing = "0.1.44"
 
-thiserror = "2.0.18"
+thiserror.workspace = true
 
 # TODO: should the v4 feature for random be used?
 uuid = { version = "0.8.2", features = ["v4"] }
