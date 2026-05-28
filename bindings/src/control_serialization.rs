@@ -36,7 +36,18 @@ pub struct ControlPacketConfig {
 }
 
 #[export]
-pub fn serialize_packet(config: &ControlPacketConfig, packet: ControlPacket) -> Option<Vec<u8>> {
+pub fn control_packet_config_new(
+    server_version: ServerVersion,
+    encrypted: bool,
+) -> Option<ControlPacketConfig> {
+    ControlPacketConfig::new(server_version, encrypted)
+}
+
+#[export]
+pub fn control_packet_serialize(
+    config: &ControlPacketConfig,
+    packet: ControlPacket,
+) -> Option<Vec<u8>> {
     let packet: ControlPacket2 = packet.into();
 
     let mut buffer = [0; _];
@@ -52,7 +63,7 @@ pub enum PacketDirection {
 }
 
 #[export]
-pub fn deserialize_packet(
+pub fn control_packet_deserialize(
     config: &ControlPacketConfig,
     packet_direction: PacketDirection,
     payload: Vec<u8>,
