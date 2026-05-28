@@ -51,9 +51,12 @@ mod test;
 
 /// A message from the [MoonlightStreamProto](super::MoonlightStreamProto) to the [ControlStream]
 #[derive(Debug)]
-pub struct ControlMessage(pub(super) ControlMessageInner);
+pub struct ControlMessage(#[doc(hidden)] pub ControlMessageInner);
+
 #[derive(Debug)]
-pub(super) enum ControlMessageInner {
+/// This type is unstable and may change in between minor or patch versions.
+#[doc(hidden)]
+pub enum ControlMessageInner {
     /// Sends a packet regardless of the [Self::AllowOtherPackets] option
     SendPacket { packet: ControlPacket, force: bool },
 }

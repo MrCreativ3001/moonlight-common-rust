@@ -6,12 +6,19 @@ use uniffi::{
     remote, setup_scaffolding,
 };
 
-use moonlight_common::stream::{
-    AesIv, AesKey, SunshineEncryption,
-    proto::{Instant, packet::SunshinePing},
+use moonlight_common::{
+    ServerType, ServerVersion,
+    stream::{
+        AesIv, AesKey, SunshineEncryption,
+        proto::{Instant, packet::SunshinePing},
+    },
 };
 
 pub mod audio_stream;
+pub mod control_packet;
+pub mod control_stream;
+pub mod video_stream;
+
 pub mod log;
 
 setup_scaffolding!();
@@ -53,3 +60,22 @@ custom_type!(SunshinePing, Vec<u8>, {
     lower: |ping| ping.0.to_vec(),
     try_lift: |vec| Ok(SunshinePing(vec.as_array::<16>().copied().ok_or_else(|| anyhow!("The length of the SunshinePing must be 16 bytes! (current: {})", vec.len()))?)),
 });
+
+#[remote(Record)]
+pub struct ServerVersion {
+    pub major: i32,
+    pub minor: i32,
+    pub patch: i32,
+    pub sunshine_identifier: i32,
+    pub server_type: ServerType,
+}
+
+#[remote(Enum)]
+#[non_exhaustive]
+pub enum ServerType {
+    #[default]
+    NvidiaGameStream,
+    Sunshine,
+    Apollo,
+    FoundationSunshine,
+}
