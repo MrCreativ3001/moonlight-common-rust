@@ -37,7 +37,7 @@ tracing = "0.1.44"
 thiserror.workspace = true
 
 # TODO: should the v4 feature for random be used?
-uuid = { version = "0.8.2", features = ["v4"] }
+uuid = { version = "0.8.2", features = ["v4", "stdweb"] }
 hex = "0.4.3"
 pem = "3.0.6"
 roxmltree = "0.21.1"
