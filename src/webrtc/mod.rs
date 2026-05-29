@@ -8,6 +8,8 @@ use std::str::FromStr;
 
 use sdp_types::{Attribute, Session};
 
+use crate::stream::video::VideoFormats;
+
 const CONTROL_MODE_SIMPLE: &str = "simple";
 const CONTROL_MODE_ENET: &str = "enet";
 
@@ -95,14 +97,14 @@ pub enum MoonlightError {
     InvalidControlMode(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MoonlightWebRtcSession {
     pub app_id: u32,
     pub mode: VideoMode,
     pub bitrate: u32,
     pub hdr: bool,
     pub local_audio_play_mode: bool,
-    pub preferred_codec: Option<u32>,
+    pub preferred_codec: Option<VideoFormats>,
     pub preferred_audio: Option<u32>,
     pub host_id: Option<u32>,
     pub control_simple: bool,
@@ -151,7 +153,9 @@ impl MoonlightWebRtcSession {
                 }
 
                 "x-moonlight-preferred-codec" => {
-                    preferred_codec = Some(parse_u32("x-moonlight-preferred-codec", value)?);
+                    let value = parse_u32("x-moonlight-preferred-codec", value)?;
+
+                    preferred_codec = Some(VideoFormats::from_bits_retain(value));
                 }
 
                 "x-moonlight-preferred-audio" => {
@@ -342,7 +346,7 @@ mod tests {
             bitrate: 50000,
             hdr: true,
             local_audio_play_mode: false,
-            preferred_codec: Some(7),
+            preferred_codec: Some(VideoFormats::H264),
             preferred_audio: Some(2),
             host_id: Some(42),
             control_simple: false,
