@@ -120,8 +120,8 @@ cbc = { version = "0.1.2", default-features = false, features = [
     "block-padding",
 ], optional = true }
 
-# Webrtc, TODO
-# sdp-types = "0.1.8"
+# Webrtc
+sdp-types = "0.1.8"
 
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
