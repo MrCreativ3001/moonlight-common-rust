@@ -19,7 +19,7 @@ tracing = "0.1.44"
 web = ["uniffi/wasm-unstable-single-threaded"]
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 test = false
 doctest = false
 
