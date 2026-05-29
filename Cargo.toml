@@ -8,7 +8,7 @@ moonlight-common-sys = { path = "./moonlight-common-sys" }
 moonlight-common = { path = "./", default-features = false }
 
 thiserror = "2.0.18"
-uniffi = "0.31.1"
+uniffi = "0.31.0"
 
 openssl-sys = "0.9.109"
 openssl = "0.10.73"
