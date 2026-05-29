@@ -2,7 +2,7 @@
 import build
 
 # Run the lib
-from moonlight_common import * 
+from moonlight_common_bindings import * 
 
 import time
 

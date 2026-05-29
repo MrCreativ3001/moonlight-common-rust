@@ -20,7 +20,6 @@ web = ["uniffi/wasm-unstable-single-threaded"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
-name = "moonlight_common"
 test = false
 doctest = false
 

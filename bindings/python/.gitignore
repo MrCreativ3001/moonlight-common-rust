@@ -2,5 +2,5 @@
 __pycache__
 
 # UniFFI output
-moonlight_common.dll
-moonlight_common.py
+moonlight_common_bindings.dll
+moonlight_common_bindings.py

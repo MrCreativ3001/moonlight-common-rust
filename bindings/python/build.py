@@ -6,13 +6,13 @@ import sys
 from pathlib import Path
 
 # Fallback to local target dir if env var is not set
-CARGO_TARGET_DIR = os.environ.get("CARGO_TARGET_DIR", "target")
+CARGO_TARGET_DIR = os.environ.get("CARGO_TARGET_DIR", "../../target")
 
 FEATURES = ""
 
 # Determine correct dynamic library extension for current OS
 SYSTEM = platform.system()
-LIB_NAME = "moonlight_common"
+LIB_NAME = "moonlight_common_bindings"
 
 if SYSTEM == "Windows":
     LIB_EXT = "dll"
