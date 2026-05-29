@@ -104,7 +104,7 @@ rsa = { version = "0.9.10", features = [
 ], default-features = false, optional = true }
 # must be this specific version because of some other crate
 der = { version = "0.7.10", default-features = false, optional = true }
-spki = { version = "0", default-features = false, optional = true }
+spki = { version = "0.7.3", default-features = false, optional = true }
 x509-cert = { version = "0.2.5", features = [
     "std",
     "pem",
