@@ -6,7 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
-use sdp_types::{Attribute, Session};
+pub use sdp_types::*;
 
 use crate::stream::video::VideoFormats;
 
@@ -29,70 +29,31 @@ impl fmt::Display for ControlMode {
 }
 
 impl FromStr for ControlMode {
-    type Err = MoonlightError;
+    type Err = MoonlightSessionParseError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             CONTROL_MODE_SIMPLE => Ok(Self::Simple),
             CONTROL_MODE_ENET => Ok(Self::Enet),
-            _ => Err(MoonlightError::InvalidControlMode(value.to_string())),
+            _ => Err(MoonlightSessionParseError::InvalidControlMode(
+                value.to_string(),
+            )),
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VideoMode {
-    pub width: u32,
-    pub height: u32,
-    pub fps: u32,
-}
-
-impl fmt::Display for VideoMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}x{}x{}", self.width, self.height, self.fps)
-    }
-}
-
-impl FromStr for VideoMode {
-    type Err = MoonlightError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<_> = value.split('x').collect();
-
-        if parts.len() != 3 {
-            return Err(MoonlightError::InvalidVideoMode(value.to_string()));
-        }
-
-        Ok(Self {
-            width: parts[0]
-                .parse()
-                .map_err(|_| MoonlightError::InvalidVideoMode(value.to_string()))?,
-
-            height: parts[1]
-                .parse()
-                .map_err(|_| MoonlightError::InvalidVideoMode(value.to_string()))?,
-
-            fps: parts[2]
-                .parse()
-                .map_err(|_| MoonlightError::InvalidVideoMode(value.to_string()))?,
-        })
     }
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum MoonlightError {
+pub enum MoonlightSessionParseError {
+    #[error("session parse")]
+    Session(#[from] ParserError),
     #[error("missing required attribute: {0}")]
     MissingAttribute(&'static str),
-
     #[error("invalid integer for {0}: {1}")]
     InvalidInteger(&'static str, String),
-
     #[error("invalid bool for {0}: {1}")]
     InvalidBool(&'static str, String),
-
-    #[error("invalid video mode: {0}")]
+    #[error("invalid mode: {0}")]
     InvalidVideoMode(String),
-
     #[error("invalid control mode: {0}")]
     InvalidControlMode(String),
 }
@@ -100,7 +61,9 @@ pub enum MoonlightError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MoonlightWebRtcSession {
     pub app_id: u32,
-    pub mode: VideoMode,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
     pub bitrate: u32,
     pub hdr: bool,
     pub local_audio_play_mode: bool,
@@ -111,10 +74,25 @@ pub struct MoonlightWebRtcSession {
     pub control_enet: bool,
 }
 
+impl FromStr for MoonlightWebRtcSession {
+    type Err = MoonlightSessionParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let session = Session::parse(s.as_bytes())?;
+
+        Self::from_sdp(&session)
+    }
+}
+
 impl MoonlightWebRtcSession {
-    pub fn from_sdp(session: &Session) -> Result<Self, MoonlightError> {
+    pub fn from_sdp(session: &Session) -> Result<Self, MoonlightSessionParseError> {
         let mut app_id = None;
-        let mut mode = None;
+
+        // All are parsed in the same statement -> only need one option
+        let mut width = None;
+        let mut height = 0;
+        let mut fps = 0;
+
         let mut bitrate = None;
 
         let mut hdr = false;
@@ -135,11 +113,41 @@ impl MoonlightWebRtcSession {
                 "x-moonlight-appid" => {
                     app_id = Some(parse_u32("x-moonlight-appid", value)?);
                 }
-
                 "x-moonlight-mode" => {
-                    mode = Some(VideoMode::from_str(value)?);
-                }
+                    let mut parts = value.split('x');
 
+                    width = Some(
+                        parts
+                            .next()
+                            .ok_or(MoonlightSessionParseError::InvalidVideoMode(
+                                "missing width".to_string(),
+                            ))?
+                            .parse::<u32>()
+                            .map_err(|_| {
+                                MoonlightSessionParseError::InvalidVideoMode(value.to_string())
+                            })?,
+                    );
+
+                    height = parts
+                        .next()
+                        .ok_or(MoonlightSessionParseError::InvalidVideoMode(
+                            "missing height".to_string(),
+                        ))?
+                        .parse::<u32>()
+                        .map_err(|err| {
+                            MoonlightSessionParseError::InvalidVideoMode(err.to_string())
+                        })?;
+
+                    fps = parts
+                        .next()
+                        .ok_or(MoonlightSessionParseError::InvalidVideoMode(
+                            "missing fps".to_string(),
+                        ))?
+                        .parse::<u32>()
+                        .map_err(|err| {
+                            MoonlightSessionParseError::InvalidVideoMode(err.to_string())
+                        })?;
+                }
                 "x-moonlight-bitrate" => {
                     bitrate = Some(parse_u32("x-moonlight-bitrate", value)?);
                 }
@@ -179,9 +187,17 @@ impl MoonlightWebRtcSession {
         }
 
         Ok(Self {
-            app_id: app_id.ok_or(MoonlightError::MissingAttribute("x-moonlight-appid"))?,
-            mode: mode.ok_or(MoonlightError::MissingAttribute("x-moonlight-mode"))?,
-            bitrate: bitrate.ok_or(MoonlightError::MissingAttribute("x-moonlight-bitrate"))?,
+            app_id: app_id.ok_or(MoonlightSessionParseError::MissingAttribute(
+                "x-moonlight-appid",
+            ))?,
+            width: width.ok_or(MoonlightSessionParseError::MissingAttribute(
+                "x-moonlight-mode",
+            ))?,
+            height,
+            fps,
+            bitrate: bitrate.ok_or(MoonlightSessionParseError::MissingAttribute(
+                "x-moonlight-bitrate",
+            ))?,
             hdr,
             local_audio_play_mode,
             preferred_codec,
@@ -195,7 +211,11 @@ impl MoonlightWebRtcSession {
     pub fn apply(&self, session: &mut Session) {
         push(session, "x-moonlight-appid", self.app_id.to_string());
 
-        push(session, "x-moonlight-mode", self.mode.to_string());
+        push(
+            session,
+            "x-moonlight-mode",
+            format!("{}x{}x{}", self.width, self.height, self.fps),
+        );
 
         push(session, "x-moonlight-bitrate", self.bitrate.to_string());
 
@@ -235,17 +255,20 @@ fn push(session: &mut Session, attribute: impl Into<String>, value: impl Into<St
     });
 }
 
-fn parse_u32(name: &'static str, value: &str) -> Result<u32, MoonlightError> {
+fn parse_u32(name: &'static str, value: &str) -> Result<u32, MoonlightSessionParseError> {
     value
         .parse()
-        .map_err(|_| MoonlightError::InvalidInteger(name, value.to_string()))
+        .map_err(|_| MoonlightSessionParseError::InvalidInteger(name, value.to_string()))
 }
 
-fn parse_bool(name: &'static str, value: &str) -> Result<bool, MoonlightError> {
+fn parse_bool(name: &'static str, value: &str) -> Result<bool, MoonlightSessionParseError> {
     match value {
         "0" => Ok(false),
         "1" => Ok(true),
-        _ => Err(MoonlightError::InvalidBool(name, value.to_string())),
+        _ => Err(MoonlightSessionParseError::InvalidBool(
+            name,
+            value.to_string(),
+        )),
     }
 }
 
@@ -317,14 +340,9 @@ mod tests {
 
         assert_eq!(parsed.app_id, 12345);
 
-        assert_eq!(
-            parsed.mode,
-            VideoMode {
-                width: 1920,
-                height: 1080,
-                fps: 60,
-            }
-        );
+        assert_eq!(parsed.width, 1920);
+        assert_eq!(parsed.height, 1080);
+        assert_eq!(parsed.width, 60);
 
         assert_eq!(parsed.bitrate, 20000);
 
@@ -338,11 +356,9 @@ mod tests {
     fn serialize_roundtrip() {
         let original = MoonlightWebRtcSession {
             app_id: 1,
-            mode: VideoMode {
-                width: 2560,
-                height: 1440,
-                fps: 120,
-            },
+            width: 2560,
+            height: 1440,
+            fps: 120,
             bitrate: 50000,
             hdr: true,
             local_audio_play_mode: false,
@@ -360,11 +376,6 @@ mod tests {
         let parsed = MoonlightWebRtcSession::from_sdp(&sdp).unwrap();
 
         assert_eq!(original, parsed);
-    }
-
-    #[test]
-    fn invalid_mode_fails() {
-        assert!(VideoMode::from_str("1920x1080").is_err());
     }
 
     #[test]

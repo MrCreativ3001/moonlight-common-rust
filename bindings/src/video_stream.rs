@@ -42,20 +42,6 @@ impl From<VideoStreamError2> for VideoStreamError {
     }
 }
 
-#[remote(Enum)]
-pub enum VideoFormat {
-    H264,
-    H264High8_444,
-    H265,
-    H265Main10,
-    H265Rext8_444,
-    H265Rext10_444,
-    Av1Main8,
-    Av1Main10,
-    Av1High8_444,
-    Av1High10_444,
-}
-
 #[derive(Debug, Record)]
 pub struct VideoStreamConfig {
     pub packet_size: u32,
