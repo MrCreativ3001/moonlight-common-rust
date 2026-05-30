@@ -131,17 +131,13 @@ impl VideoStream {
         };
 
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        inner.handle_input(input).map_err(|err| MoonlightError {
-            message: err.to_string(),
-        })?;
+        inner.handle_input(input)?;
         Ok(())
     }
 
     pub fn poll_output(&self) -> Result<VideoStreamOutput, MoonlightError> {
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        let output = inner.poll_output().map_err(|err| MoonlightError {
-            message: err.to_string(),
-        })?;
+        let output = inner.poll_output()?;
 
         let output = match output {
             VideoStreamOutput2::Timeout(timeout) => VideoStreamOutput::Timeout(timeout),

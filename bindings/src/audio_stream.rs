@@ -102,17 +102,13 @@ impl AudioStream {
         };
 
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        inner.handle_input(input).map_err(|err| MoonlightError {
-            message: err.to_string(),
-        })?;
+        inner.handle_input(input)?;
         Ok(())
     }
 
     pub fn poll_output(&self) -> Result<AudioStreamOutput, MoonlightError> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        let output = inner.poll_output().map_err(|err| MoonlightError {
-            message: err.to_string(),
-        })?;
+        let output = inner.poll_output()?;
 
         let output = match output {
             AudioStreamOutput2::Timeout(timeout) => AudioStreamOutput::Timeout(timeout),

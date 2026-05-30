@@ -92,15 +92,7 @@ impl From<ControlError2> for ControlStreamError {
             ControlError2::NotConnected => Self::NotConnected,
             ControlError2::PacketNotSupported(_) => Self::PacketNotSupported,
             ControlError2::ApolloPermissionDenied => Self::ApolloPermissionDenied,
-            ControlError2::Encryption(err) => Self::Other(MoonlightError {
-                message: err.to_string(),
-            }),
-            ControlError2::Enet(err) => Self::Other(MoonlightError {
-                message: err.to_string(),
-            }),
-            ControlError2::NotConfigured => Self::Other(MoonlightError {
-                message: "the control stream wasn't configured before usage".to_string(),
-            }),
+            err => Self::Other(err.into()),
         }
     }
 }
@@ -388,7 +380,7 @@ impl ControlStream {
         Ok(())
     }
 
-    pub fn handle_input(&self, input: ControlStreamInput) -> Result<(), ControlStreamError> {
+    pub fn handle_input(&self, input: ControlStreamInput) -> Result<(), MoonlightError> {
         let input = match input {
             ControlStreamInput::Receive {
                 now,
@@ -406,7 +398,7 @@ impl ControlStream {
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<ControlStreamOutput, ControlStreamError> {
+    pub fn poll_output(&self) -> Result<ControlStreamOutput, MoonlightError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
         let output = inner.poll_output()?;
 

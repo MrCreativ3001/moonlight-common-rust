@@ -9,13 +9,13 @@ pub(crate) mod test;
 #[derive(Debug, Error)]
 #[error("{inner}")]
 pub struct CryptoError {
-    inner: Box<dyn Error + Send + 'static>,
+    inner: Box<dyn Error + Send + Sync + 'static>,
 }
 
 impl CryptoError {
     pub fn from_error<T>(value: T) -> Self
     where
-        T: Error + Send + 'static,
+        T: Error + Send + Sync + 'static,
     {
         Self {
             inner: Box::new(value),

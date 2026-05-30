@@ -2,7 +2,9 @@ use std::str::FromStr;
 
 use uniffi::{Record, export};
 
-use moonlight_common::webrtc::{MoonlightWebRtcSession as MoonlightWebRtcSession2, Session};
+use moonlight_common::webrtc::{
+    MoonlightSessionParseError, MoonlightWebRtcSession as MoonlightWebRtcSession2, Session,
+};
 
 use crate::{MoonlightError, VideoFormats};
 
@@ -61,20 +63,16 @@ impl From<MoonlightWebRtcSession2> for MoonlightWebRtcSession {
 
 #[export]
 pub fn webrtc_session_parse(session: String) -> Result<MoonlightWebRtcSession, MoonlightError> {
-    MoonlightWebRtcSession2::from_str(&session)
-        .map(Into::into)
-        .map_err(|err| MoonlightError {
-            message: err.to_string(),
-        })
+    let session = MoonlightWebRtcSession2::from_str(&session).map(Into::into)?;
+    Ok(session)
 }
 #[export]
 pub fn webrtc_session_apply(
     session_str: String,
     attributes: MoonlightWebRtcSession,
 ) -> Result<String, MoonlightError> {
-    let mut session = Session::parse(session_str.as_bytes()).map_err(|err| MoonlightError {
-        message: err.to_string(),
-    })?;
+    let mut session =
+        Session::parse(session_str.as_bytes()).map_err(MoonlightSessionParseError::from)?;
 
     let attributes = MoonlightWebRtcSession2::from(attributes);
     attributes.apply(&mut session);

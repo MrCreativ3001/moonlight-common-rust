@@ -1,7 +1,8 @@
 use std::net::SocketAddr;
 
+use tracing_subscriber::util::TryInitError;
 use uniffi::{
-    Record, custom_type,
+    Error, Record, custom_type,
     deps::anyhow::{Error, anyhow},
     remote, setup_scaffolding,
 };
@@ -10,9 +11,13 @@ use moonlight_common::{
     ServerType, ServerVersion,
     stream::{
         AesIv, AesKey, SunshineEncryption,
-        proto::{Instant, packet::SunshinePing},
+        proto::{
+            Instant, audio::AudioStreamError, control::peer::ControlError, packet::SunshinePing,
+            video::VideoStreamError,
+        },
         video::{VideoFormat, VideoFormats as VideoFormats2},
     },
+    webrtc::MoonlightSessionParseError,
 };
 
 pub mod audio_stream;
@@ -26,10 +31,19 @@ pub mod log;
 
 setup_scaffolding!();
 
-#[derive(Debug, thiserror::Error, Record)]
-#[error("{message}")]
-pub struct MoonlightError {
-    pub message: String,
+#[derive(Debug, thiserror::Error, Error)]
+#[uniffi(flat_error)]
+pub enum MoonlightError {
+    #[error("video stream: {0}")]
+    VideoStream(#[from] VideoStreamError),
+    #[error("audio stream: {0}")]
+    AudioStream(#[from] AudioStreamError),
+    #[error("control stream: {0}")]
+    ControlStream(#[from] ControlError),
+    #[error("webrtc session parse: {0}")]
+    WebRtcSession(#[from] MoonlightSessionParseError),
+    #[error("set logger: {0}")]
+    Logger(#[from] TryInitError),
 }
 
 custom_type!(Instant, i64, {

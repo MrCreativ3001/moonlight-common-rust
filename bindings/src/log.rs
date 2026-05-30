@@ -87,8 +87,6 @@ pub fn set_logger(logger: Box<dyn Logger>, filter: LogLevel) -> Result<(), Moonl
     tracing_subscriber::registry()
         .with(LevelFilter::from(filter))
         .with(LoggerWrapper { inner: logger })
-        .try_init()
-        .map_err(|err| MoonlightError {
-            message: err.to_string(),
-        })
+        .try_init()?;
+    Ok(())
 }
