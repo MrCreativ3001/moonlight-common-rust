@@ -14,33 +14,16 @@ use moonlight_common::{
             packet::SunshinePing,
             video::{
                 VideoStream as VideoStream2, VideoStreamConfig as VideoStreamConfig2,
-                VideoStreamError as VideoStreamError2, VideoStreamInput as VideoStreamInput2,
-                VideoStreamOutput as VideoStreamOutput2, depayloader::VideoDepayloaderConfig,
+                VideoStreamInput as VideoStreamInput2, VideoStreamOutput as VideoStreamOutput2,
+                depayloader::VideoDepayloaderConfig,
             },
         },
         video::{BufferType, ColorSpace, FrameIndex, FrameType, VideoFormat},
     },
 };
-use uniffi::{Enum, Error, Object, Record, custom_type, export, remote};
+use uniffi::{Enum, Object, Record, custom_type, export, remote};
 
-#[derive(Debug, thiserror::Error, Error)]
-pub enum VideoStreamError {
-    #[error("depayoader: {reason}")]
-    VideoDepayloader { reason: String },
-}
-
-impl From<VideoStreamError2> for VideoStreamError {
-    fn from(value: VideoStreamError2) -> Self {
-        match value {
-            VideoStreamError2::Crypto(err) => Self::VideoDepayloader {
-                reason: err.to_string(),
-            },
-            VideoStreamError2::Depayloader(err) => Self::VideoDepayloader {
-                reason: err.to_string(),
-            },
-        }
-    }
-}
+use crate::MoonlightError;
 
 #[derive(Debug, Record)]
 pub struct VideoStreamConfig {
@@ -141,20 +124,24 @@ impl VideoStream {
         inner.request_idr();
     }
 
-    pub fn handle_input(&self, input: VideoStreamInput) -> Result<(), VideoStreamError> {
+    pub fn handle_input(&self, input: VideoStreamInput) -> Result<(), MoonlightError> {
         let input = match input {
             VideoStreamInput::Timeout(timeout) => VideoStreamInput2::Timeout(timeout),
             VideoStreamInput::Receive { now, ref data } => VideoStreamInput2::Receive { now, data },
         };
 
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        inner.handle_input(input)?;
+        inner.handle_input(input).map_err(|err| MoonlightError {
+            message: err.to_string(),
+        })?;
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<VideoStreamOutput, VideoStreamError> {
+    pub fn poll_output(&self) -> Result<VideoStreamOutput, MoonlightError> {
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        let output = inner.poll_output()?;
+        let output = inner.poll_output().map_err(|err| MoonlightError {
+            message: err.to_string(),
+        })?;
 
         let output = match output {
             VideoStreamOutput2::Timeout(timeout) => VideoStreamOutput::Timeout(timeout),

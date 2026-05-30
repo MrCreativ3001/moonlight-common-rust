@@ -29,8 +29,12 @@ use moonlight_common::{
     },
 };
 
-use crate::control_packet::{
-    ControlPacket, ControllerButtons, ControllerCapabilities, KeyFlags, KeyModifiers, PenButtons,
+use crate::{
+    MoonlightError,
+    control_packet::{
+        ControlPacket, ControllerButtons, ControllerCapabilities, KeyFlags, KeyModifiers,
+        PenButtons,
+    },
 };
 
 custom_type!(ControlMessage, ControlMessageInner, {
@@ -66,39 +70,37 @@ impl From<ControlMessageInner> for ControlMessageInner2 {
 }
 
 #[derive(Debug, thiserror::Error, Error)]
-pub enum ControlError {
+pub enum ControlStreamError {
     #[error("this version of the protocol is not supported: {0}")]
     VersionNotSupported(ServerVersion),
-    #[error("enet: {reason}")]
-    Enet { reason: String },
     #[error("the control stream hasn't successfully connected yet")]
     NotConnected,
-    #[error("the peer was not configured, but this is required to do this action")]
-    NotConfigured,
     #[error("packet not supported")]
     PacketNotSupported,
     #[error("the apollo permissions list doesn't allow this action")]
     ApolloPermissionDenied,
-    #[error("encryption: {reason}")]
-    Encryption { reason: String },
+    #[error("{0}")]
+    Other(MoonlightError),
 }
 
-impl From<ControlError2> for ControlError {
+impl From<ControlError2> for ControlStreamError {
     fn from(value: ControlError2) -> Self {
         match value {
             ControlError2::VersionNotSupported(server_version) => {
                 Self::VersionNotSupported(server_version)
             }
-            ControlError2::Enet(err) => Self::Enet {
-                reason: err.to_string(),
-            },
             ControlError2::NotConnected => Self::NotConnected,
-            ControlError2::NotConfigured => Self::NotConfigured,
             ControlError2::PacketNotSupported(_) => Self::PacketNotSupported,
             ControlError2::ApolloPermissionDenied => Self::ApolloPermissionDenied,
-            ControlError2::Encryption(err) => Self::Encryption {
-                reason: err.to_string(),
-            },
+            ControlError2::Encryption(err) => Self::Other(MoonlightError {
+                message: err.to_string(),
+            }),
+            ControlError2::Enet(err) => Self::Other(MoonlightError {
+                message: err.to_string(),
+            }),
+            ControlError2::NotConfigured => Self::Other(MoonlightError {
+                message: "the control stream wasn't configured before usage".to_string(),
+            }),
         }
     }
 }
@@ -348,7 +350,7 @@ pub struct ControlStream {
 #[export]
 impl ControlStream {
     #[uniffi::constructor]
-    pub fn new(now: Instant, config: ControlStreamConfig) -> Result<Arc<Self>, ControlError> {
+    pub fn new(now: Instant, config: ControlStreamConfig) -> Result<Arc<Self>, ControlStreamError> {
         let this = Arc::new(Self {
             inner: Mutex::new(ControlStream2::new(
                 now,
@@ -368,25 +370,25 @@ impl ControlStream {
         Ok(this)
     }
 
-    pub fn batch_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
+    pub fn batch_input(&self, input: ClientInputEvent) -> Result<(), ControlStreamError> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
         inner.batch_input(input.into())?;
         Ok(())
     }
 
-    pub fn send_raw(&self, packet: ControlPacket) -> Result<(), ControlError> {
+    pub fn send_raw(&self, packet: ControlPacket) -> Result<(), ControlStreamError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
         inner.send_raw(packet.into())?;
         Ok(())
     }
 
-    pub fn disconnect(&self, disconnect_data: u32) -> Result<(), ControlError> {
+    pub fn disconnect(&self, disconnect_data: u32) -> Result<(), ControlStreamError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
         inner.disconnect(disconnect_data)?;
         Ok(())
     }
 
-    pub fn handle_input(&self, input: ControlStreamInput) -> Result<(), ControlError> {
+    pub fn handle_input(&self, input: ControlStreamInput) -> Result<(), ControlStreamError> {
         let input = match input {
             ControlStreamInput::Receive {
                 now,
@@ -404,7 +406,7 @@ impl ControlStream {
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<ControlStreamOutput, ControlError> {
+    pub fn poll_output(&self) -> Result<ControlStreamOutput, ControlStreamError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
         let output = inner.poll_output()?;
 

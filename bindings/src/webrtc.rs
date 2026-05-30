@@ -4,13 +4,7 @@ use uniffi::{Record, export};
 
 use moonlight_common::webrtc::{MoonlightWebRtcSession as MoonlightWebRtcSession2, Session};
 
-use crate::VideoFormats;
-
-#[derive(Debug, thiserror::Error, Record)]
-#[error("{error}")]
-pub struct MoonlightSessionParseError {
-    pub error: String,
-}
+use crate::{MoonlightError, VideoFormats};
 
 #[derive(Debug, Record)]
 pub struct MoonlightWebRtcSession {
@@ -66,24 +60,21 @@ impl From<MoonlightWebRtcSession2> for MoonlightWebRtcSession {
 }
 
 #[export]
-pub fn webrtc_session_parse(
-    session: String,
-) -> Result<MoonlightWebRtcSession, MoonlightSessionParseError> {
+pub fn webrtc_session_parse(session: String) -> Result<MoonlightWebRtcSession, MoonlightError> {
     MoonlightWebRtcSession2::from_str(&session)
         .map(Into::into)
-        .map_err(|err| MoonlightSessionParseError {
-            error: err.to_string(),
+        .map_err(|err| MoonlightError {
+            message: err.to_string(),
         })
 }
 #[export]
 pub fn webrtc_session_apply(
     session_str: String,
     attributes: MoonlightWebRtcSession,
-) -> Result<String, MoonlightSessionParseError> {
-    let mut session =
-        Session::parse(session_str.as_bytes()).map_err(|err| MoonlightSessionParseError {
-            error: err.to_string(),
-        })?;
+) -> Result<String, MoonlightError> {
+    let mut session = Session::parse(session_str.as_bytes()).map_err(|err| MoonlightError {
+        message: err.to_string(),
+    })?;
 
     let attributes = MoonlightWebRtcSession2::from(attributes);
     attributes.apply(&mut session);

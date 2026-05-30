@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use uniffi::{Enum, Error, Object, Record, custom_type, deps::anyhow::anyhow, export};
+use uniffi::{Enum, Object, Record, custom_type, deps::anyhow::anyhow, export};
 
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
@@ -15,29 +15,14 @@ use moonlight_common::{
             Instant,
             audio::{
                 AudioStream as AudioStream2, AudioStreamConfig as AudioStreamConfig2,
-                AudioStreamError as AudioStreamError2, AudioStreamInput as AudioStreamInput2,
-                AudioStreamOutput as AudioStreamOutput2,
+                AudioStreamInput as AudioStreamInput2, AudioStreamOutput as AudioStreamOutput2,
             },
             packet::SunshinePing,
         },
     },
 };
 
-#[derive(Debug, thiserror::Error, Error)]
-pub enum AudioStreamError {
-    #[error("depayoader: {reason}")]
-    AudioDepayloader { reason: String },
-}
-
-impl From<AudioStreamError2> for AudioStreamError {
-    fn from(value: AudioStreamError2) -> Self {
-        match value {
-            AudioStreamError2::Queue(depayloader) => Self::AudioDepayloader {
-                reason: depayloader.to_string(),
-            },
-        }
-    }
-}
+use crate::MoonlightError;
 
 #[derive(Debug, Record)]
 pub struct OpusMultistreamConfig {
@@ -110,20 +95,24 @@ impl AudioStream {
         })
     }
 
-    pub fn handle_input(&self, input: AudioStreamInput) -> Result<(), AudioStreamError> {
+    pub fn handle_input(&self, input: AudioStreamInput) -> Result<(), MoonlightError> {
         let input = match input {
             AudioStreamInput::Timeout(timeout) => AudioStreamInput2::Timeout(timeout),
             AudioStreamInput::Receive { now, ref data } => AudioStreamInput2::Receive { now, data },
         };
 
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        inner.handle_input(input)?;
+        inner.handle_input(input).map_err(|err| MoonlightError {
+            message: err.to_string(),
+        })?;
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<AudioStreamOutput, AudioStreamError> {
+    pub fn poll_output(&self) -> Result<AudioStreamOutput, MoonlightError> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        let output = inner.poll_output()?;
+        let output = inner.poll_output().map_err(|err| MoonlightError {
+            message: err.to_string(),
+        })?;
 
         let output = match output {
             AudioStreamOutput2::Timeout(timeout) => AudioStreamOutput::Timeout(timeout),

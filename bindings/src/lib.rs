@@ -26,6 +26,12 @@ pub mod log;
 
 setup_scaffolding!();
 
+#[derive(Debug, thiserror::Error, Record)]
+#[error("{message}")]
+pub struct MoonlightError {
+    pub message: String,
+}
+
 custom_type!(Instant, i64, {
     remote,
     // Lowering the Rust Instant into a u64.

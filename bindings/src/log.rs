@@ -3,6 +3,8 @@ use tracing::{Level, Subscriber, level_filters::LevelFilter};
 use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use uniffi::{Enum, export};
 
+use crate::MoonlightError;
+
 #[derive(Debug, Default, Enum)]
 pub enum LogLevel {
     Error,
@@ -81,9 +83,12 @@ impl<'a> tracing::field::Visit for StringVisitor<'a> {
 }
 
 #[export]
-pub fn set_logger(logger: Box<dyn Logger>, filter: LogLevel) {
+pub fn set_logger(logger: Box<dyn Logger>, filter: LogLevel) -> Result<(), MoonlightError> {
     tracing_subscriber::registry()
         .with(LevelFilter::from(filter))
         .with(LoggerWrapper { inner: logger })
-        .init();
+        .try_init()
+        .map_err(|err| MoonlightError {
+            message: err.to_string(),
+        })
 }
