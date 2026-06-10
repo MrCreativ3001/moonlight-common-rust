@@ -179,13 +179,13 @@ impl InputBatcher {
 
                     // update map
                     if is_pressed {
-                        self.pressed_keys.remove(&key_code);
-                    } else {
                         self.pressed_keys.insert(key_code);
+                    } else {
+                        self.pressed_keys.remove(&key_code);
                     }
+                } else {
+                    debug!(is_pressed = is_pressed, was_pressed = was_pressed, key_code = ?key_code, modifiers = ?modifiers, "dropping key packet because the key is already in that state");
                 }
-
-                debug!(is_pressed = is_pressed, was_pressed = was_pressed, key_code = ?key_code, modifiers = ?modifiers, "dropping key packet because the key is already in that state");
             }
             ClientInputEvent::MouseMoveRelative { delta_x, delta_y } => {
                 packet = Some(ControlPacket::MouseMoveRelative { delta_x, delta_y });
