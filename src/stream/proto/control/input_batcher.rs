@@ -425,6 +425,9 @@ impl InputBatcher {
                 reference_width: self.mouse_absolute_reference_width,
                 reference_height: self.mouse_absolute_reference_height,
             });
+
+            self.mouse_absolute_reference_width = 0;
+            self.mouse_absolute_reference_height = 0;
         }
 
         // mouse scroll
