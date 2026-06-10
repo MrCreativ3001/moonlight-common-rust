@@ -15,7 +15,7 @@ use moonlight_common::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::{AudioConfig, AudioDecoder, AudioFrame, OpusMultistreamConfig},
         control::ActiveGamepads,
-        proto::control::{ClientInputEvent, packet::ControlPacket},
+        proto::control::{input_batcher::ClientInputEvent, packet::ControlPacket},
         tokio::{MoonlightStream, MoonlightStreamError, MoonlightStreamHandler},
         video::{
             ColorRange, ColorSpace, DecodeResult, VideoDecodeUnit, VideoDecoder, VideoFormats,

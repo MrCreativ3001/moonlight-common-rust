@@ -10,10 +10,6 @@ use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     stream::{
         AesKey,
-        control::{
-            ControllerType, KeyAction, KeyCode, MouseButton, MouseButtonAction, ToolType,
-            TouchEventType,
-        },
         proto::{
             Instant,
             control::{
@@ -22,20 +18,13 @@ use moonlight_common::{
                 ControlStreamEvent as ControlStreamEvent2,
                 ControlStreamInput as ControlStreamInput2,
                 ControlStreamOutput as ControlStreamOutput2,
-                input_batcher::ClientInputEvent as ClientInputEvent2,
                 peer::{ControlEncryptionMethod, ControlError as ControlError2, ControlHostAction},
             },
         },
     },
 };
 
-use crate::{
-    MoonlightError,
-    control_packet::{
-        ControlPacket, ControllerButtons, ControllerCapabilities, KeyFlags, KeyModifiers,
-        PenButtons,
-    },
-};
+use crate::{MoonlightError, control_packet::ControlPacket, input_batcher::ClientInputEvent};
 
 custom_type!(ControlMessage, ControlMessageInner, {
     remote,
@@ -145,193 +134,6 @@ pub enum ControlStreamOutput {
     Timeout(Instant),
     Send { addr: SocketAddr, data: Vec<u8> },
     Event(ControlStreamEvent),
-}
-
-#[derive(Debug, Enum)]
-pub enum ClientInputEvent {
-    Keyboard {
-        action: KeyAction,
-        flags: KeyFlags,
-        key_code: KeyCode,
-        modifiers: KeyModifiers,
-    },
-    MouseMoveRelative {
-        delta_x: i16,
-        delta_y: i16,
-    },
-    MouseMoveAbsolute {
-        x: i16,
-        y: i16,
-        reference_width: i16,
-        reference_height: i16,
-    },
-    MouseButton {
-        action: MouseButtonAction,
-        button: MouseButton,
-    },
-    MouseScrollVertical {
-        scroll_y: i16,
-    },
-    MouseScrollHorizontal {
-        scroll_x: i16,
-    },
-    ControllerConnect {
-        controller_number: u8,
-        ty: ControllerType,
-        capabilities: ControllerCapabilities,
-        supported_buttons: ControllerButtons,
-    },
-    ControllerState {
-        controller_number: u8,
-        pressed_buttons: ControllerButtons,
-        left_trigger: f32,
-        right_trigger: f32,
-        left_stick_x: f32,
-        left_stick_y: f32,
-        right_stick_x: f32,
-        right_stick_y: f32,
-    },
-    ControllerDisconnect {
-        controller_number: u8,
-    },
-    Touch {
-        event_type: TouchEventType,
-        rotation: Option<u16>,
-        pointer_id: u32,
-        x: f32,
-        y: f32,
-        pressure_or_distance: f32,
-        contact_area_minor: f32,
-        contact_area_major: f32,
-    },
-    Pen {
-        event_type: TouchEventType,
-        tool_type: ToolType,
-        buttons: PenButtons,
-        x: f32,
-        y: f32,
-        pressure_or_distance: f32,
-        rotation: Option<u16>,
-        tilt: Option<u8>,
-        contact_area_minor: f32,
-        contact_area_major: f32,
-    },
-}
-
-impl From<ClientInputEvent> for ClientInputEvent2 {
-    fn from(value: ClientInputEvent) -> Self {
-        match value {
-            ClientInputEvent::Keyboard {
-                action,
-                flags,
-                key_code,
-                modifiers,
-            } => ClientInputEvent2::Keyboard {
-                action,
-                flags: flags.into(),
-                key_code,
-                modifiers: modifiers.into(),
-            },
-            ClientInputEvent::MouseMoveRelative { delta_x, delta_y } => {
-                ClientInputEvent2::MouseMoveRelative { delta_x, delta_y }
-            }
-            ClientInputEvent::MouseMoveAbsolute {
-                x,
-                y,
-                reference_width,
-                reference_height,
-            } => ClientInputEvent2::MouseMoveAbsolute {
-                x,
-                y,
-                reference_width,
-                reference_height,
-            },
-            ClientInputEvent::MouseButton { action, button } => {
-                ClientInputEvent2::MouseButton { action, button }
-            }
-            ClientInputEvent::MouseScrollVertical { scroll_y } => {
-                ClientInputEvent2::MouseScrollVertical { scroll_y }
-            }
-            ClientInputEvent::MouseScrollHorizontal { scroll_x } => {
-                ClientInputEvent2::MouseScrollHorizontal { scroll_x }
-            }
-            ClientInputEvent::ControllerConnect {
-                controller_number,
-                ty,
-                capabilities,
-                supported_buttons,
-            } => ClientInputEvent2::ControllerConnect {
-                controller_number,
-                ty,
-                capabilities: capabilities.into(),
-                supported_buttons: supported_buttons.into(),
-            },
-            ClientInputEvent::ControllerState {
-                controller_number,
-                pressed_buttons,
-                left_trigger,
-                right_trigger,
-                left_stick_x,
-                left_stick_y,
-                right_stick_x,
-                right_stick_y,
-            } => ClientInputEvent2::ControllerState {
-                controller_number,
-                pressed_buttons: pressed_buttons.into(),
-                left_trigger,
-                right_trigger,
-                left_stick_x,
-                left_stick_y,
-                right_stick_x,
-                right_stick_y,
-            },
-            ClientInputEvent::ControllerDisconnect { controller_number } => {
-                ClientInputEvent2::ControllerDisconnect { controller_number }
-            }
-            ClientInputEvent::Touch {
-                event_type,
-                rotation,
-                pointer_id,
-                x,
-                y,
-                pressure_or_distance,
-                contact_area_minor,
-                contact_area_major,
-            } => ClientInputEvent2::Touch {
-                event_type,
-                rotation,
-                pointer_id,
-                x,
-                y,
-                pressure_or_distance,
-                contact_area_minor,
-                contact_area_major,
-            },
-            ClientInputEvent::Pen {
-                event_type,
-                tool_type,
-                buttons,
-                x,
-                y,
-                pressure_or_distance,
-                rotation,
-                tilt,
-                contact_area_minor,
-                contact_area_major,
-            } => ClientInputEvent2::Pen {
-                event_type,
-                tool_type,
-                buttons: buttons.into(),
-                x,
-                y,
-                pressure_or_distance,
-                rotation,
-                tilt,
-                contact_area_minor,
-                contact_area_major,
-            },
-        }
-    }
 }
 
 #[derive(Debug, Object)]

@@ -18,7 +18,7 @@ use moonlight_common::{
         audio::AudioConfig,
         control::ActiveGamepads,
         debug::DebugListener,
-        proto::control::ClientInputEvent,
+        proto::control::input_batcher::ClientInputEvent,
         std::MoonlightStream,
         video::{ColorRange, ColorSpace, VideoFormats},
     },
