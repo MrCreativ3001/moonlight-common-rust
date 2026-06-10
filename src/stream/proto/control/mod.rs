@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     fmt::{self, Debug, Formatter},
     mem,
     net::SocketAddr,
@@ -16,15 +15,10 @@ use crate::{
     http::server_info::ApolloPermissions,
     stream::{
         AesKey,
-        bindings::{LI_ROT_UNKNOWN, LI_TILT_UNKNOWN},
-        control::{
-            ActiveGamepads, ControllerButtons, ControllerCapabilities, ControllerType, KeyAction,
-            KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction, PenButtons, ToolType,
-            TouchEventType,
-        },
         proto::{
             DynCryptoBackend,
             control::{
+                input_batcher::{ClientInputEvent, InputBatcher},
                 packet::{
                     ControlPacket, ControlPacketConfig, ControlPacketNotSupported, EnetChannel,
                     PERIODIC_PING_INTERVAL, PERIODIC_PING_VERSION,
@@ -43,6 +37,7 @@ use crate::{
 pub mod packet;
 
 mod encryption;
+pub mod input_batcher;
 pub mod peer;
 
 #[cfg(test)]
@@ -61,106 +56,9 @@ pub enum ControlMessageInner {
     SendPacket { packet: ControlPacket, force: bool },
 }
 
-#[derive(Debug, Clone)]
-pub enum ClientInputEvent {
-    Keyboard {
-        action: KeyAction,
-        flags: KeyFlags,
-        key_code: KeyCode,
-        modifiers: KeyModifiers,
-    },
-    MouseMoveRelative {
-        delta_x: i16,
-        delta_y: i16,
-    },
-    MouseMoveAbsolute {
-        x: i16,
-        y: i16,
-        reference_width: i16,
-        reference_height: i16,
-    },
-    MouseButton {
-        action: MouseButtonAction,
-        button: MouseButton,
-    },
-    MouseScrollVertical {
-        /// This value might be clamped to [LI_WHEEL_DELTA]
-        scroll_y: i16,
-    },
-    /// Sunshine extension
-    MouseScrollHorizontal {
-        scroll_x: i16,
-    },
-    ControllerConnect {
-        controller_number: u8,
-        ty: ControllerType,
-        capabilities: ControllerCapabilities,
-        supported_buttons: ControllerButtons,
-    },
-    ControllerState {
-        controller_number: u8,
-        pressed_buttons: ControllerButtons,
-        left_trigger: f32,
-        right_trigger: f32,
-        left_stick_x: f32,
-        left_stick_y: f32,
-        right_stick_x: f32,
-        right_stick_y: f32,
-    },
-    ControllerDisconnect {
-        controller_number: u8,
-    },
-    // TODO: batch touch and pen events?
-    /// Sunshine Extension
-    Touch {
-        event_type: TouchEventType,
-        rotation: Option<u16>,
-        pointer_id: u32,
-        x: f32,
-        y: f32,
-        pressure_or_distance: f32,
-        contact_area_minor: f32,
-        contact_area_major: f32,
-    },
-    Pen {
-        event_type: TouchEventType,
-        tool_type: ToolType,
-        buttons: PenButtons,
-        x: f32,
-        y: f32,
-        pressure_or_distance: f32,
-        rotation: Option<u16>,
-        tilt: Option<u8>,
-        contact_area_minor: f32,
-        contact_area_major: f32,
-    },
-}
-
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L39-L44
 const BATCH_INTERVAL_MS: Duration = Duration::from_millis(1);
-
-/// Some data about the input
-#[derive(Debug)]
-struct Inputs {
-    last_send: Instant,
-    dirty: bool,
-    // pressed keys
-    pressed_keys: HashSet<KeyCode>,
-    // mouse move relative
-    mouse_delta_x: i16,
-    mouse_delta_y: i16,
-    // mouse move absolute
-    mouse_absolute_x: i16,
-    mouse_absolute_y: i16,
-    mouse_absolute_reference_width: i16,
-    mouse_absolute_reference_height: i16,
-    // mouse scroll
-    mouse_scroll_x: i16,
-    mouse_scroll_y: i16,
-    // connected controllers
-    gamepads: ActiveGamepads,
-}
 
 #[derive(Debug)]
 pub struct ControlStreamConfig {
@@ -223,7 +121,8 @@ pub struct ControlStream {
     last_ping: Option<Instant>,
     allow_packets: bool,
     buffered_packets: Vec<ControlPacket>,
-    inputs: Inputs,
+    last_batch_send: Instant,
+    batcher: InputBatcher,
     host: ControlHost,
 }
 
@@ -283,20 +182,8 @@ impl ControlStream {
             last_now: now,
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
             buffered_packets: vec![],
-            inputs: Inputs {
-                last_send: now,
-                dirty: false,
-                pressed_keys: Default::default(),
-                mouse_delta_x: 0,
-                mouse_delta_y: 0,
-                mouse_absolute_x: 0,
-                mouse_absolute_y: 0,
-                mouse_absolute_reference_width: 0,
-                mouse_absolute_reference_height: 0,
-                mouse_scroll_x: 0,
-                mouse_scroll_y: 0,
-                gamepads: ActiveGamepads::empty(),
-            },
+            last_batch_send: now,
+            batcher: InputBatcher::default(),
             host,
         })
     }
@@ -307,49 +194,8 @@ impl ControlStream {
 
         self.check_input_supported(&input)?;
 
-        match input {
-            ClientInputEvent::MouseMoveRelative { delta_x, delta_y } => {
-                self.inputs.dirty = true;
-
-                self.inputs.mouse_delta_x = self.inputs.mouse_delta_x.saturating_add(delta_x);
-                self.inputs.mouse_delta_y = self.inputs.mouse_delta_y.saturating_add(delta_y);
-            }
-            ClientInputEvent::MouseMoveAbsolute {
-                x,
-                y,
-                reference_width,
-                reference_height,
-            } => {
-                self.inputs.dirty = true;
-
-                // See the send batch now function
-                debug_assert_ne!(
-                    reference_width, 0,
-                    "non null values as reference size will have weird results"
-                );
-                debug_assert_ne!(
-                    reference_height, 0,
-                    "non null values as reference size will have weird results"
-                );
-
-                self.inputs.mouse_absolute_x = x;
-                self.inputs.mouse_absolute_y = y;
-                self.inputs.mouse_absolute_reference_width = reference_width;
-                self.inputs.mouse_absolute_reference_height = reference_height;
-            }
-            ClientInputEvent::MouseScrollVertical { scroll_y } => {
-                self.inputs.dirty = true;
-
-                self.inputs.mouse_scroll_y = self.inputs.mouse_scroll_y.saturating_add(scroll_y);
-            }
-            ClientInputEvent::MouseScrollHorizontal { scroll_x } => {
-                self.inputs.dirty = true;
-
-                self.inputs.mouse_scroll_x = self.inputs.mouse_scroll_x.saturating_add(scroll_x);
-            }
-            input => {
-                self.send_input_now(input)?;
-            }
+        for packet in self.batcher.batch_input(input) {
+            self.send_raw(packet)?;
         }
 
         Ok(())
@@ -359,53 +205,10 @@ impl ControlStream {
     ///
     /// This is automatically done if you're following the default event loop of this struct.
     pub fn send_batched_inputs_now(&mut self) -> Result<(), ControlError> {
-        trace!(batched_inputs = ?self.inputs, "sending batched inputs");
+        self.last_batch_send = self.last_now;
 
-        self.inputs.last_send = self.last_now;
-
-        if !self.inputs.dirty {
-            // early return
-            return Ok(());
-        }
-        self.inputs.dirty = false;
-
-        // mouse relative
-        if self.inputs.mouse_delta_x != 0 || self.inputs.mouse_delta_y != 0 {
-            self.send_input_now(ClientInputEvent::MouseMoveRelative {
-                delta_x: self.inputs.mouse_delta_x,
-                delta_y: self.inputs.mouse_delta_y,
-            })?;
-
-            self.inputs.mouse_delta_x = 0;
-            self.inputs.mouse_delta_y = 0;
-        }
-
-        // mouse absolute
-        if self.inputs.mouse_absolute_reference_width != 0
-            || self.inputs.mouse_absolute_reference_height != 0
-        {
-            self.send_input_now(ClientInputEvent::MouseMoveAbsolute {
-                x: self.inputs.mouse_absolute_x,
-                y: self.inputs.mouse_absolute_y,
-                reference_width: self.inputs.mouse_absolute_reference_width,
-                reference_height: self.inputs.mouse_absolute_reference_height,
-            })?;
-        }
-
-        // mouse scroll
-        if self.inputs.mouse_scroll_x != 0 {
-            self.send_input_now(ClientInputEvent::MouseScrollHorizontal {
-                scroll_x: self.inputs.mouse_scroll_x,
-            })?;
-
-            self.inputs.mouse_scroll_x = 0;
-        }
-        if self.inputs.mouse_scroll_y != 0 {
-            self.send_input_now(ClientInputEvent::MouseScrollVertical {
-                scroll_y: self.inputs.mouse_scroll_y,
-            })?;
-
-            self.inputs.mouse_scroll_y = 0;
+        for packet in self.batcher.remove_batched_inputs() {
+            self.send_raw(packet)?;
         }
 
         Ok(())
@@ -456,237 +259,6 @@ impl ControlStream {
             }
             _ => Ok(()),
         }
-    }
-
-    /// You should prefer to call [Self::batch_input] to avoid spamming the server.
-    pub fn send_input_now(&mut self, input: ClientInputEvent) -> Result<(), ControlError> {
-        self.check_input_supported(&input)?;
-
-        match input {
-            ClientInputEvent::Keyboard {
-                action,
-                flags,
-                key_code,
-                modifiers,
-            } => {
-                let is_pressed = matches!(action, KeyAction::Down);
-                let was_pressed = self.inputs.pressed_keys.contains(&key_code);
-
-                // wolf hates it when you send multiple key press / key release events because some keys can get stuck
-                // -> only send on changes
-                if is_pressed != was_pressed {
-                    self.send_raw(ControlPacket::Keyboard {
-                        action,
-                        flags,
-                        key_code,
-                        modifiers,
-                        zero: 0,
-                    })?;
-
-                    // update map
-                    if is_pressed {
-                        self.inputs.pressed_keys.remove(&key_code);
-                    } else {
-                        self.inputs.pressed_keys.insert(key_code);
-                    }
-                }
-
-                debug!(is_pressed = is_pressed, was_pressed = was_pressed, key_code = ?key_code, modifiers = ?modifiers, "dropping key packet because the key is already in that state");
-            }
-            ClientInputEvent::MouseMoveRelative { delta_x, delta_y } => {
-                self.send_raw(ControlPacket::MouseMoveRelative { delta_x, delta_y })?;
-            }
-            ClientInputEvent::MouseMoveAbsolute {
-                x,
-                y,
-                reference_width,
-                reference_height,
-            } => {
-                self.send_raw(ControlPacket::MouseMoveAbsolute {
-                    x,
-                    y,
-                    unused: 0,
-                    reference_width,
-                    reference_height,
-                })?;
-            }
-            ClientInputEvent::MouseButton { action, button } => {
-                self.send_raw(ControlPacket::MouseButton { action, button })?;
-            }
-            ClientInputEvent::MouseScrollVertical { scroll_y } => {
-                self.send_raw(ControlPacket::MouseScroll {
-                    scroll_amount_1: scroll_y,
-                    scroll_amount_2: scroll_y,
-                    zero: 0,
-                })?;
-            }
-            ClientInputEvent::MouseScrollHorizontal { scroll_x } => {
-                // we already checked if this is allowed
-
-                self.send_raw(ControlPacket::MouseHorizontalScroll {
-                    scroll_amount: scroll_x,
-                })?;
-            }
-            ClientInputEvent::ControllerConnect {
-                controller_number,
-                ty,
-                capabilities,
-                supported_buttons,
-            } => {
-                let Some(controller) = ActiveGamepads::from_id(controller_number) else {
-                    warn!(
-                        controller_number = controller_number,
-                        "received a controller event for a controller that is out of range (controller_number too high)! dropping the packet."
-                    );
-                    return Ok(());
-                };
-
-                if self.inputs.gamepads.contains(controller) {
-                    warn!(
-                        controller_number = controller_number,
-                        "received controller connect event for a controller that was already connected! dropping the packet."
-                    );
-                    return Ok(());
-                }
-
-                // add to gamepads
-                self.inputs.gamepads |= controller;
-
-                self.send_raw(ControlPacket::ControllerArrival {
-                    controller_number,
-                    ty,
-                    capabilities,
-                    supported_buttons,
-                })?;
-            }
-            ClientInputEvent::ControllerState {
-                controller_number,
-                pressed_buttons,
-                left_trigger,
-                right_trigger,
-                left_stick_x,
-                left_stick_y,
-                right_stick_x,
-                right_stick_y,
-            } => {
-                let Some(controller) = ActiveGamepads::from_id(controller_number) else {
-                    warn!(
-                        controller_number = controller_number,
-                        "received a controller event for a controller that is out of range (controller_number too high)! dropping the packet."
-                    );
-                    return Ok(());
-                };
-
-                if !self.inputs.gamepads.contains(controller) {
-                    warn!(
-                        controller_number = controller_number,
-                        "cannot send state for a non connected controller!"
-                    );
-                    return Ok(());
-                }
-
-                self.send_raw(ControlPacket::controller_state(
-                    self.inputs.gamepads,
-                    controller_number as i16,
-                    pressed_buttons,
-                    left_trigger,
-                    right_trigger,
-                    left_stick_x,
-                    left_stick_y,
-                    right_stick_x,
-                    right_stick_y,
-                ))?;
-            }
-            ClientInputEvent::ControllerDisconnect { controller_number } => {
-                let Some(controller) = ActiveGamepads::from_id(controller_number) else {
-                    warn!(
-                        controller_number = controller_number,
-                        "received a controller event for a controller that is out of range (controller_number too high)! dropping the packet."
-                    );
-                    return Ok(());
-                };
-
-                if self.inputs.gamepads.contains(controller) {
-                    warn!(
-                        controller_number = controller_number,
-                        "received controller disconnect event for a controller that was not connected! dropping the packet."
-                    );
-                    return Ok(());
-                }
-
-                self.inputs.gamepads.remove(controller);
-
-                // sending an empty event with the controller not in the mask will disconnect the controller
-                self.send_raw(ControlPacket::controller_state(
-                    self.inputs.gamepads,
-                    controller_number as i16,
-                    ControllerButtons::empty(),
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                ))?;
-            }
-            ClientInputEvent::Touch {
-                event_type,
-                rotation,
-                pointer_id,
-                x,
-                y,
-                pressure_or_distance,
-                contact_area_minor,
-                contact_area_major,
-            } => {
-                // TODO: some touch events are batched
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1326-L1371
-
-                self.send_raw(ControlPacket::Touch {
-                    event_type,
-                    reserved: 0,
-                    rotation: rotation.unwrap_or(LI_ROT_UNKNOWN as u16),
-                    pointer_id,
-                    x,
-                    y,
-                    pressure_or_distance,
-                    contact_area_minor,
-                    contact_area_major,
-                })?;
-            }
-            ClientInputEvent::Pen {
-                event_type,
-                tool_type,
-                buttons,
-                x,
-                y,
-                pressure_or_distance,
-                rotation,
-                tilt,
-                contact_area_minor,
-                contact_area_major,
-            } => {
-                // TODO: some pen events are batched
-                // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1326-L1371
-
-                self.send_raw(ControlPacket::Pen {
-                    event_type,
-                    tool_type,
-                    buttons,
-                    zero: 0,
-                    x,
-                    y,
-                    pressure_or_distance,
-                    rotation: rotation.unwrap_or(LI_ROT_UNKNOWN as u16),
-                    tilt: tilt.unwrap_or(LI_TILT_UNKNOWN as u8),
-                    zero2: 0,
-                    contact_area_minor,
-                    contact_area_major,
-                })?;
-            }
-        }
-
-        Ok(())
     }
 
     pub fn disconnect(&mut self, disconnect_data: u32) -> Result<(), ControlError> {
@@ -878,15 +450,15 @@ impl ControlStream {
     }
 
     fn do_batching(&mut self) -> Result<Option<Instant>, ControlError> {
-        if !self.inputs.dirty {
+        if !self.batcher.is_dirty() {
             return Ok(None);
         }
 
-        if self.inputs.last_send + BATCH_INTERVAL_MS <= self.last_now {
+        if self.last_batch_send + BATCH_INTERVAL_MS <= self.last_now {
             self.send_batched_inputs_now()?;
         }
 
-        Ok(Some(self.inputs.last_send + BATCH_INTERVAL_MS))
+        Ok(Some(self.last_batch_send + BATCH_INTERVAL_MS))
     }
 
     /// Returns the time when the next ping must be sent

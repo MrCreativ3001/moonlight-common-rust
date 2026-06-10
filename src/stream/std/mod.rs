@@ -20,8 +20,8 @@ use crate::stream::{
         MoonlightStreamProtoError, MoonlightStreamSetup, MoonlightStreamSetupOutput,
         audio::{AudioStream, AudioStreamError, AudioStreamInput, AudioStreamOutput},
         control::{
-            ClientInputEvent, ControlStream, ControlStreamEvent, ControlStreamInput,
-            ControlStreamOutput,
+            ControlStream, ControlStreamEvent, ControlStreamInput, ControlStreamOutput,
+            input_batcher::ClientInputEvent,
             packet::ControlPacket,
             peer::{ControlError, ControlHostAction},
         },

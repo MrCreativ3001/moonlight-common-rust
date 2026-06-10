@@ -17,12 +17,12 @@ use moonlight_common::{
         proto::{
             Instant,
             control::{
-                ClientInputEvent as ClientInputEvent2, ControlMessage,
-                ControlMessageInner as ControlMessageInner2, ControlStream as ControlStream2,
-                ControlStreamConfig as ControlStreamConfig2,
+                ControlMessage, ControlMessageInner as ControlMessageInner2,
+                ControlStream as ControlStream2, ControlStreamConfig as ControlStreamConfig2,
                 ControlStreamEvent as ControlStreamEvent2,
                 ControlStreamInput as ControlStreamInput2,
                 ControlStreamOutput as ControlStreamOutput2,
+                input_batcher::ClientInputEvent as ClientInputEvent2,
                 peer::{ControlEncryptionMethod, ControlError as ControlError2, ControlHostAction},
             },
         },

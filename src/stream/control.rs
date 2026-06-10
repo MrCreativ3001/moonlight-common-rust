@@ -143,7 +143,7 @@ bitflags! {
     }
 }
 bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Default)]
     pub struct ActiveGamepads: u16 {
         const GAMEPAD_1  = 0b0000_0000_0000_0001;
         const GAMEPAD_2  = 0b0000_0000_0000_0010;
