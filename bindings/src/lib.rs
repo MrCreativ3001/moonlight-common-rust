@@ -17,7 +17,7 @@ use moonlight_common::{
         },
         video::{VideoFormat, VideoFormats as VideoFormats2},
     },
-    webrtc::MoonlightSessionParseError,
+    webrtc::WebRTCSessionParseError,
 };
 
 pub mod audio_stream;
@@ -42,7 +42,7 @@ pub enum MoonlightError {
     #[error("control stream: {0}")]
     ControlStream(#[from] ControlError),
     #[error("webrtc session parse: {0}")]
-    WebRtcSession(#[from] MoonlightSessionParseError),
+    WebRTCSession(#[from] WebRTCSessionParseError),
     #[error("set logger: {0}")]
     Logger(#[from] TryInitError),
 }

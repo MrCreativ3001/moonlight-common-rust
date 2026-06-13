@@ -1,15 +1,18 @@
 use std::str::FromStr;
 
-use uniffi::{Record, export};
+use uniffi::{Record, export, remote};
 
 use moonlight_common::webrtc::{
-    MoonlightSessionParseError, MoonlightWebRtcSession as MoonlightWebRtcSession2, Session,
+    WebRTCSessionParseError, answer::WebRTCSessionAnswer,
+    offer::WebRTCSessionOffer as WebRTCSessionOffer2, sdp::Session,
 };
 
 use crate::{MoonlightError, VideoFormats};
 
+// -- Offer
+
 #[derive(Debug, Record)]
-pub struct MoonlightWebRtcSession {
+pub struct WebRTCSessionOffer {
     pub app_id: u32,
     pub width: u32,
     pub height: u32,
@@ -24,8 +27,8 @@ pub struct MoonlightWebRtcSession {
     pub control_enet: bool,
 }
 
-impl From<MoonlightWebRtcSession> for MoonlightWebRtcSession2 {
-    fn from(value: MoonlightWebRtcSession) -> Self {
+impl From<WebRTCSessionOffer> for WebRTCSessionOffer2 {
+    fn from(value: WebRTCSessionOffer) -> Self {
         Self {
             app_id: value.app_id,
             width: value.width,
@@ -42,8 +45,8 @@ impl From<MoonlightWebRtcSession> for MoonlightWebRtcSession2 {
         }
     }
 }
-impl From<MoonlightWebRtcSession2> for MoonlightWebRtcSession {
-    fn from(value: MoonlightWebRtcSession2) -> Self {
+impl From<WebRTCSessionOffer2> for WebRTCSessionOffer {
+    fn from(value: WebRTCSessionOffer2) -> Self {
         Self {
             app_id: value.app_id,
             width: value.width,
@@ -62,19 +65,49 @@ impl From<MoonlightWebRtcSession2> for MoonlightWebRtcSession {
 }
 
 #[export]
-pub fn webrtc_session_parse(session: String) -> Result<MoonlightWebRtcSession, MoonlightError> {
-    let session = MoonlightWebRtcSession2::from_str(&session).map(Into::into)?;
+pub fn webrtc_session_offer_parse(session: String) -> Result<WebRTCSessionOffer, MoonlightError> {
+    let session = WebRTCSessionOffer2::from_str(&session).map(Into::into)?;
     Ok(session)
 }
 #[export]
-pub fn webrtc_session_apply(
+pub fn webrtc_session_offer_apply(
     session_str: String,
-    attributes: MoonlightWebRtcSession,
+    attributes: WebRTCSessionOffer,
 ) -> Result<String, MoonlightError> {
     let mut session =
-        Session::parse(session_str.as_bytes()).map_err(MoonlightSessionParseError::from)?;
+        Session::parse(session_str.as_bytes()).map_err(WebRTCSessionParseError::from)?;
 
-    let attributes = MoonlightWebRtcSession2::from(attributes);
+    let attributes = WebRTCSessionOffer2::from(attributes);
+    attributes.apply(&mut session);
+
+    let mut out_session = Vec::new();
+    session
+        .write(&mut out_session)
+        .expect("failed to write session to vec");
+
+    Ok(String::from_utf8_lossy(&out_session).into_owned())
+}
+
+// -- Answer
+#[remote(Record)]
+pub struct WebRTCSessionAnswer {
+    pub app_name: Option<String>,
+    pub microphone: bool,
+}
+
+#[export]
+pub fn webrtc_session_answer_parse(session: String) -> Result<WebRTCSessionAnswer, MoonlightError> {
+    let session = WebRTCSessionAnswer::from_str(&session)?;
+    Ok(session)
+}
+#[export]
+pub fn webrtc_session_answer_apply(
+    session_str: String,
+    attributes: WebRTCSessionAnswer,
+) -> Result<String, MoonlightError> {
+    let mut session =
+        Session::parse(session_str.as_bytes()).map_err(WebRTCSessionParseError::from)?;
+
     attributes.apply(&mut session);
 
     let mut out_session = Vec::new();
