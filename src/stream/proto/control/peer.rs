@@ -314,6 +314,10 @@ impl ControlHost {
         Ok(())
     }
 
+    pub fn configured_peers(&self) -> impl Iterator<Item = ControlPeerId> {
+        self.peer_data.keys().copied()
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub fn disconnect(&mut self, id: ControlPeerId, data: u32) -> Result<(), ControlError> {
         self.host.disconnect(id.0, data)?;
