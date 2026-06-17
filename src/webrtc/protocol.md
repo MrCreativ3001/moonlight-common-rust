@@ -1,9 +1,27 @@
 # Moonlight over WebRTC
 This documents the protocol that [Moonlight Web](https://github.com/MrCreativ3001/moonlight-web-stream) is using to negotiate a WebRTC session and communicate video, audio and control data for game streaming.
 
-It is extending the [WebRTC WHEP Specification](https://datatracker.ietf.org/doc/html/draft-ietf-wish-whep-01) which is used to setup and manage a multimedia session.
+## WebRTC Endpoint
+The server MUST expose a dedicated HTTP endpoint to handle session negotiations initiated by the client.
 
-Any additional video, audio or data channels that are not recognized by the WHEP player or WHEP endpoint should be ignored.
+### Launching a WebRTC stream
+To initiate a stream, the client MUST issue an HTTP `POST` request to the endpoint.
+
+The client and server MUST wait for ice gathering to finish before sending their sdp to the other peer.
+
+Request Requirements:
+- Headers
+  - `Content-Type: application/sdp`
+- body must contain a valid webrtc offer from the client
+- sdp offer constraints
+  - `recv` or `recvsend` video and audio transceivers
+  - data channel transceiver (`m=application` line)
+
+Response Requirements:
+- Headers
+  - `Content-Type: application/sdp`
+- body must contain a valid webrtc answer from the server
+- Response Code: `200 Ok`
 
 ## SDP Session Attributes
 
@@ -32,7 +50,7 @@ a=x-moonlight-hdr:1
 | `a=x-moonlight-preferred-codec` | `u32` | ❌ | Bitmask of preferred video codecs. |
 | `a=x-moonlight-preferred-audio` | `u32` | ❌ | Preferred audio configuration. |
 | `a=x-moonlight-host-id` | `u32` | ❌ | Specify the host machine ID to start the stream on. |
-| `a=x-moonlight-control` | `"simple"` or `"enet"` | ❌ | It's allowed to add this attribute multiple times. See [Control Stream](#control-stream) |
+| `a=x-moonlight-control` | `"enet"` | ❌ | See [Control Stream](#control-stream) |
 
 ### Answer Attributes
 
@@ -42,7 +60,7 @@ a=x-moonlight-hdr:1
 | `a=x-moonlight-microphone` | `0` or `1` | ❌ | See [Microphone](#microphone) |
 
 ## Control Stream
-A WHEP player will make a request to the WHEP endpoint with a SDP offer ([Section 4-1](https://datatracker.ietf.org/doc/html/draft-ietf-wish-whep-01#section-4-1)).
+A client will make a request to the endpoint with a SDP offer.
 Control stream support is negotiated entirely through SDP attributes.
 
 The Simple and ENet control streams use identical Moonlight control packet payloads.
@@ -51,15 +69,14 @@ All packets that are sent over the control stream are using the unencrypted payl
 
 ### Control Stream Negotiation
 
-The client indicates supported control stream types using:
+By default the [simple control stream](#simple-control-stream) is used.
 
+The client indicates support for the enet control stream using sdp attributes:
 ```sdp
-a=x-moonlight-control:simple
 a=x-moonlight-control:enet
 ```
 
-A server selects one mode in the SDP answer.
-
+A server selects one mode and adds the `moonlight.control` data channel like described in the respective control stream sections.
 If multiple modes are offered, `enet` should be preferred when supported.
 
 ## Simple Control Stream
@@ -84,11 +101,10 @@ Multiple enet peers are allowed to connect over the single WebRTC data channel.
 If no client peer is connected to the server peer, the server should stop sending video and audio because the stream was unfocused.
 
 ## Microphone
-A WHEP player can add a microphone track to it's SDP Offer.
+A client can add a microphone track to it's SDP Offer.
 This can either be done by using a new `sendonly` audio transceiver or modifying the existing transceiver to be `recvsend`.
 
 The server indicates microphone support in it's answer using:
-
 ```sdp
 a=x-moonlight-microphone:1
 ```

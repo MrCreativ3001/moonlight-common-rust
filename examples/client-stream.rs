@@ -34,8 +34,6 @@ mod common;
 fn main() {
     common::init();
 
-    // This implementation is not done yet, use the client-common-c
-
     let Args {
         address,
         port,

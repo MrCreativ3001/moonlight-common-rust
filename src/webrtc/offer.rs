@@ -1,42 +1,9 @@
-use std::fmt;
 use std::str::FromStr;
 
 use sdp_types::Session;
 
 use crate::stream::video::VideoFormats;
 use crate::webrtc::{WebRTCSessionParseError, bool_str, parse_bool, parse_u32, push};
-
-const CONTROL_MODE_SIMPLE: &str = "simple";
-const CONTROL_MODE_ENET: &str = "enet";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlMode {
-    Simple,
-    Enet,
-}
-
-impl fmt::Display for ControlMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ControlMode::Simple => write!(f, "{CONTROL_MODE_SIMPLE}"),
-            ControlMode::Enet => write!(f, "{CONTROL_MODE_ENET}"),
-        }
-    }
-}
-
-impl FromStr for ControlMode {
-    type Err = WebRTCSessionParseError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            CONTROL_MODE_SIMPLE => Ok(Self::Simple),
-            CONTROL_MODE_ENET => Ok(Self::Enet),
-            _ => Err(WebRTCSessionParseError::InvalidControlMode(
-                value.to_string(),
-            )),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebRTCSessionOffer {
@@ -50,7 +17,6 @@ pub struct WebRTCSessionOffer {
     pub preferred_codec: Option<VideoFormats>,
     pub preferred_audio: Option<u32>,
     pub host_id: Option<u32>,
-    pub control_simple: bool,
     pub control_enet: bool,
 }
 
@@ -81,7 +47,6 @@ impl WebRTCSessionOffer {
         let mut preferred_audio = None;
         let mut host_id = None;
 
-        let mut control_simple = false;
         let mut control_enet = false;
 
         for attr in &session.attributes {
@@ -154,12 +119,8 @@ impl WebRTCSessionOffer {
                     host_id = Some(parse_u32("x-moonlight-host-id", value)?);
                 }
 
-                "x-moonlight-control" => {
-                    let mode = ControlMode::from_str(value)?;
-                    match mode {
-                        ControlMode::Simple => control_simple = true,
-                        ControlMode::Enet => control_enet = true,
-                    }
+                "x-moonlight-control" if value == "enet" => {
+                    control_enet = true;
                 }
 
                 _ => {}
@@ -183,7 +144,6 @@ impl WebRTCSessionOffer {
             preferred_codec,
             preferred_audio,
             host_id,
-            control_simple,
             control_enet,
         })
     }
@@ -219,11 +179,8 @@ impl WebRTCSessionOffer {
             push(session, "x-moonlight-host-id", v.to_string());
         }
 
-        if self.control_simple {
-            push(session, "x-moonlight-control", CONTROL_MODE_SIMPLE);
-        }
         if self.control_enet {
-            push(session, "x-moonlight-control", CONTROL_MODE_ENET);
+            push(session, "x-moonlight-control", "enet");
         }
     }
 }
@@ -300,7 +257,6 @@ mod tests {
 
         assert!(parsed.hdr);
 
-        assert!(!parsed.control_simple);
         assert!(parsed.control_enet);
     }
 
@@ -317,7 +273,6 @@ mod tests {
             preferred_codec: Some(VideoFormats::H264),
             preferred_audio: Some(2),
             host_id: Some(42),
-            control_simple: false,
             control_enet: true,
         };
 

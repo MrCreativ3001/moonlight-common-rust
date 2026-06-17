@@ -17,8 +17,6 @@ use crate::common::{Args, EXAMPLE_DATA_DIR, save_identity, try_load_identity};
 
 mod common;
 
-// TODO: use clap in all examples
-
 fn main() {
     common::init();
 
