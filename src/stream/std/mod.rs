@@ -356,6 +356,7 @@ impl MoonlightStream {
                     mic_stream: new_mic_stream,
                 } => {
                     let socket = UdpSocket::bind("0.0.0.0:0")?;
+                    disable_udp_conn_reset(&socket);
                     socket.connect(addr)?;
 
                     {
@@ -379,6 +380,7 @@ impl MoonlightStream {
                     control_stream: new_control_stream,
                 } => {
                     let socket = Arc::new(UdpSocket::bind("0.0.0.0:0")?);
+                    disable_udp_conn_reset(&socket);
                     socket.connect(addr)?;
 
                     {
@@ -577,6 +579,59 @@ fn handle_error(stop: &StopSignal, error: MoonlightStreamError) {
 
 const UDP_BUFFER_CAPACITY: usize = 4096;
 
+/// On Windows, a connected UDP socket returns `WSAECONNRESET` (10054) on the
+/// next `recv`/`send` after a previously sent datagram triggered an ICMP
+/// port-unreachable. This is the `SIO_UDP_CONNRESET` behavior and it is enabled
+/// by default. In the GameStream protocol the host only opens its RTP ports
+/// after the RTSP `PLAY`, so the pings the client sends beforehand elicit a
+/// transient port-unreachable. The resulting 10054 is reported on `recv`/`send`
+/// and is treated as fatal by the audio/video stream threads, which tears the
+/// stream down before the first frame is ever received.
+///
+/// Disable the behavior so transient ICMP port-unreachables no longer surface
+/// as socket errors, matching what native Moonlight clients do on Windows.
+#[cfg(windows)]
+fn disable_udp_conn_reset(socket: &UdpSocket) {
+    use std::os::windows::io::AsRawSocket;
+
+    // SIO_UDP_CONNRESET = _WSAIOW(IOC_VENDOR, 12)
+    const SIO_UDP_CONNRESET: u32 = 0x9800_000C;
+
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn WSAIoctl(
+            s: usize,
+            dwIoControlCode: u32,
+            lpvInBuffer: *const core::ffi::c_void,
+            cbInBuffer: u32,
+            lpvOutBuffer: *mut core::ffi::c_void,
+            cbOutBuffer: u32,
+            lpcbBytesReturned: *mut u32,
+            lpOverlapped: *mut core::ffi::c_void,
+            lpCompletionRoutine: *mut core::ffi::c_void,
+        ) -> i32;
+    }
+
+    let mut enable: u32 = 0; // FALSE: stop raising WSAECONNRESET on ICMP port-unreachable
+    let mut bytes_returned: u32 = 0;
+    let _ = unsafe {
+        WSAIoctl(
+            socket.as_raw_socket() as usize,
+            SIO_UDP_CONNRESET,
+            &mut enable as *mut u32 as *mut _,
+            core::mem::size_of::<u32>() as u32,
+            core::ptr::null_mut(),
+            0,
+            &mut bytes_returned,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        )
+    };
+}
+
+#[cfg(not(windows))]
+fn disable_udp_conn_reset(_socket: &UdpSocket) {}
+
 fn udp_receiver(
     span: Span,
     stop: StopSignal,
@@ -641,6 +696,7 @@ fn audio_thread(
                 return;
             }
         };
+        disable_udp_conn_reset(&socket);
         let socket = Arc::new(socket);
         if let Err(err) = socket.connect(addr) {
             handle_error(&stop, err.into());
@@ -749,6 +805,7 @@ fn video_thread(
                 return;
             }
         };
+        disable_udp_conn_reset(&socket);
         let socket = Arc::new(socket);
         if let Err(err) = socket.connect(addr) {
             handle_error(&stop, err.into());
