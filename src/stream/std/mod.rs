@@ -593,38 +593,21 @@ const UDP_BUFFER_CAPACITY: usize = 4096;
 #[cfg(windows)]
 fn disable_udp_conn_reset(socket: &UdpSocket) {
     use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{SIO_UDP_CONNRESET, WSAIoctl};
 
-    // SIO_UDP_CONNRESET = _WSAIOW(IOC_VENDOR, 12)
-    const SIO_UDP_CONNRESET: u32 = 0x9800_000C;
-
-    #[link(name = "ws2_32")]
-    unsafe extern "system" {
-        fn WSAIoctl(
-            s: usize,
-            dwIoControlCode: u32,
-            lpvInBuffer: *const core::ffi::c_void,
-            cbInBuffer: u32,
-            lpvOutBuffer: *mut core::ffi::c_void,
-            cbOutBuffer: u32,
-            lpcbBytesReturned: *mut u32,
-            lpOverlapped: *mut core::ffi::c_void,
-            lpCompletionRoutine: *mut core::ffi::c_void,
-        ) -> i32;
-    }
-
-    let mut enable: u32 = 0; // FALSE: stop raising WSAECONNRESET on ICMP port-unreachable
+    let enable: u32 = 0; // FALSE: stop raising WSAECONNRESET on ICMP port-unreachable
     let mut bytes_returned: u32 = 0;
     let _ = unsafe {
         WSAIoctl(
-            socket.as_raw_socket() as usize,
+            socket.as_raw_socket() as _,
             SIO_UDP_CONNRESET,
-            &mut enable as *mut u32 as *mut _,
+            &enable as *const u32 as *const _,
             core::mem::size_of::<u32>() as u32,
             core::ptr::null_mut(),
             0,
             &mut bytes_returned,
             core::ptr::null_mut(),
-            core::ptr::null_mut(),
+            None,
         )
     };
 }
