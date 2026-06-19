@@ -11,7 +11,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
     pin, select, spawn,
-    sync::{Mutex, Notify},
+    sync::{Mutex, Notify, mpsc},
     task::JoinHandle,
     time::sleep_until,
 };
@@ -59,8 +59,8 @@ pub enum MoonlightStreamError {
     Control(#[from] ControlError),
     #[error("foundation mic stream: {0}")]
     FoundationMic(#[from] FoundationMicStreamError),
-    #[error("exceeded first frame timeout")]
-    FirstFrameTimeout,
+    #[error("exceeded connection timeout")]
+    ConnectionTimeout,
 }
 
 #[async_trait]
@@ -96,15 +96,6 @@ struct Inner {
     control_stream_notify: Notify,
     foundation_mic: Mutex<Option<FoundationMicStream>>,
     foundation_mic_notify: Notify,
-    first_frame: Mutex<FirstFrame>,
-    first_frame_notify: Notify,
-}
-
-#[derive(Debug, Default)]
-struct FirstFrame {
-    video: bool,
-    audio: bool,
-    control: bool,
 }
 
 #[derive(Debug, Default)]
@@ -154,8 +145,6 @@ impl MoonlightStream {
             control_stream_notify: Notify::new(),
             foundation_mic: Default::default(),
             foundation_mic_notify: Notify::new(),
-            first_frame: Default::default(),
-            first_frame_notify: Notify::new(),
         });
 
         let features = match Self::connect_inner(base_time, setup, inner.clone()).await {
@@ -167,28 +156,6 @@ impl MoonlightStream {
             }
         };
 
-        // Wait until all streams are connected
-        let deadline = Instant::now() + Duration::from_secs(10);
-
-        loop {
-            let sleep = sleep_until(deadline.into());
-
-            select! {
-                _ = sleep => {
-                    Self::stop_inner(&inner).await;
-
-                    return Err(MoonlightStreamError::FirstFrameTimeout);
-                }
-                _ = inner.first_frame_notify.notified() => {
-                    let guard = inner.first_frame.lock().await;
-
-                    if guard.audio && guard.video && guard.control {
-                        break;
-                    }
-                }
-            }
-        }
-
         Ok(MoonlightStream { features, inner })
     }
 
@@ -199,6 +166,8 @@ impl MoonlightStream {
     ) -> Result<HostFeatures, MoonlightStreamError> {
         let mut tcp_stream = None;
         let mut buffer = vec![0; 2048];
+
+        let (on_enet_connect_sender, mut on_enet_connect) = mpsc::channel(1);
 
         let features = loop {
             let timeout = match setup.poll_output()? {
@@ -235,8 +204,6 @@ impl MoonlightStream {
                         let inner = inner.clone();
 
                         async move {
-                            let mut first_frame = true;
-
                             loop {
                                 if inner.stop.is_notified() {
                                     break;
@@ -252,15 +219,6 @@ impl MoonlightStream {
 
                                 let mut timeout = match poll_output {
                                     AudioStreamOutput::AudioFrame(frame) => {
-                                        if first_frame {
-                                            let mut guard = inner.first_frame.lock().await;
-                                            guard.audio = true;
-
-                                            inner.first_frame_notify.notify_one();
-
-                                            first_frame = false;
-                                        }
-
                                         inner
                                             .handler
                                             .on_audio_frame(AudioFrame {
@@ -338,7 +296,6 @@ impl MoonlightStream {
                         let inner = inner.clone();
 
                         async move {
-                            let mut first_frame = true;
                             let mut decode_result = DecodeResult::Ok;
 
                             loop {
@@ -388,15 +345,6 @@ impl MoonlightStream {
                                         continue;
                                     }
                                     VideoStreamOutput::VideoFrame(frame) => {
-                                        if first_frame {
-                                            let mut guard = inner.first_frame.lock().await;
-                                            guard.video = true;
-
-                                            inner.first_frame_notify.notify_one();
-
-                                            first_frame = false;
-                                        }
-
                                         decode_result = inner.handler.on_video_frame(frame).await;
                                         continue;
                                     }
@@ -551,6 +499,7 @@ impl MoonlightStream {
 
                     let handle = spawn({
                         let inner = inner.clone();
+                        let on_enet_connect_sender = on_enet_connect_sender.clone();
 
                         async move {
                             let mut final_shutdown_deadline = None;
@@ -643,10 +592,7 @@ impl MoonlightStream {
                                     )) => timeout.to_std(base_time),
                                     ControlStreamOutput::Event(event) => match event {
                                         ControlStreamEvent::Connect => {
-                                            let mut guard = inner.first_frame.lock().await;
-                                            guard.control = true;
-
-                                            inner.first_frame_notify.notify_one();
+                                            let _ = on_enet_connect_sender.send(()).await;
 
                                             continue;
                                         }
@@ -744,6 +690,19 @@ impl MoonlightStream {
                 }
             };
         };
+
+        // Wait until all the control stream is connected
+        let deadline = Instant::now() + Duration::from_secs(10);
+
+        select! {
+            _ = sleep_until(deadline.into()) => {
+                debug!("no enet connection could be established");
+                return Err(MoonlightStreamError::ConnectionTimeout);
+            }
+            _ = on_enet_connect.recv() => {
+                // fallthrough
+            }
+        }
 
         Ok(features)
     }

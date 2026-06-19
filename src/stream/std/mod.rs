@@ -3,7 +3,7 @@ use std::{
     any::Any,
     io::{self, Read, Write},
     net::{SocketAddr, TcpStream, UdpSocket},
-    sync::{Arc, Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex, mpsc},
     thread::{JoinHandle, sleep, spawn},
     time::{Duration, Instant},
 };
@@ -55,8 +55,8 @@ pub enum MoonlightStreamError {
     FoundationMic(#[from] FoundationMicStreamError),
     #[error("thread join: {0:?}")]
     ThreadJoin(Box<dyn Any + Send + 'static>),
-    #[error("exceeded first frame timeout")]
-    FirstFrameTimeout,
+    #[error("exceeded connection timeout")]
+    ConnectionTimeout,
 }
 
 pub struct MoonlightStream {
@@ -135,15 +135,6 @@ struct SharedInner {
     control_notify: Condvar,
     foundation_mic_stream: Mutex<Option<FoundationMicStream>>,
     foundation_mic_notify: Condvar,
-    first_frame: Mutex<FirstFrame>,
-    first_frame_notify: Condvar,
-}
-
-#[derive(Debug, Default)]
-struct FirstFrame {
-    has_audio: bool,
-    has_video: bool,
-    has_control: bool,
 }
 
 // TODO: how to handle errors, maybe in the connection listener?
@@ -236,9 +227,8 @@ impl MoonlightStream {
             control_stream: Mutex::new(None),
             foundation_mic_stream: Mutex::new(None),
             foundation_mic_notify: Condvar::new(),
-            first_frame: Mutex::new(FirstFrame::default()),
-            first_frame_notify: Condvar::new(),
         });
+        let (on_enet_connect_sender, on_enet_connect) = mpsc::channel::<()>();
 
         let mut setup = MoonlightStreamSetup::new(
             SInstant::from_std(base_time),
@@ -398,6 +388,7 @@ impl MoonlightStream {
                             .take()
                             .expect("connection listener was already taken"),
                         shared_inner.clone(),
+                        on_enet_connect_sender.clone(),
                     ));
 
                     threads.control_stream_receiver = Some(control_thread_receiver(
@@ -419,26 +410,12 @@ impl MoonlightStream {
 
         drop(tcp_stream);
 
-        // wait until all streams are connected: audio, video, control
-        let maximum_timeout = Instant::now() + Duration::from_secs(20);
-        loop {
-            let first_frame = shared_inner
-                .first_frame
-                .lock()
-                .expect("failed to get FirstFrame");
-
-            if Instant::now() > maximum_timeout {
-                debug!(first_frame = ?first_frame, "exceeded FirstFrame timeout");
-                return Err(MoonlightStreamError::FirstFrameTimeout);
-            }
-
-            let (first_frame, _) = shared_inner
-                .first_frame_notify
-                .wait_timeout(first_frame, Duration::from_secs(1))
-                .expect("failed to get FirstFrame");
-
-            if first_frame.has_audio && first_frame.has_video && first_frame.has_control {
-                break;
+        // wait until only control stream is connected: https://github.com/MrCreativ3001/moonlight-common-rust/issues/4
+        match on_enet_connect.recv_timeout(Duration::from_secs(20)) {
+            Ok(_) => {}
+            Err(_) => {
+                debug!("connection timeout on connect");
+                return Err(MoonlightStreamError::ConnectionTimeout);
             }
         }
 
@@ -629,7 +606,7 @@ fn audio_thread(
     addr: SocketAddr,
     mut audio_stream: AudioStream,
     mut audio_decoder: impl AudioDecoder + Send + 'static,
-    shared_inner: Arc<SharedInner>,
+    _shared_inner: Arc<SharedInner>,
 ) -> JoinHandle<()> {
     spawn(move || {
         let _enter = span.enter();
@@ -678,12 +655,6 @@ fn audio_thread(
                 }
                 AudioStreamOutput::AudioFrame(frame) => {
                     if !started {
-                        let mut first_frame = shared_inner
-                            .first_frame
-                            .lock()
-                            .expect("failed to get FirstFrame");
-                        first_frame.has_audio = true;
-
                         audio_decoder.start();
 
                         started = true;
@@ -794,12 +765,6 @@ fn video_thread(
                     }
                     VideoStreamOutput::VideoFrame(decode_unit) => {
                         if !started {
-                            let mut first_frame = shared_inner
-                                .first_frame
-                                .lock()
-                                .expect("failed to get FirstFrame");
-                            first_frame.has_video = true;
-
                             video_decoder.start();
 
                             started = true;
@@ -943,6 +908,7 @@ fn control_thread_sender(
     socket: Arc<UdpSocket>,
     mut connection_listener: impl ConnectionListener + Send + 'static,
     shared_inner: Arc<SharedInner>,
+    on_enet_connect: mpsc::Sender<()>,
 ) -> JoinHandle<()> {
     spawn(move || {
         let _enter = span.enter();
@@ -1021,11 +987,7 @@ fn control_thread_sender(
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Connect) => {
-                        let mut first_frame = shared_inner
-                            .first_frame
-                            .lock()
-                            .expect("failed to get FirstFrame");
-                        first_frame.has_control = true;
+                        let _ = on_enet_connect.send(());
                         continue;
                     }
                     ControlStreamOutput::Event(ControlStreamEvent::Packet(packet)) => {
