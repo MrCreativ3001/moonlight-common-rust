@@ -3,7 +3,7 @@ use std::str::FromStr;
 use sdp_types::Session;
 
 use crate::stream::video::VideoFormats;
-use crate::webrtc::{WebRTCSessionParseError, bool_str, parse_bool, parse_u32, push};
+use crate::webrtc::{WebRTCParseError, bool_str, parse_bool, parse_u32, push};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebRTCSessionOffer {
@@ -21,7 +21,7 @@ pub struct WebRTCSessionOffer {
 }
 
 impl FromStr for WebRTCSessionOffer {
-    type Err = WebRTCSessionParseError;
+    type Err = WebRTCParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let session = Session::parse(s.as_bytes())?;
@@ -31,7 +31,7 @@ impl FromStr for WebRTCSessionOffer {
 }
 
 impl WebRTCSessionOffer {
-    pub fn from_sdp(session: &Session) -> Result<Self, WebRTCSessionParseError> {
+    pub fn from_sdp(session: &Session) -> Result<Self, WebRTCParseError> {
         let mut app_id = None;
 
         // All are parsed in the same statement -> only need one option
@@ -64,33 +64,33 @@ impl WebRTCSessionOffer {
                     width = Some(
                         parts
                             .next()
-                            .ok_or(WebRTCSessionParseError::InvalidVideoMode(
+                            .ok_or(WebRTCParseError::InvalidVideoMode(
                                 "missing width".to_string(),
                             ))?
                             .parse::<u32>()
                             .map_err(|_| {
-                                WebRTCSessionParseError::InvalidVideoMode(value.to_string())
+                                WebRTCParseError::InvalidVideoMode(value.to_string())
                             })?,
                     );
 
                     height = parts
                         .next()
-                        .ok_or(WebRTCSessionParseError::InvalidVideoMode(
+                        .ok_or(WebRTCParseError::InvalidVideoMode(
                             "missing height".to_string(),
                         ))?
                         .parse::<u32>()
                         .map_err(|err| {
-                            WebRTCSessionParseError::InvalidVideoMode(err.to_string())
+                            WebRTCParseError::InvalidVideoMode(err.to_string())
                         })?;
 
                     fps = parts
                         .next()
-                        .ok_or(WebRTCSessionParseError::InvalidVideoMode(
+                        .ok_or(WebRTCParseError::InvalidVideoMode(
                             "missing fps".to_string(),
                         ))?
                         .parse::<u32>()
                         .map_err(|err| {
-                            WebRTCSessionParseError::InvalidVideoMode(err.to_string())
+                            WebRTCParseError::InvalidVideoMode(err.to_string())
                         })?;
                 }
                 "x-moonlight-bitrate" => {
@@ -128,15 +128,15 @@ impl WebRTCSessionOffer {
         }
 
         Ok(Self {
-            app_id: app_id.ok_or(WebRTCSessionParseError::MissingAttribute(
+            app_id: app_id.ok_or(WebRTCParseError::MissingAttribute(
                 "x-moonlight-app-id",
             ))?,
-            width: width.ok_or(WebRTCSessionParseError::MissingAttribute(
+            width: width.ok_or(WebRTCParseError::MissingAttribute(
                 "x-moonlight-mode",
             ))?,
             height,
             fps,
-            bitrate: bitrate.ok_or(WebRTCSessionParseError::MissingAttribute(
+            bitrate: bitrate.ok_or(WebRTCParseError::MissingAttribute(
                 "x-moonlight-bitrate",
             ))?,
             hdr,

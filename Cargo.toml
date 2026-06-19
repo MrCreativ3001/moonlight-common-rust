@@ -128,7 +128,10 @@ serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 # Windows-only: disabling SIO_UDP_CONNRESET on UDP sockets (see src/stream/std/mod.rs)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Networking_WinSock",
+    "Win32_System_IO",
+] }
 
 [features]
 default = ["ureq", "std", "rustcrypto"]

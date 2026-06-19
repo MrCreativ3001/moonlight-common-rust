@@ -1,27 +1,74 @@
-# Moonlight over WebRTC
+# Moonlight over WebRTC [WIP]
 This documents the protocol that [Moonlight Web](https://github.com/MrCreativ3001/moonlight-web-stream) is using to negotiate a WebRTC session and communicate video, audio and control data for game streaming.
+It is inspired by the [WHIP](https://www.ietf.org/archive/id/draft-ietf-wish-whip-01.html) and [WHEP](https://www.ietf.org/archive/id/draft-murillo-whep-03.html) specification.
 
 ## WebRTC Endpoint
 The server MUST expose a dedicated HTTP endpoint to handle session negotiations initiated by the client.
 
+### Options
+The server can expose the HTTP `OPTIONS` method on the endpoint to return ice servers.
+Those can be utilized by the WebRTC client.
+
+Example response headers:
+```http
+Link: <stun:stun.example.net>;
+Link: <turn:turn.example.net?transport=udp; rel="ice-server">; username="user"; credential: "myPassword"; credential-type: "password";
+Link: <turn:turn.example.net?transport=tcp; rel="ice-server">; username="user"; credential: "myPassword"; credential-type: "password";
+Link: <turns:turn.example.net?transport=tcp; rel="ice-server">; username="user"; credential: "myPassword"; credential-type: "password";
+```
+
 ### Launching a WebRTC stream
 To initiate a stream, the client MUST issue an HTTP `POST` request to the endpoint.
-
-The client and server MUST wait for ice gathering to finish before sending their sdp to the other peer.
 
 Request Requirements:
 - Headers
   - `Content-Type: application/sdp`
-- body must contain a valid webrtc offer from the client
-- sdp offer constraints
+- Sdp offer constraints
+  - [Offer Attributes](#offer-attributes)
   - `recv` or `recvsend` video and audio transceivers
   - data channel transceiver (`m=application` line)
 
 Response Requirements:
 - Headers
   - `Content-Type: application/sdp`
+  - `Location: /webrtc/{STREAM_IDENTIFIER}`: The location of the WebRTC stream
 - body must contain a valid webrtc answer from the server
-- Response Code: `200 Ok`
+- Sdp answer constrains:
+  - [Answer Attributes](#answer-attributes)
+- Response Code: `201 Created`
+
+### Trickle Ice Candidates
+To make negotation quick, trickle ice candidates can be used by the client.
+The server must collect all it's ice candidates before responding to the client.
+After creating a stream a `PATCH` request can be made to the returned `Location` header in the launch request.
+
+Request Requirements:
+- Headers
+  - `Content-Type: application/trickle-ice-sdpfrag`
+- Content
+  - New line seperated ice candidates
+
+Response Requirements:
+- Response Code: `204 No Content`
+
+Example request:
+```http
+PATCH /resource/id HTTP/1.1
+Host: example.com
+Content-Type: application/trickle-ice-sdpfrag
+Content-Length: 433
+
+a=candidate:1387637174 1 udp 2122260223 192.0.2.1 61764 typ host generation 0 ufrag EsAw network-id 1
+a=candidate:3471623853 1 udp 2122194687 198.51.100.1 61765 typ host generation 0 ufrag EsAw network-id 2
+a=candidate:473322822 1 tcp 1518280447 192.0.2.1 9 typ host tcptype active generation 0 ufrag EsAw network-id 1
+a=candidate:2154773085 1 tcp 1518214911 198.51.100.2 9 typ host tcptype active generation 0 ufrag EsAw network-id 2
+
+HTTP/1.1 204 No Content
+```
+
+### Stopping a stream
+After creating a stream a `DELETE` request can be made to the returned `Location` header in the launch request.
+This will immediatly stop the stream.
 
 ## SDP Session Attributes
 

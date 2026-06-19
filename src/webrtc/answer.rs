@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use sdp_types::Session;
 
-use crate::webrtc::{WebRTCSessionParseError, bool_str, parse_bool, push};
+use crate::webrtc::{WebRTCParseError, bool_str, parse_bool, push};
 
 pub struct WebRTCSessionAnswer {
     /// The name of the app that was started.
@@ -12,7 +12,7 @@ pub struct WebRTCSessionAnswer {
 }
 
 impl FromStr for WebRTCSessionAnswer {
-    type Err = WebRTCSessionParseError;
+    type Err = WebRTCParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let session = Session::parse(s.as_bytes())?;
@@ -22,7 +22,7 @@ impl FromStr for WebRTCSessionAnswer {
 }
 
 impl WebRTCSessionAnswer {
-    pub fn from_sdp(session: &Session) -> Result<Self, WebRTCSessionParseError> {
+    pub fn from_sdp(session: &Session) -> Result<Self, WebRTCParseError> {
         let mut app_name = None;
         let mut microphone = false;
 

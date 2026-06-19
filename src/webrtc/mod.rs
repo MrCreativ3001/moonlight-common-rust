@@ -7,10 +7,11 @@ use sdp_types::{Attribute, ParserError, Session};
 
 pub use sdp_types as sdp;
 pub mod answer;
+pub mod header;
 pub mod offer;
 
 #[derive(Debug, thiserror::Error)]
-pub enum WebRTCSessionParseError {
+pub enum WebRTCParseError {
     #[error("session parse")]
     Session(#[from] ParserError),
     #[error("missing required attribute: {0}")]
@@ -23,6 +24,10 @@ pub enum WebRTCSessionParseError {
     InvalidVideoMode(String),
     #[error("invalid control mode: {0}")]
     InvalidControlMode(String),
+    #[error("link header is missing the uri")]
+    MissingUri,
+    #[error("invalid link header")]
+    InvalidLinkHeader,
 }
 
 fn push(session: &mut Session, attribute: impl Into<String>, value: impl Into<String>) {
@@ -32,20 +37,17 @@ fn push(session: &mut Session, attribute: impl Into<String>, value: impl Into<St
     });
 }
 
-fn parse_u32(name: &'static str, value: &str) -> Result<u32, WebRTCSessionParseError> {
+fn parse_u32(name: &'static str, value: &str) -> Result<u32, WebRTCParseError> {
     value
         .parse()
-        .map_err(|_| WebRTCSessionParseError::InvalidInteger(name, value.to_string()))
+        .map_err(|_| WebRTCParseError::InvalidInteger(name, value.to_string()))
 }
 
-fn parse_bool(name: &'static str, value: &str) -> Result<bool, WebRTCSessionParseError> {
+fn parse_bool(name: &'static str, value: &str) -> Result<bool, WebRTCParseError> {
     match value {
         "0" => Ok(false),
         "1" => Ok(true),
-        _ => Err(WebRTCSessionParseError::InvalidBool(
-            name,
-            value.to_string(),
-        )),
+        _ => Err(WebRTCParseError::InvalidBool(name, value.to_string())),
     }
 }
 
