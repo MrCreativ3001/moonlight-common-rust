@@ -68,9 +68,7 @@ impl WebRTCSessionOffer {
                                 "missing width".to_string(),
                             ))?
                             .parse::<u32>()
-                            .map_err(|_| {
-                                WebRTCParseError::InvalidVideoMode(value.to_string())
-                            })?,
+                            .map_err(|_| WebRTCParseError::InvalidVideoMode(value.to_string()))?,
                     );
 
                     height = parts
@@ -79,9 +77,7 @@ impl WebRTCSessionOffer {
                             "missing height".to_string(),
                         ))?
                         .parse::<u32>()
-                        .map_err(|err| {
-                            WebRTCParseError::InvalidVideoMode(err.to_string())
-                        })?;
+                        .map_err(|err| WebRTCParseError::InvalidVideoMode(err.to_string()))?;
 
                     fps = parts
                         .next()
@@ -89,9 +85,7 @@ impl WebRTCSessionOffer {
                             "missing fps".to_string(),
                         ))?
                         .parse::<u32>()
-                        .map_err(|err| {
-                            WebRTCParseError::InvalidVideoMode(err.to_string())
-                        })?;
+                        .map_err(|err| WebRTCParseError::InvalidVideoMode(err.to_string()))?;
                 }
                 "x-moonlight-bitrate" => {
                     bitrate = Some(parse_u32("x-moonlight-bitrate", value)?);
@@ -128,17 +122,11 @@ impl WebRTCSessionOffer {
         }
 
         Ok(Self {
-            app_id: app_id.ok_or(WebRTCParseError::MissingAttribute(
-                "x-moonlight-app-id",
-            ))?,
-            width: width.ok_or(WebRTCParseError::MissingAttribute(
-                "x-moonlight-mode",
-            ))?,
+            app_id: app_id.ok_or(WebRTCParseError::MissingAttribute("x-moonlight-app-id"))?,
+            width: width.ok_or(WebRTCParseError::MissingAttribute("x-moonlight-mode"))?,
             height,
             fps,
-            bitrate: bitrate.ok_or(WebRTCParseError::MissingAttribute(
-                "x-moonlight-bitrate",
-            ))?,
+            bitrate: bitrate.ok_or(WebRTCParseError::MissingAttribute("x-moonlight-bitrate"))?,
             hdr,
             local_audio_play_mode,
             preferred_codec,
