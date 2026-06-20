@@ -12,9 +12,9 @@ Those can be utilized by the WebRTC client.
 Example response headers:
 ```http
 Link: <stun:stun.example.net>;
-Link: <turn:turn.example.net?transport=udp; rel="ice-server">; username="user"; credential: "myPassword"; credential-type: "password";
-Link: <turn:turn.example.net?transport=tcp; rel="ice-server">; username="user"; credential: "myPassword"; credential-type: "password";
-Link: <turns:turn.example.net?transport=tcp; rel="ice-server">; username="user"; credential: "myPassword"; credential-type: "password";
+Link: <turn:turn.example.net?transport=udp>; rel="ice-server"; username="user"; credential: "myPassword"; credential-type: "password";
+Link: <turn:turn.example.net?transport=tcp>; rel="ice-server"; username="user"; credential: "myPassword"; credential-type: "password";
+Link: <turns:turn.example.net?transport=tcp>; rel="ice-server"; username="user"; credential: "myPassword"; credential-type: "password";
 ```
 
 ### Launching a WebRTC stream

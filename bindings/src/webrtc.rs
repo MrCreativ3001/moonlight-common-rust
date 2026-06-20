@@ -3,7 +3,7 @@ use std::str::FromStr;
 use uniffi::{Record, export, remote};
 
 use moonlight_common::webrtc::{
-    WebRTCParseError, answer::WebRTCSessionAnswer,
+    WebRTCParseError, answer::WebRTCSessionAnswer, header::WebRTCLinkHeader,
     offer::WebRTCSessionOffer as WebRTCSessionOffer2, sdp::Session,
 };
 
@@ -71,8 +71,7 @@ pub fn webrtc_session_offer_apply(
     session_str: String,
     attributes: WebRTCSessionOffer,
 ) -> Result<String, MoonlightError> {
-    let mut session =
-        Session::parse(session_str.as_bytes()).map_err(WebRTCParseError::from)?;
+    let mut session = Session::parse(session_str.as_bytes()).map_err(WebRTCParseError::from)?;
 
     let attributes = WebRTCSessionOffer2::from(attributes);
     attributes.apply(&mut session);
@@ -102,8 +101,7 @@ pub fn webrtc_session_answer_apply(
     session_str: String,
     attributes: WebRTCSessionAnswer,
 ) -> Result<String, MoonlightError> {
-    let mut session =
-        Session::parse(session_str.as_bytes()).map_err(WebRTCParseError::from)?;
+    let mut session = Session::parse(session_str.as_bytes()).map_err(WebRTCParseError::from)?;
 
     attributes.apply(&mut session);
 
@@ -113,4 +111,24 @@ pub fn webrtc_session_answer_apply(
         .expect("failed to write session to vec");
 
     Ok(String::from_utf8_lossy(&out_session).into_owned())
+}
+
+// -- Headers
+
+#[remote(Enum)]
+pub enum WebRTCLinkHeader {
+    IceServer {
+        url: String,
+        username: Option<String>,
+        credential: Option<String>,
+    },
+}
+
+#[export]
+pub fn webrtc_link_header_parse(header_value: &str) -> Vec<WebRTCLinkHeader> {
+    WebRTCLinkHeader::parse(header_value)
+}
+
+pub fn webrtc_link_header_to_string(header: WebRTCLinkHeader) -> String {
+    header.to_string()
 }
