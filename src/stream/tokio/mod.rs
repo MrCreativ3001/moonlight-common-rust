@@ -1,6 +1,7 @@
 use sans_io_time::Instant as SInstant;
 use std::{
     io,
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -195,8 +196,7 @@ impl MoonlightStream {
                         .setup_audio(AudioConfig::STEREO, config)
                         .await?;
 
-                    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-                    socket.connect(addr).await?;
+                    let socket = bind_any_and_connect_udp_socket(addr).await?;
 
                     let mut buffer = vec![0; 4096];
 
@@ -287,8 +287,7 @@ impl MoonlightStream {
                 } => {
                     inner.handler.setup_video(setup).await?;
 
-                    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-                    socket.connect(addr).await?;
+                    let socket = bind_any_and_connect_udp_socket(addr).await?;
 
                     let mut buffer = vec![0; 4096];
 
@@ -397,8 +396,7 @@ impl MoonlightStream {
                 MoonlightStreamSetupOutput::FoundationStartMic { addr, mic_stream } => {
                     let inner = inner.clone();
 
-                    let socket = UdpSocket::bind("0.0.0.0").await?;
-                    socket.connect(addr).await?;
+                    let socket = bind_any_and_connect_udp_socket(addr).await?;
 
                     {
                         let mut guard = inner.foundation_mic.lock().await;
@@ -486,8 +484,7 @@ impl MoonlightStream {
                 } => {
                     let inner = inner.clone();
 
-                    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-                    socket.connect(addr).await?;
+                    let socket = bind_any_and_connect_udp_socket(addr).await?;
 
                     let mut buffer = vec![0; 4096];
 
@@ -871,3 +868,50 @@ impl Tasks {
         }
     }
 }
+
+async fn bind_any_and_connect_udp_socket(
+    addr: SocketAddr,
+) -> Result<UdpSocket, MoonlightStreamError> {
+    let socket = UdpSocket::bind("0.0.0.0:0").await?;
+    socket.connect(addr).await?;
+
+    disable_udp_conn_reset(&socket);
+
+    Ok(socket)
+}
+
+/// On Windows, a connected UDP socket returns `WSAECONNRESET` (10054) on the
+/// next `recv`/`send` after a previously sent datagram triggered an ICMP
+/// port-unreachable. This is the `SIO_UDP_CONNRESET` behavior and it is enabled
+/// by default. In the GameStream protocol the host only opens its RTP ports
+/// after the RTSP `PLAY`, so the pings the client sends beforehand elicit a
+/// transient port-unreachable. The resulting 10054 is reported on `recv`/`send`
+/// and is treated as fatal by the audio/video stream threads, which tears the
+/// stream down before the first frame is ever received.
+///
+/// Disable the behavior so transient ICMP port-unreachables no longer surface
+/// as socket errors, matching what native Moonlight clients do on Windows.
+#[cfg(windows)]
+fn disable_udp_conn_reset(socket: &UdpSocket) {
+    use std::os::windows::io::AsRawSocket;
+    use windows_sys::Win32::Networking::WinSock::{SIO_UDP_CONNRESET, WSAIoctl};
+
+    let enable: u32 = 0; // FALSE: stop raising WSAECONNRESET on ICMP port-unreachable
+    let mut bytes_returned: u32 = 0;
+    let _ = unsafe {
+        WSAIoctl(
+            socket.as_raw_socket() as _,
+            SIO_UDP_CONNRESET,
+            &enable as *const u32 as *const _,
+            core::mem::size_of::<u32>() as u32,
+            core::ptr::null_mut(),
+            0,
+            &mut bytes_returned,
+            core::ptr::null_mut(),
+            None,
+        )
+    };
+}
+
+#[cfg(not(windows))]
+fn disable_udp_conn_reset(_socket: &UdpSocket) {}
