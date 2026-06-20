@@ -125,6 +125,12 @@ fn parse_link_header(s: &mut &str) -> Result<Vec<LinkHeader>, WebRTCParseError> 
                 target: target_string.to_string(),
                 parameters: link_parameters,
             });
+
+            take_whitespaces(s);
+            if let Some(',') = next(s) {
+                take(s);
+                take_whitespaces(s);
+            }
         } else {
             return Ok(links);
         }
@@ -243,34 +249,58 @@ fn take_until<'a>(s: &mut &'a str, until: char) -> &'a str {
 mod test {
     use super::*;
 
-    fn test_eq(text: &str, headers: WebRTCLinkHeader) {
-        let parsed = WebRTCLinkHeader::parse(text);
-        assert!(parsed.len() <= 1);
-        assert_eq!(headers, parsed[0]);
-        assert_eq!(format!("{headers}"), text);
+    fn test_eq(expected_text: &str, expected_headers: &[WebRTCLinkHeader]) {
+        let headers = WebRTCLinkHeader::parse(expected_text);
+        assert_eq!(headers.as_slice(), expected_headers);
+
+        let text = expected_headers
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert_eq!(text, expected_text);
     }
 
     #[test]
     pub fn stun_server() {
         test_eq(
-            r#"<stun.l.google.com:19302>; rel="ice-server""#,
-            WebRTCLinkHeader::IceServer {
-                url: "stun.l.google.com:19302".to_string(),
+            r#"<stun:stun.l.google.com:19302>; rel="ice-server""#,
+            &[WebRTCLinkHeader::IceServer {
+                url: "stun:stun.l.google.com:19302".to_string(),
                 username: None,
                 credential: None,
-            },
+            }],
         )
     }
 
     #[test]
     pub fn turn_server() {
         test_eq(
-            r#"<turn.l.google.com:19302>; rel="ice-server"; username="abc"; credential="def""#,
-            WebRTCLinkHeader::IceServer {
-                url: "turn.l.google.com:19302".to_string(),
+            r#"<turn:turn.l.google.com:19302>; rel="ice-server"; username="abc"; credential="def""#,
+            &[WebRTCLinkHeader::IceServer {
+                url: "turn:turn.l.google.com:19302".to_string(),
                 username: Some("abc".to_string()),
                 credential: Some("def".to_string()),
-            },
+            }],
+        );
+    }
+
+    #[test]
+    pub fn multiple_servers() {
+        test_eq(
+            r#"<stun:stun.l.google.com:19302>; rel="ice-server", <turn:turn.l.google.com:19302>; rel="ice-server"; username="abc"; credential="def""#,
+            &[
+                WebRTCLinkHeader::IceServer {
+                    url: "stun:stun.l.google.com:19302".to_string(),
+                    username: None,
+                    credential: None,
+                },
+                WebRTCLinkHeader::IceServer {
+                    url: "turn:turn.l.google.com:19302".to_string(),
+                    username: Some("abc".to_string()),
+                    credential: Some("def".to_string()),
+                },
+            ],
         );
     }
 }
