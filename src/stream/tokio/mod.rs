@@ -36,7 +36,8 @@ use crate::stream::{
             FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
             FoundationMicStreamOutput,
         },
-        video::{VideoStreamError, VideoStreamInput, VideoStreamOutput},
+        stream::{AsyncUdpDriver, AsyncUdpSocket, Runtime},
+        video::{VideoStreamError, VideoStreamEvent, VideoStreamInput, VideoStreamOutput},
     },
     tokio::signal::StopSignal,
     video::{DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoSetup},
@@ -64,26 +65,6 @@ pub enum MoonlightStreamError {
     ConnectionTimeout,
 }
 
-#[async_trait]
-pub trait MoonlightStreamHandler {
-    async fn video_capabilities(&self) -> VideoCapabilities {
-        VideoCapabilities::default()
-    }
-    async fn setup_video(&self, setup: VideoSetup) -> Result<(), MoonlightStreamError>;
-    async fn on_video_frame(&self, frame: VideoDecodeUnit<&[u8]>) -> DecodeResult;
-
-    async fn setup_audio(
-        &self,
-        audio_config: AudioConfig,
-        opus_config: OpusMultistreamConfig,
-    ) -> Result<(), MoonlightStreamError>;
-    async fn on_audio_frame(&self, frame: AudioFrame<&[u8]>);
-
-    async fn on_control_packet(&self, packet: ControlPacket);
-
-    async fn on_stop(&self);
-}
-
 pub struct MoonlightStream {
     features: HostFeatures,
     inner: Arc<Inner>,
@@ -91,21 +72,6 @@ pub struct MoonlightStream {
 
 struct Inner {
     stop: StopSignal,
-    tasks: Mutex<Tasks>,
-    handler: Arc<dyn MoonlightStreamHandler + Send + Sync>,
-    control_stream: Mutex<Option<ControlStream>>,
-    control_stream_notify: Notify,
-    foundation_mic: Mutex<Option<FoundationMicStream>>,
-    foundation_mic_notify: Notify,
-}
-
-#[derive(Debug, Default)]
-struct Tasks {
-    cleaned_up_tasks: bool,
-    audio: Option<JoinHandle<()>>,
-    video: Option<JoinHandle<()>>,
-    control: Option<JoinHandle<()>>,
-    foundation_microphone: Option<JoinHandle<()>>,
 }
 
 fn handle_error(inner: &Inner, error: MoonlightStreamError) {
@@ -125,7 +91,6 @@ impl MoonlightStream {
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         crypto_backend: DynCryptoBackend,
-        handler: Arc<dyn MoonlightStreamHandler + Send + Sync>,
     ) -> Result<Self, MoonlightStreamError> {
         let crypto_backend: Arc<dyn CryptoBackend + Send + Sync> = Arc::new(crypto_backend);
         let base_time = Instant::now();
@@ -200,79 +165,7 @@ impl MoonlightStream {
 
                     let mut buffer = vec![0; 4096];
 
-                    let handle = spawn({
-                        let inner = inner.clone();
-
-                        async move {
-                            loop {
-                                if inner.stop.is_notified() {
-                                    break;
-                                }
-
-                                let poll_output = match audio_stream.poll_output() {
-                                    Ok(value) => value,
-                                    Err(err) => {
-                                        handle_error(&inner, err.into());
-                                        break;
-                                    }
-                                };
-
-                                let mut timeout = match poll_output {
-                                    AudioStreamOutput::AudioFrame(frame) => {
-                                        inner
-                                            .handler
-                                            .on_audio_frame(AudioFrame {
-                                                timestamp: frame.timestamp,
-                                                buffer: &frame.buffer,
-                                            })
-                                            .await;
-                                        continue;
-                                    }
-                                    AudioStreamOutput::Send { data } => {
-                                        if let Err(err) = socket.send(data).await {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-                                        continue;
-                                    }
-                                    AudioStreamOutput::Timeout(instant) => {
-                                        instant.to_std(base_time)
-                                    }
-                                };
-
-                                // Cap duration at 1 to allow for stop signal
-                                timeout = timeout.min(Instant::now() + Duration::from_secs(1));
-
-                                select! {
-                                    _ = sleep_until(timeout.into()) => {
-                                        if let Err(err) = audio_stream.handle_input(AudioStreamInput::Timeout(SInstant::from_std(base_time))) {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-                                    }
-                                    res = socket.recv(&mut buffer) => {
-                                        let len = match res {
-                                            Ok(value) => value,
-                                            Err(err) => {
-                                                handle_error(&inner, err.into());
-                                                break;
-                                            }
-                                        };
-
-                                        if let Err(err) = audio_stream.handle_input(AudioStreamInput::Receive {
-                                            now: SInstant::from_std(base_time),
-                                            data: &buffer[0..len],
-                                        }) {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            debug!("stopping audio task");
-                        }
-                    });
+                    todo!();
 
                     let mut tasks = inner.tasks.lock().await;
 
@@ -285,105 +178,21 @@ impl MoonlightStream {
                     setup,
                     mut video_stream,
                 } => {
-                    inner.handler.setup_video(setup).await?;
-
-                    let socket = bind_any_and_connect_udp_socket(addr).await?;
-
                     let mut buffer = vec![0; 4096];
 
-                    let handle = spawn({
-                        let inner = inner.clone();
+                    let mut driver =
+                        AsyncUdpDriver::connect(TokioRuntime, addr, video_stream).await?;
 
-                        async move {
-                            let mut decode_result = DecodeResult::Ok;
-
-                            loop {
-                                if inner.stop.is_notified() {
-                                    break;
+                    spawn(async move {
+                        loop {
+                            match driver.poll_event().await.unwrap() {
+                                VideoStreamEvent::FrameAvailable => {
+                                    todo!();
                                 }
-
-                                if matches!(decode_result, DecodeResult::NeedIdr) {
-                                    video_stream.request_idr();
-                                    decode_result = DecodeResult::Ok;
-                                }
-
-                                let poll_output = match video_stream.poll_output() {
-                                    Ok(value) => value,
-                                    Err(err) => {
-                                        handle_error(&inner, err.into());
-                                        break;
-                                    }
-                                };
-
-                                let mut timeout = match poll_output {
-                                    VideoStreamOutput::Send { data } => {
-                                        if let Err(err) = socket.send(data).await {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-                                        continue;
-                                    }
-                                    VideoStreamOutput::SendControlMessage { message } => {
-                                        let mut control_stream = inner.control_stream.lock().await;
-
-                                        let Some(control_stream) = &mut *control_stream else {
-                                            // The control stream should stop the stream, if it's not present
-                                            continue;
-                                        };
-
-                                        if let Err(err) = control_stream.handle_input(
-                                            ControlStreamInput::Message {
-                                                now: SInstant::from_std(base_time),
-                                                message,
-                                            },
-                                        ) {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-
-                                        continue;
-                                    }
-                                    VideoStreamOutput::VideoFrame(frame) => {
-                                        decode_result = inner.handler.on_video_frame(frame).await;
-                                        continue;
-                                    }
-                                    VideoStreamOutput::Timeout(timeout) => {
-                                        timeout.to_std(base_time)
-                                    }
-                                };
-                                drop(poll_output);
-
-                                // Cap duration at 1 to allow for stop signal
-                                timeout = timeout.min(Instant::now() + Duration::from_secs(1));
-
-                                select! {
-                                    _ = sleep_until(timeout.into()) => {
-                                        if let Err(err) = video_stream.handle_input(VideoStreamInput::Timeout(SInstant::from_std(base_time))) {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-                                    }
-                                    res = socket.recv(&mut buffer) => {
-                                        let len = match res {
-                                            Ok(value) => value,
-                                            Err(err) => {
-                                                handle_error(&inner, err.into());
-                                                break;
-                                            }
-                                        };
-
-                                        if let Err(err) = video_stream.handle_input(VideoStreamInput::Receive {
-                                            now: SInstant::from_std(base_time),
-                                            data: &buffer[0..len],
-                                        }) {
-                                            handle_error(&inner, err.into());
-                                            break;
-                                        }
-                                    }
+                                VideoStreamEvent::SignalIdr => {
+                                    todo!();
                                 }
                             }
-
-                            debug!("stopping video task");
                         }
                     });
 
@@ -704,67 +513,7 @@ impl MoonlightStream {
         Ok(features)
     }
 
-    /// # Cancel Safety
-    ///
-    /// This function is not cancel safe.
-    pub async fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
-        self.use_control_stream(|control_stream| control_stream.batch_input(input))
-            .await?;
-
-        Ok(())
-    }
-    /// # Cancel Safety
-    ///
-    /// This function is not cancel safe.
-    pub async fn send_input_raw(&self, packet: ControlPacket) -> Result<(), ControlError> {
-        self.use_control_stream(|control_stream| control_stream.send_raw(packet))
-            .await?;
-
-        Ok(())
-    }
-
-    async fn use_control_stream<R>(
-        &self,
-        f: impl FnOnce(&mut ControlStream) -> Result<R, ControlError>,
-    ) -> Result<R, ControlError> {
-        let mut control_stream_guard = self.inner.control_stream.lock().await;
-
-        if let Some(control_stream) = &mut *control_stream_guard {
-            let result = f(control_stream);
-
-            drop(control_stream_guard);
-            self.inner.control_stream_notify.notify_one();
-
-            result
-        } else {
-            Err(ControlError::NotConnected)
-        }
-    }
-
-    /// # Cancel Safety
-    ///
-    /// This function is not cancel safe.
-    pub async fn send_microphone_opus_data(&self, timestamp: Duration, frame: &[u8]) -> bool {
-        let mut foundation_mic_guard = self.inner.foundation_mic.lock().await;
-
-        if let Some(stream) = &mut *foundation_mic_guard {
-            let result = match stream.send_microphone_opus_data(timestamp, frame) {
-                Ok(_) => true,
-                Err(err) => {
-                    warn!(error = ?err, "failed to send foundation microphone data");
-
-                    false
-                }
-            };
-            self.inner.foundation_mic_notify.notify_one();
-
-            result
-        } else {
-            false
-        }
-    }
-
-    pub async fn host_features(&self) -> HostFeatures {
+    pub fn host_features(&self) -> HostFeatures {
         self.features.clone()
     }
 
@@ -772,112 +521,57 @@ impl MoonlightStream {
         self.inner.stop.is_notified()
     }
 
-    /// # Cancel Safety
-    ///
-    /// This function is not cancel safe.
-    pub async fn stop(&self) {
-        Self::stop_inner(&self.inner).await;
-    }
-    async fn stop_inner(inner: &Inner) {
-        if inner.stop.is_notified() {
-            debug!("not stopping stream because its already stopped");
-            return;
-        }
-        inner.stop.stop();
-
-        let mut tasks = inner.tasks.lock().await;
-        tasks.wait_or_abort_tasks().await;
+    pub fn stop(&self) {
+        self.inner.stop.stop();
     }
 }
 
-impl Drop for MoonlightStream {
-    fn drop(&mut self) {
-        let inner = self.inner.clone();
+struct TokioRuntime {
+    base_time: Instant,
+}
 
-        spawn(async move {
-            let mut tasks = inner.tasks.lock().await;
+impl Runtime for TokioRuntime {
+    fn now(&self) -> SInstant {
+        SInstant::from_std(self.base_time)
+    }
 
-            debug!("performing task cleanup in drop");
+    async fn sleep_until(&self, deadline: SInstant) {
+        sleep_until(deadline.to_std(self.base_time).into()).await
+    }
 
-            let mut tasks = tasks.take();
+    type Socket = UdpSocket;
 
-            tasks.wait_or_abort_tasks().await;
-        });
+    async fn connect_udp_socket(
+        &self,
+        addr: SocketAddr,
+    ) -> Result<Self::Socket, <Self::Socket as AsyncUdpSocket>::Error> {
+        let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        socket.connect(addr).await?;
+
+        disable_udp_conn_reset(&socket);
+
+        Ok(socket)
     }
 }
 
-impl Tasks {
-    async fn wait_or_abort_tasks(&mut self) {
-        if self.cleaned_up_tasks {
-            debug!("not cleaning up tasks because they were already cleaned up");
-            return;
-        }
+impl AsyncUdpSocket for UdpSocket {
+    type Error = io::Error;
 
-        debug!("trying to join all tasks");
-
-        // All tasks should have their own cleanup logic, which means this deadline shouldn't be used, but just to be sure.
-        let deadline = Instant::now() + Duration::from_secs(20);
-
-        Self::try_join_or_abort(&mut self.audio, deadline, "audio").await;
-        Self::try_join_or_abort(&mut self.video, deadline, "video").await;
-        Self::try_join_or_abort(&mut self.control, deadline, "control").await;
-        Self::try_join_or_abort(
-            &mut self.foundation_microphone,
-            deadline,
-            "foundation microphone",
-        )
-        .await;
-
-        info!("fully terminated the stream");
-
-        self.cleaned_up_tasks = true;
-    }
-    async fn try_join_or_abort<T>(
-        handle: &mut Option<JoinHandle<T>>,
-        deadline: Instant,
-        name: &str,
-    ) {
-        if let Some(mut handle) = handle.take() {
-            let sleep = sleep_until(deadline.into());
-
-            select! {
-                _ = sleep => {
-                    debug!("aborting {name} task because deadline was reached");
-
-                    // abort the handle
-                    handle.abort();
-                }
-                _ = &mut handle => {
-                    debug!("{name} task was cleaned up");
-
-                    // fallthrough
-                }
-            }
-        } else {
-            debug!("{name} handle doesn't exists");
-        }
+    async fn recv(&self, buffer: &mut [u8]) -> Result<usize, Self::Error> {
+        UdpSocket::recv(self, buffer).await
     }
 
-    fn take(&mut self) -> Self {
-        Tasks {
-            cleaned_up_tasks: self.cleaned_up_tasks,
-            audio: self.audio.take(),
-            video: self.video.take(),
-            control: self.control.take(),
-            foundation_microphone: self.foundation_microphone.take(),
+    async fn writable(&self) -> Result<(), Self::Error> {
+        UdpSocket::writable(self).await
+    }
+
+    fn try_send(&self, buffer: &[u8]) -> Result<bool, Self::Error> {
+        match UdpSocket::try_send(self, buffer) {
+            Ok(_) => Ok(true),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(false),
+            Err(err) => Err(err),
         }
     }
-}
-
-async fn bind_any_and_connect_udp_socket(
-    addr: SocketAddr,
-) -> Result<UdpSocket, MoonlightStreamError> {
-    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-    socket.connect(addr).await?;
-
-    disable_udp_conn_reset(&socket);
-
-    Ok(socket)
 }
 
 /// On Windows, a connected UDP socket returns `WSAECONNRESET` (10054) on the

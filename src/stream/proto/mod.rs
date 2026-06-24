@@ -23,7 +23,7 @@ use crate::{
         proto::{
             audio::{AudioStream, AudioStreamConfig},
             control::{
-                ControlMessageInner, ControlStream, ControlStreamConfig, packet::ControlPacket,
+                ControlStream, ControlStreamConfig, packet::ControlPacket,
                 peer::ControlEncryptionMethod,
             },
             crypto::CryptoBackend,
@@ -67,6 +67,8 @@ pub mod crypto;
 pub mod microphone;
 pub mod ping;
 pub mod video;
+
+pub mod stream;
 
 pub mod rtsp;
 pub mod sdp;
@@ -1073,3 +1075,15 @@ impl MoonlightStreamSetup {
 
 // Other notes:
 // Dimensions over 4096 are only supported with HEVC on NVENC: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1118C13-L1121C14
+
+fn soonest(a: impl Into<Option<Instant>>, b: impl Into<Option<Instant>>) -> Option<Instant> {
+    let a = a.into();
+    let b = b.into();
+
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}

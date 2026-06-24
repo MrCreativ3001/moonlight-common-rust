@@ -74,8 +74,8 @@ unsafe extern "C" fn connection_started() {
     });
 }
 unsafe extern "C" fn connection_terminated(error_code: c_int) {
-    global_listener(|(_, listener)| {
-        listener.connection_terminated(error_code);
+    global_listener(|(listener, _)| {
+        listener.connection_terminated(error_code as i32);
     });
 }
 unsafe extern "C" fn connection_status_update(status: c_int) {
@@ -229,15 +229,6 @@ pub trait ConnectionListenerC {
 
     /// This callback is invoked after the connection is successfully established
     fn connection_started(&mut self);
-
-    /// This callback is invoked when a connection is terminated after establishment.
-    /// The errorCode will be 0 if the termination was reported to be intentional
-    /// from the server (for example, the user closed the game). If errorCode is
-    /// non-zero, it means the termination was probably unexpected (loss of network,
-    /// crash, or similar conditions). This will not be invoked as a result of a call
-    /// to LiStopConnection() or LiInterruptConnection().
-    /// HINT: Use TerminationError
-    fn connection_terminated(&mut self, error_code: i32);
 
     /// This callback is invoked to log debug message
     fn log_message(&mut self, message: &str);

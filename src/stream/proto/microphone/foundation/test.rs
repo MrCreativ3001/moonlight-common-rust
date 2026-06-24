@@ -97,7 +97,7 @@ fn payloader() {
         ],
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet(),
         Some(
             [
                 0, 97, 0, 0, 0, 0, 0, 0, 120, 86, 52, 18, 236, 192, 188, 221, 96, 231, 110, 50,
@@ -146,7 +146,7 @@ fn payloader() {
         ],
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet(),
         Some(
             [
                 0, 97, 1, 0, 20, 0, 0, 0, 120, 86, 52, 18, 236, 192, 100, 18, 9, 58, 166, 5, 175,
@@ -209,7 +209,7 @@ fn payloader_encrypted(crypto: DynCryptoBackend) {
         ],
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet(),
         Some(
             [
                 0, 97, 0, 0, 0, 0, 0, 0, 120, 86, 52, 18, 9, 255, 20, 41, 170, 169, 57, 237, 86,
@@ -260,7 +260,7 @@ fn payloader_encrypted(crypto: DynCryptoBackend) {
         ],
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet(),
         Some(
             [
                 0, 97, 1, 0, 20, 0, 0, 0, 120, 86, 52, 18, 137, 144, 154, 12, 28, 172, 155, 154,

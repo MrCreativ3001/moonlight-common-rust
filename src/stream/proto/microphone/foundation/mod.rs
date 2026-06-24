@@ -5,7 +5,7 @@
 // Mic receive: https://github.com/AlkaidLab/foundation-sunshine/blob/013388962e547698b34a1e6087f44b1ec2b58d17/src/stream.cpp#L1659-L1925
 // Client impl: https://github.com/moonlight-stream/moonlight-common-c/pull/123/changes
 
-use std::time::Duration;
+use std::{convert::Infallible, time::Duration};
 
 use sans_io_time::Instant;
 
@@ -16,9 +16,13 @@ use crate::stream::{
     SunshineEncryption,
     proto::{
         DynCryptoBackend,
-        microphone::foundation::payloader::{
-            FoundationMicPayloader, FoundationMicPayloaderConfig, FoundationMicPayloaderError,
+        microphone::foundation::{
+            packet::FOUNDATION_MAX_MIC_PACKET_SIZE,
+            payloader::{
+                FoundationMicPayloader, FoundationMicPayloaderConfig, FoundationMicPayloaderError,
+            },
         },
+        stream::UdpStream,
     },
 };
 
@@ -47,20 +51,9 @@ pub struct FoundationMicStreamConfig {
 }
 
 #[derive(Debug)]
-pub enum FoundationMicStreamInput {
-    Timeout(Instant),
-}
-
-#[derive(Debug)]
-pub enum FoundationMicStreamOutput<'a> {
-    Send { data: &'a [u8] },
-    Timeout(Instant),
-}
-
-#[derive(Debug)]
 pub struct FoundationMicStream {
-    last_now: Instant,
     payloader: FoundationMicPayloader,
+    current_packet: Vec<u8>,
 }
 
 impl FoundationMicStream {
@@ -71,13 +64,13 @@ impl FoundationMicStream {
         crypto_backend: DynCryptoBackend,
     ) -> Self {
         Self {
-            last_now: now,
             payloader: FoundationMicPayloader::new(
                 FoundationMicPayloaderConfig {
                     encryption: config.encryption,
                 },
                 crypto_backend,
             ),
+            current_packet: vec![0; FOUNDATION_MAX_MIC_PACKET_SIZE],
         }
     }
 
@@ -91,30 +84,46 @@ impl FoundationMicStream {
         Ok(())
     }
 
-    pub fn poll_output(
-        &mut self,
-    ) -> Result<FoundationMicStreamOutput<'_>, FoundationMicStreamError> {
-        let packet = self.payloader.poll_packet()?;
+    fn update(&mut self) {
+        if self.current_packet.is_empty()
+            && let Some(packet) = self.payloader.poll_packet()
+        {
+            self.current_packet.extend_from_slice(packet);
+        }
+    }
+}
 
-        if let Some(packet) = packet {
-            Ok(FoundationMicStreamOutput::Send { data: packet })
+impl UdpStream for FoundationMicStream {
+    type Error = FoundationMicStreamError;
+
+    type Event = Infallible;
+
+    fn pending_send(&self) -> Option<&[u8]> {
+        if !self.current_packet.is_empty() {
+            Some(&self.current_packet)
         } else {
-            Ok(FoundationMicStreamOutput::Timeout(
-                self.last_now + Duration::from_secs(1),
-            ))
+            None
         }
     }
 
-    pub fn handle_input(
-        &mut self,
-        input: FoundationMicStreamInput,
-    ) -> Result<(), FoundationMicStreamError> {
-        match input {
-            FoundationMicStreamInput::Timeout(now) => {
-                self.last_now = now;
+    fn consume_send(&mut self) {
+        self.current_packet.clear();
+        self.update();
+    }
 
-                Ok(())
-            }
-        }
+    fn poll_timeout(&self) -> Option<Instant> {
+        None
+    }
+
+    fn poll_event(&mut self) -> Option<Self::Event> {
+        None
+    }
+
+    fn handle_receive(&mut self, _now: Instant, _data: &[u8]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn handle_timeout(&mut self, _now: Instant) -> Result<(), Self::Error> {
+        Ok(())
     }
 }

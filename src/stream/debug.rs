@@ -107,6 +107,10 @@ impl ConnectionListener for NullListener {
     ) {
         let _ = (controller_number, motion_type, report_rate_hz);
     }
+
+    fn connection_terminated(&mut self, error_code: i32) {
+        let _ = error_code;
+    }
 }
 
 pub struct DebugListener;
@@ -161,6 +165,10 @@ impl ConnectionListener for DebugListener {
     ) {
         let _ = (controller_number, motion_type, report_rate_hz);
     }
+
+    fn connection_terminated(&mut self, error_code: i32) {
+        info!(error_code = %error_code, "terminated stream");
+    }
 }
 
 #[cfg(feature = "stream-c")]
@@ -190,9 +198,6 @@ mod stream_c {
         fn connection_status_update(&mut self, status: ConnectionStatus) {
             let _ = status;
         }
-        fn connection_terminated(&mut self, error_code: i32) {
-            let _ = error_code;
-        }
 
         fn log_message(&mut self, message: &str) {
             let _ = message;
@@ -215,9 +220,6 @@ mod stream_c {
         }
         fn connection_status_update(&mut self, status: ConnectionStatus) {
             info!(target: "moonlight", "Connection Status Update: {status:?}");
-        }
-        fn connection_terminated(&mut self, error_code: i32) {
-            info!(target: "moonlight","Connection Terminated: {error_code}");
         }
 
         fn log_message(&mut self, message: &str) {

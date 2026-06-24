@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt::{self, Debug, Formatter},
     net::SocketAddr,
     sync::Arc,
@@ -23,9 +24,8 @@ use crate::{
                 packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
             },
             packet::SunshinePing,
-            ping::{
-                PingSender, PingSenderConfig, PingSenderInput, PingSenderOutput, PingSenderState,
-            },
+            ping::{PingSender, PingSenderConfig, PingSenderState},
+            stream::UdpStream,
         },
     },
 };
@@ -60,24 +60,17 @@ pub enum AudioStreamError {
 }
 
 #[derive(Debug)]
-pub enum AudioStreamInput<'a> {
-    Timeout(Instant),
-    Receive { now: Instant, data: &'a [u8] },
-}
-
-#[derive(Debug)]
-pub enum AudioStreamOutput<'a> {
-    Send { data: &'a [u8] },
-    // TODO: use lifetime?
-    AudioFrame(AudioFrame<Vec<u8>>),
-    Timeout(Instant),
+pub enum AudioStreamEvent {
+    Connected,
+    Frame(AudioFrame<Vec<u8>>),
 }
 
 pub struct AudioStream {
-    last_now: Instant,
-    last_sample: Instant,
+    last_frame: Instant,
+    dropped_frames: bool,
     ping_sender: PingSender,
     depayloader: AudioDepayloader,
+    events: VecDeque<AudioStreamEvent>,
 }
 
 impl AudioStream {
@@ -90,8 +83,8 @@ impl AudioStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
-            last_now: now,
-            last_sample: now,
+            last_frame: now,
+            dropped_frames: true,
             ping_sender: PingSender::new(
                 now,
                 PingSenderConfig {
@@ -106,65 +99,17 @@ impl AudioStream {
                 },
                 crypto_backend,
             ),
+            events: Default::default(),
         }
     }
 
-    pub fn poll_output(&mut self) -> Result<AudioStreamOutput<'_>, AudioStreamError> {
-        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
-            return match self.ping_sender.poll_output() {
-                PingSenderOutput::Send { data } => Ok(AudioStreamOutput::Send { data }),
-                PingSenderOutput::Timeout(timeout) => Ok(AudioStreamOutput::Timeout(timeout)),
-                PingSenderOutput::Finished => unreachable!(),
-            };
+    fn poll_depayloader(&mut self, now: Instant) -> Result<(), AudioStreamError> {
+        while let Some(frame) = self.depayloader.poll_frame()? {
+            self.last_frame = now;
+            self.events.push_back(AudioStreamEvent::Frame(frame));
         }
 
-        if let Some(data) = self.depayloader.poll_frame()? {
-            self.last_sample = self.last_now;
-
-            return Ok(AudioStreamOutput::AudioFrame(data));
-        } else if self.last_sample + MAXIMUM_SAMPLE_WAIT < self.last_now {
-            // TODO: use the timestamp to better estimate when we should skip samples
-            debug!(
-                "Dropping audio sample because it took too long to receive: Last Sample: {:?}, Current Time: {:?}",
-                self.last_sample, self.last_now
-            );
-
-            self.depayloader.try_skip_samples()?;
-
-            self.last_sample = self.last_now;
-            if let Some(data) = self.depayloader.poll_frame()? {
-                return Ok(AudioStreamOutput::AudioFrame(data));
-            }
-        }
-
-        Ok(AudioStreamOutput::Timeout(
-            self.last_now + MAXIMUM_SAMPLE_WAIT,
-        ))
-    }
-
-    pub fn handle_input(&mut self, input: AudioStreamInput) -> Result<(), AudioStreamError> {
-        match input {
-            AudioStreamInput::Timeout(now) => {
-                self.last_now = now;
-                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
-
-                Ok(())
-            }
-            AudioStreamInput::Receive { now, data } => {
-                self.last_now = now;
-                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
-
-                if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
-                    info!(now = ?now, "received first audio packet");
-
-                    self.ping_sender.set_finished();
-                }
-
-                self.depayloader.handle_packet(data)?;
-
-                Ok(())
-            }
-        }
+        Ok(())
     }
 }
 
@@ -193,4 +138,61 @@ pub(crate) fn create_audio_reed_solomon() -> ReedSolomon {
     reed_solomon.set_parity_matrix(&parity).unwrap();
 
     reed_solomon
+}
+
+impl UdpStream for AudioStream {
+    type Error = AudioStreamError;
+
+    type Event = AudioStreamEvent;
+
+    fn pending_send(&self) -> Option<&[u8]> {
+        self.ping_sender.pending_send()
+    }
+    fn consume_send(&mut self) {
+        self.ping_sender.consume_send();
+    }
+
+    fn poll_timeout(&self) -> Option<Instant> {
+        if !self.dropped_frames {
+            None
+        } else {
+            Some(self.last_frame + MAXIMUM_SAMPLE_WAIT)
+        }
+    }
+
+    fn poll_event(&mut self) -> Option<Self::Event> {
+        self.events.pop_front()
+    }
+
+    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error> {
+        self.depayloader.handle_packet(data)?;
+
+        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+            self.events.push_back(AudioStreamEvent::Connected);
+            self.ping_sender.set_finished();
+        }
+
+        self.handle_timeout(now)?;
+
+        Ok(())
+    }
+
+    fn handle_timeout(&mut self, now: Instant) -> Result<(), Self::Error> {
+        self.ping_sender.handle_timeout(now);
+
+        if self.last_frame + MAXIMUM_SAMPLE_WAIT < now {
+            self.dropped_frames = true;
+
+            debug!(
+                "Dropping audio frame because it took too long to receive: Last Frame: {:?}, Current Time: {:?}",
+                self.last_frame, now
+            );
+
+            self.depayloader.try_skip_samples()?;
+
+            self.poll_depayloader(now)?;
+        }
+
+        Ok(())
+    }
 }

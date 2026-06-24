@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fmt::{self, Debug, Formatter},
     mem,
     net::SocketAddr,
@@ -25,11 +26,13 @@ use crate::{
                 },
                 peer::{
                     ControlConnectConfig, ControlEncryptionMethod, ControlError, ControlHost,
-                    ControlHostAction, ControlHostConfig, ControlHostEvent, ControlHostInput,
-                    ControlHostOutput, ControlPeerConfig, ControlPeerId, ControlPeerRole,
+                    ControlHostConfig, ControlHostEvent, ControlPeerConfig, ControlPeerId,
+                    ControlPeerRole,
                 },
             },
             enet::EnetError,
+            soonest,
+            stream::UdpStream,
         },
     },
 };
@@ -43,18 +46,6 @@ pub mod peer;
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod test;
-
-/// A message from the [MoonlightStreamProto](super::MoonlightStreamProto) to the [ControlStream]
-#[derive(Debug)]
-pub struct ControlMessage(#[doc(hidden)] pub ControlMessageInner);
-
-#[derive(Debug)]
-/// This type is unstable and may change in between minor or patch versions.
-#[doc(hidden)]
-pub enum ControlMessageInner {
-    /// Sends a packet regardless of the [Self::AllowOtherPackets] option
-    SendPacket { packet: ControlPacket, force: bool },
-}
 
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L39-L44
@@ -70,34 +61,13 @@ pub struct ControlStreamConfig {
 }
 
 #[derive(Debug)]
-pub enum ControlStreamInput<'a> {
-    Receive {
-        now: Instant,
-        addr: SocketAddr,
-        data: &'a [u8],
-    },
-    Timeout(Instant),
-    /// A message received from the main [MoonlightStreamProto](super::MoonlightStreamProto) or the [VideoStream](super::video::VideoStream)
-    Message {
-        now: Instant,
-        message: ControlMessage,
-    },
-}
-
-#[derive(Debug)]
-pub enum ControlStreamOutput {
-    Action(ControlHostAction),
-    Event(ControlStreamEvent),
-}
-
-#[derive(Debug)]
 pub enum ControlStreamEvent {
-    /// The control has successfully connected to the server:
+    /// The [ControlStream] has successfully connected to the server:
     /// - Packets can now be sent
     Connect,
     /// The [ControlStream] received a packet.
     Packet(ControlPacket),
-    /// The control stream got disconnected
+    /// The [ControlStream] got disconnected
     Disconnect,
 }
 
@@ -115,15 +85,16 @@ pub enum ControlStreamEvent {
 pub struct ControlStream {
     server_version: ServerVersion,
     apollo_permissions: Option<ApolloPermissions>,
+    addr: SocketAddr,
     peer: ControlPeerId,
     peer_connected: bool,
     last_now: Instant,
     last_ping: Option<Instant>,
-    allow_packets: bool,
     buffered_packets: Vec<ControlPacket>,
     last_batch_send: Instant,
     batcher: InputBatcher,
     host: ControlHost,
+    events: VecDeque<ControlStreamEvent>,
 }
 
 impl ControlStream {
@@ -176,15 +147,16 @@ impl ControlStream {
         Ok(Self {
             server_version: config.server_version,
             apollo_permissions: config.apollo_permissions,
+            addr: config.addr,
             peer,
             peer_connected: false,
-            allow_packets: false,
             last_now: now,
             last_ping: (config.server_version >= PERIODIC_PING_VERSION).then_some(now),
             buffered_packets: vec![],
             last_batch_send: now,
             batcher: InputBatcher::default(),
             host,
+            events: Default::default(),
         })
     }
 
@@ -278,15 +250,7 @@ impl ControlStream {
         packet: ControlPacket,
         force_packet: bool,
     ) -> Result<(), ControlError> {
-        // TODO: we should only allow RequestIdr and StartB for starting in that order
-        // this current approach is more hacky
-        if matches!(packet, ControlPacket::StartB) {
-            self.allow_packets = true;
-        }
-
-        if !force_packet && !self.allow_packets {
-            return Err(ControlError::NotConnected);
-        } else if force_packet && !self.peer_connected {
+        if force_packet && !self.peer_connected {
             trace!(force_packet = force_packet, packet = ?packet, "buffering forced packet");
 
             self.buffered_packets.push(packet);
@@ -300,7 +264,56 @@ impl ControlStream {
         Ok(())
     }
 
-    pub fn poll_output(&mut self) -> Result<ControlStreamOutput, ControlError> {
+    fn do_batching(&mut self) -> Result<(), ControlError> {
+        if !self.batcher.is_dirty() {
+            return Ok(());
+        }
+
+        if self.last_batch_send + BATCH_INTERVAL_MS <= self.last_now {
+            self.send_batched_inputs_now()?;
+        }
+
+        Ok(())
+    }
+
+    /// Returns the time when the next ping must be sent
+    fn do_ping(&mut self) -> Result<(), ControlError> {
+        // If this server doesn't support the periodic ping
+        let Some(last_ping) = self.last_ping else {
+            trace!("server doesn't support periodic ping, not sending periodic ping");
+            return Ok(());
+        };
+
+        if self.last_now >= last_ping + PERIODIC_PING_INTERVAL {
+            match self.send_raw(ControlPacket::PeriodicPing) {
+                Ok(()) => {}
+                Err(ControlError::Enet(EnetError::PeerSendError(PeerSendError::NotConnected)))
+                | Err(ControlError::NotConnected) => {
+                    debug!(
+                        self = ?self,
+                        "not sending periodic ping because the control stream (via enet) is not connected yet."
+                    );
+                    // We are not connected yet -> we cannot send a ping
+                    return Ok(());
+                }
+                Err(err) => return Err(err),
+            }
+
+            trace!(
+                last_ping = ?last_ping,
+                now = ?self.last_now,
+                "sending periodic ping"
+            );
+
+            self.last_ping = Some(self.last_now);
+        }
+
+        Ok(())
+    }
+
+    fn do_update(&mut self, now: Instant) -> Result<(), ControlError> {
+        self.last_now = now;
+
         if self.peer_connected {
             debug_assert_eq!(self.buffered_packets.len(), 0);
         }
@@ -311,21 +324,18 @@ impl ControlStream {
             return Err(ControlError::NotConnected);
         }
 
-        let mut timeout = loop {
-            let output = self.host.poll_output()?;
+        // Handle events
+        while let Some(event) = self.host.poll_event() {
+            trace!(event = ?event, "control host event");
 
-            match output {
-                ControlHostOutput::Action(ControlHostAction::Timeout(timeout)) => {
-                    break timeout;
-                }
-                ControlHostOutput::Action(action) => {
-                    return Ok(ControlStreamOutput::Action(action));
-                }
-                ControlHostOutput::Event(ControlHostEvent::Connected {
+            let event = match event {
+                ControlHostEvent::Connected {
                     id,
                     sunshine_connect_data: _,
-                }) => {
+                } => {
                     if id != self.peer {
+                        debug!("unknown peer connected to control stream: disconnecting them");
+
                         // Nobody should connect to this peer, but if they do just instantly disconnect them
                         let _ = self.host.disconnect_now(id, 0);
                         continue;
@@ -340,13 +350,13 @@ impl ControlStream {
 
                     info!("connected control stream");
 
-                    return Ok(ControlStreamOutput::Event(ControlStreamEvent::Connect));
+                    ControlStreamEvent::Connect
                 }
-                ControlHostOutput::Event(ControlHostEvent::Receive {
+                ControlHostEvent::Receive {
                     id,
                     channel_id: _,
                     packet,
-                }) => {
+                } => {
                     if id != self.peer {
                         // ignore other peers
                         continue;
@@ -372,11 +382,9 @@ impl ControlStream {
                         _ => {}
                     }
 
-                    return Ok(ControlStreamOutput::Event(ControlStreamEvent::Packet(
-                        packet,
-                    )));
+                    ControlStreamEvent::Packet(packet)
                 }
-                ControlHostOutput::Event(ControlHostEvent::Disconnected { id }) => {
+                ControlHostEvent::Disconnected { id } => {
                     if id != self.peer {
                         // ignore other peers
                         continue;
@@ -386,114 +394,21 @@ impl ControlStream {
 
                     info!("disconnected control stream");
 
-                    return Ok(ControlStreamOutput::Event(ControlStreamEvent::Disconnect));
+                    ControlStreamEvent::Disconnect
                 }
-            }
-        };
+            };
+
+            trace!("pushing event");
+            self.events.push_back(event);
+        }
 
         // Handle batching
-        if let Some(new_timeout) = self.do_batching()? {
-            timeout = timeout.min(new_timeout);
-        }
+        self.do_batching()?;
 
         // Handle periodic ping
-        if let Some(new_timeout) = self.do_ping()? {
-            timeout = timeout.min(new_timeout);
-        }
-
-        Ok(ControlStreamOutput::Action(ControlHostAction::Timeout(
-            timeout,
-        )))
-    }
-
-    pub fn handle_input(&mut self, input: ControlStreamInput) -> Result<(), ControlError> {
-        match input {
-            ControlStreamInput::Timeout(now) => {
-                self.last_now = now;
-
-                self.host.handle_input(ControlHostInput::Timeout(now))?;
-            }
-            ControlStreamInput::Receive { now, addr, data } => {
-                self.last_now = now;
-
-                self.host
-                    .handle_input(ControlHostInput::Receive { now, addr, data })?;
-            }
-            ControlStreamInput::Message { now, message } => {
-                self.last_now = now;
-
-                self.host.handle_input(ControlHostInput::Timeout(now))?;
-
-                self.handle_control_message(message)?;
-            }
-        }
+        self.do_ping()?;
 
         Ok(())
-    }
-
-    fn handle_control_message(&mut self, message: ControlMessage) -> Result<(), ControlError> {
-        match message.0 {
-            ControlMessageInner::SendPacket { packet, force } => {
-                trace!(now = ?self.last_now, packet = ?packet, "received control message with packet");
-
-                if force {
-                    self.send_inner(packet, true)?;
-                } else {
-                    if let Err(err) = self.send_raw(packet) {
-                        trace!(error = ?err, "failed to send packet from control message");
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn do_batching(&mut self) -> Result<Option<Instant>, ControlError> {
-        if !self.batcher.is_dirty() {
-            return Ok(None);
-        }
-
-        if self.last_batch_send + BATCH_INTERVAL_MS <= self.last_now {
-            self.send_batched_inputs_now()?;
-        }
-
-        Ok(Some(self.last_batch_send + BATCH_INTERVAL_MS))
-    }
-
-    /// Returns the time when the next ping must be sent
-    fn do_ping(&mut self) -> Result<Option<Instant>, ControlError> {
-        // If this server doesn't support the periodic ping
-        let Some(last_ping) = self.last_ping else {
-            trace!("server doesn't support periodic ping, not sending periodic ping");
-            return Ok(None);
-        };
-
-        if self.last_now >= last_ping + PERIODIC_PING_INTERVAL {
-            match self.send_raw(ControlPacket::PeriodicPing) {
-                Ok(()) => {}
-                Err(ControlError::Enet(EnetError::PeerSendError(PeerSendError::NotConnected)))
-                | Err(ControlError::NotConnected) => {
-                    debug!(
-                        self = ?self,
-                        "not sending periodic ping because the control stream (via enet) is not connected yet."
-                    );
-                    // We are not connected yet -> we cannot send a ping
-                    return Ok(None);
-                }
-                Err(err) => return Err(err),
-            }
-
-            trace!(
-                last_ping = ?last_ping,
-                now = ?self.last_now,
-                "sending periodic ping"
-            );
-
-            self.last_ping = Some(self.last_now);
-        }
-
-        Ok(Some(last_ping + PERIODIC_PING_INTERVAL))
     }
 }
 
@@ -506,5 +421,53 @@ impl Drop for ControlStream {
 impl Debug for ControlStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "[ControlStream]")
+    }
+}
+
+impl UdpStream for ControlStream {
+    type Error = ControlError;
+
+    type Event = ControlStreamEvent;
+
+    fn pending_send(&self) -> Option<&[u8]> {
+        self.host.pending_send().map(|(_, bytes)| bytes)
+    }
+
+    fn consume_send(&mut self) {
+        self.host.consume_send();
+    }
+
+    fn poll_timeout(&self) -> Option<Instant> {
+        let batch_timeout = if self.batcher.is_dirty() {
+            Some(self.last_batch_send + BATCH_INTERVAL_MS)
+        } else {
+            None
+        };
+
+        let ping_timeout = self.last_ping.unwrap_or(self.last_now) + PERIODIC_PING_INTERVAL;
+
+        let host_timeout = self.host.poll_timeout();
+
+        soonest(soonest(batch_timeout, ping_timeout), host_timeout)
+    }
+
+    fn poll_event(&mut self) -> Option<Self::Event> {
+        self.events.pop_front()
+    }
+
+    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error> {
+        self.host.handle_receive(now, self.addr, data)?;
+
+        self.do_update(now)?;
+
+        Ok(())
+    }
+
+    fn handle_timeout(&mut self, now: Instant) -> Result<(), Self::Error> {
+        self.host.handle_timeout(now)?;
+
+        self.do_update(now)?;
+
+        Ok(())
     }
 }

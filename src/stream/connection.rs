@@ -59,4 +59,13 @@ pub trait ConnectionListener {
 
     /// This callback is invoked to set a controller's RGB LED (if present).
     fn controller_set_led(&mut self, controller_number: u16, r: u8, g: u8, b: u8);
+
+    // TODO: use the termination code from packet.rs
+    // This callback is invoked when a connection is terminated after establishment.
+    // The errorCode will be 0 if the termination was reported to be intentional
+    // from the server (for example, the user closed the game). If errorCode is
+    // non-zero, it means the termination was probably unexpected (loss of network,
+    // crash, or similar conditions). This will not be invoked as a result of a call
+    // to LiStopConnection() or LiInterruptConnection().
+    fn connection_terminated(&mut self, error_code: i32);
 }

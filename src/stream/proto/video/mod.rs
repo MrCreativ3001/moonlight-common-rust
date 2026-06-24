@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt::{self, Debug, Formatter},
     time::Duration,
 };
@@ -12,11 +12,11 @@ use tracing::{Level, debug, info, instrument};
 use crate::stream::{
     AesKey,
     proto::{
-        ControlMessageInner, DynCryptoBackend,
-        control::{ControlMessage, packet::ControlPacket},
+        DynCryptoBackend,
         crypto::CryptoError,
         packet::SunshinePing,
-        ping::{PingSender, PingSenderConfig, PingSenderInput, PingSenderOutput, PingSenderState},
+        ping::{PingSender, PingSenderConfig, PingSenderState},
+        stream::UdpStream,
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
             packet::FrameType,
@@ -51,23 +51,10 @@ pub enum VideoStreamError {
 }
 
 #[derive(Debug)]
-pub enum VideoStreamInput<'a> {
-    Timeout(Instant),
-    Receive { now: Instant, data: &'a [u8] },
-}
-
-#[derive(Debug)]
-pub enum VideoStreamOutput<'a> {
-    Send {
-        data: &'a [u8],
-    },
-    VideoFrame(VideoDecodeUnit<&'a [u8]>),
-    // TODO: this should be a RequestIdr or RFI or LTR request instead of an not visible type to the consumer of this interface
-    /// Send a control message to the [ControlStream](super::control::ControlStream).
-    SendControlMessage {
-        message: ControlMessage,
-    },
-    Timeout(Instant),
+pub enum VideoStreamEvent {
+    Connected,
+    FrameAvailable,
+    SignalIdr,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +78,7 @@ pub struct VideoStream {
     current_frame: Option<FrameIndex>,
     frames_first_seen: HashMap<FrameIndex, Instant>,
     waiting_for_idr_since: Option<Instant>,
+    events: VecDeque<VideoStreamEvent>,
 }
 
 impl VideoStream {
@@ -101,13 +89,13 @@ impl VideoStream {
         Self {
             crypto_backend,
             aes_key: config.sunshine_encryption,
+            last_now: now,
             ping_sender: PingSender::new(
                 now,
                 PingSenderConfig {
                     sunshine_ping: config.sunshine_ping,
                 },
             ),
-            last_now: now,
             first_frame: None,
             frames_first_seen: Default::default(),
             depayloader,
@@ -115,10 +103,11 @@ impl VideoStream {
             current_frame: None,
             last_frame: now,
             waiting_for_idr_since: Some(now),
+            events: Default::default(),
         }
     }
 
-    fn do_request_idr(&mut self) -> Result<Option<Instant>, VideoStreamError> {
+    fn do_idr_request(&mut self) -> Result<(), VideoStreamError> {
         // request an idr if needed
         let timeout = self.wait_until_idr();
 
@@ -139,10 +128,10 @@ impl VideoStream {
 
             info!(time_until_idr = ?timeout, now = ?self.last_now, waiting_for_idr_since = ?self.waiting_for_idr_since, "requesting idr and unsyncing depayloader");
 
-            return Ok(None);
+            self.events.push_back(VideoStreamEvent::SignalIdr);
         }
 
-        Ok(Some(self.last_now + timeout))
+        Ok(())
     }
     fn wait_until_idr(&self) -> Duration {
         // Default when we're stuck
@@ -178,22 +167,12 @@ impl VideoStream {
         timeout
     }
 
-    pub fn poll_output(&mut self) -> Result<VideoStreamOutput<'_>, VideoStreamError> {
-        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
-            return match self.ping_sender.poll_output() {
-                PingSenderOutput::Send { data } => Ok(VideoStreamOutput::Send { data }),
-                PingSenderOutput::Timeout(timeout) => Ok(VideoStreamOutput::Timeout(timeout)),
-                PingSenderOutput::Finished => unreachable!(),
-            };
-        }
-
+    fn update(&mut self, now: Instant) -> Result<(), VideoStreamError> {
         let mut frame_to_return = None;
 
         // Add the first seen numbers
         for frame_index in self.depayloader.known_frames() {
-            self.frames_first_seen
-                .entry(frame_index)
-                .or_insert(self.last_now);
+            self.frames_first_seen.entry(frame_index).or_insert(now);
         }
 
         if let Some(current_frame) = self.current_frame {
@@ -235,7 +214,7 @@ impl VideoStream {
                     .expect("frame is available but couldn't be produced");
 
                 if frame.frame_type == FrameType::Idr {
-                    debug!(now = ?self.last_now, frame_metadata = ?frame, "received idr");
+                    debug!(now = ?now, frame_metadata = ?frame, "received idr");
                     self.waiting_for_idr_since = None;
 
                     frame_to_return = Some(frame.frame_index);
@@ -243,73 +222,48 @@ impl VideoStream {
             }
         }
 
+        // Look if the next frame is available
         if let Some(frame_index) = frame_to_return {
             if self.first_frame.is_none() {
-                self.first_frame = Some(self.last_now);
+                self.first_frame = Some(now);
             }
 
-            let frame = self
-                .depayloader
-                .frame(frame_index)?
-                .expect("failed to get frame");
+            self.last_frame = now;
 
-            self.current_frame = Some(FrameIndex(*frame_index + 1));
-            self.last_frame = self.last_now;
+            self.current_frame = Some(frame_index);
+            self.events.push_back(VideoStreamEvent::FrameAvailable);
 
-            return Ok(VideoStreamOutput::VideoFrame(VideoDecodeUnit {
+            return Ok(());
+        }
+
+        self.do_idr_request()?;
+
+        Ok(())
+    }
+
+    pub fn poll_frame(&mut self) -> Option<VideoDecodeUnit<&[u8]>> {
+        if let Some(current_frame) = self.current_frame {
+            let frame = self.depayloader.frame(current_frame).ok()??;
+            self.current_frame = Some(FrameIndex(*current_frame + 1));
+
+            Some(VideoDecodeUnit {
                 frame_number: frame.metadata.frame_index,
                 frame_type: frame.parsed_frame_type,
                 frame_processing_latency: frame.metadata.host_processing_latency,
                 timestamp: frame.metadata.timestamp,
                 color_space: ColorSpace::Rec709,
                 buffers: frame.buffers,
-            }));
-        }
-
-        if let Some(timeout) = self.do_request_idr()? {
-            Ok(VideoStreamOutput::Timeout(timeout))
-        } else {
-            Ok(VideoStreamOutput::SendControlMessage {
-                message: ControlMessage(ControlMessageInner::SendPacket {
-                    packet: ControlPacket::RequestIdr,
-                    force: true,
-                }),
             })
+        } else {
+            None
         }
     }
 
     pub fn request_idr(&mut self) {
         info!("requesting idr on behalf of the video decoder");
 
-        // Set the waiting time for an idr very low so the next call to poll_output will give an idr request
-        self.waiting_for_idr_since = Some(self.last_now - Duration::from_secs(100));
-        // Set the current frame to none because the decoder has lost
-        self.current_frame = None;
-    }
-
-    pub fn handle_input(&mut self, input: VideoStreamInput) -> Result<(), VideoStreamError> {
-        match input {
-            VideoStreamInput::Timeout(now) => {
-                self.last_now = now;
-                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
-
-                Ok(())
-            }
-            VideoStreamInput::Receive { now, data } => {
-                self.last_now = now;
-                self.ping_sender.handle_input(PingSenderInput::Timeout(now));
-
-                if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
-                    info!(now = ?now, "received first video packet");
-
-                    self.ping_sender.set_finished();
-                }
-
-                self.depayloader.handle_packet(data)?;
-
-                Ok(())
-            }
-        }
+        // Push event
+        self.events.push_back(VideoStreamEvent::SignalIdr);
     }
 }
 
@@ -322,5 +276,54 @@ impl Debug for VideoStream {
 impl Drop for VideoStream {
     fn drop(&mut self) {
         info!("terminated video stream");
+    }
+}
+
+impl UdpStream for VideoStream {
+    type Error = VideoStreamError;
+
+    type Event = VideoStreamEvent;
+
+    fn pending_send(&self) -> Option<&[u8]> {
+        self.ping_sender.pending_send()
+    }
+    fn consume_send(&mut self) {
+        self.ping_sender.consume_send()
+    }
+
+    fn poll_timeout(&self) -> Option<Instant> {
+        Some(self.last_now + self.wait_until_idr())
+    }
+
+    fn poll_event(&mut self) -> Option<Self::Event> {
+        self.events.pop_front()
+    }
+
+    fn handle_timeout(&mut self, now: Instant) -> Result<(), Self::Error> {
+        self.last_now = now;
+
+        self.ping_sender.handle_timeout(now);
+        self.update(now)?;
+
+        Ok(())
+    }
+
+    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error> {
+        self.last_now = now;
+
+        self.ping_sender.handle_timeout(now);
+
+        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+            info!(now = ?now, "received first video packet");
+
+            self.events.push_back(VideoStreamEvent::Connected);
+            self.ping_sender.set_finished();
+        }
+
+        self.depayloader.handle_packet(data)?;
+
+        self.update(now)?;
+
+        Ok(())
     }
 }

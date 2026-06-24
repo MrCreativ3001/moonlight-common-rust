@@ -1,4 +1,7 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::{
+    collections::{HashMap, VecDeque},
+    net::SocketAddr,
+};
 
 use rusty_enet::{Packet, PacketKind, PeerID, PeerState};
 use sans_io_time::Instant;
@@ -23,7 +26,7 @@ use crate::{
                     EncryptedControlHeader, EnetChannel, PacketDirection,
                 },
             },
-            enet::{EnetConfig, EnetError, EnetEvent, EnetHost, EnetInput, EnetOutput},
+            enet::{EnetConfig, EnetError, EnetEvent, EnetHost},
         },
     },
 };
@@ -113,11 +116,6 @@ pub struct ControlPeerConfig {
 pub struct ControlPeerId(PeerID);
 
 #[derive(Debug)]
-pub enum ControlHostAction {
-    Timeout(Instant),
-    SendUdp { addr: SocketAddr, data: Vec<u8> },
-}
-
 pub enum ControlHostEvent {
     Connected {
         id: ControlPeerId,
@@ -134,21 +132,6 @@ pub enum ControlHostEvent {
     },
 }
 
-pub enum ControlHostOutput {
-    Action(ControlHostAction),
-    Event(ControlHostEvent),
-}
-
-#[derive(Debug)]
-pub enum ControlHostInput<'a> {
-    Timeout(Instant),
-    Receive {
-        now: Instant,
-        addr: SocketAddr,
-        data: &'a [u8],
-    },
-}
-
 #[derive(Debug)]
 struct PeerData {
     send_sequence_number: u32,
@@ -159,6 +142,7 @@ pub struct ControlHost {
     crypto_backend: DynCryptoBackend,
     peer_data: HashMap<ControlPeerId, PeerData>,
     host: EnetHost,
+    events: VecDeque<ControlHostEvent>,
 }
 
 impl ControlHost {
@@ -180,6 +164,7 @@ impl ControlHost {
                     outgoing_bandwidth: None,
                 },
             ),
+            events: Default::default(),
         })
     }
 
@@ -332,32 +317,35 @@ impl ControlHost {
         Ok(())
     }
 
-    pub fn poll_output(&mut self) -> Result<ControlHostOutput, ControlError> {
-        loop {
-            // Enet
-            match self.host.poll_output()? {
-                EnetOutput::Send { addr, data } => {
-                    break Ok(ControlHostOutput::Action(ControlHostAction::SendUdp {
-                        addr,
-                        data,
-                    }));
-                }
-                EnetOutput::Timeout(timeout) => {
-                    break Ok(ControlHostOutput::Action(ControlHostAction::Timeout(
-                        timeout,
-                    )));
-                }
-                EnetOutput::Event(EnetEvent::Connect { peer, data }) => {
-                    break Ok(ControlHostOutput::Event(ControlHostEvent::Connected {
-                        id: ControlPeerId(peer),
-                        sunshine_connect_data: if data == 0 { None } else { Some(data) },
-                    }));
-                }
-                EnetOutput::Event(EnetEvent::Receive {
+    pub fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
+        self.host.pending_send()
+    }
+    pub fn consume_send(&mut self) {
+        self.host.consume_send();
+    }
+
+    pub fn poll_timeout(&self) -> Instant {
+        self.host.poll_timeout()
+    }
+
+    pub fn poll_event(&mut self) -> Option<ControlHostEvent> {
+        self.events.pop_front()
+    }
+
+    fn handle_events(&mut self) -> Result<(), ControlError> {
+        while let Some(event) = self.host.poll_event() {
+            trace!(event = ?event, "enet event");
+
+            let event = match event {
+                EnetEvent::Connect { peer, data } => ControlHostEvent::Connected {
+                    id: ControlPeerId(peer),
+                    sunshine_connect_data: if data == 0 { None } else { Some(data) },
+                },
+                EnetEvent::Receive {
                     peer,
                     channel_id,
                     data,
-                }) => {
+                } => {
                     let id = ControlPeerId(peer);
 
                     let Some(peer_data) = self.peer_data.get(&id) else {
@@ -406,36 +394,45 @@ impl ControlHost {
 
                     trace!(peer_id = ?id, packet = ?packet, "received packet");
 
-                    break Ok(ControlHostOutput::Event(ControlHostEvent::Receive {
+                    ControlHostEvent::Receive {
                         id,
                         channel_id,
                         packet,
-                    }));
+                    }
                 }
-                EnetOutput::Event(EnetEvent::Disconnect { peer, data: _ }) => {
+                EnetEvent::Disconnect { peer, data: _ } => {
                     let id = ControlPeerId(peer);
 
                     self.peer_data.remove(&id);
 
-                    break Ok(ControlHostOutput::Event(ControlHostEvent::Disconnected {
+                    ControlHostEvent::Disconnected {
                         id: ControlPeerId(peer),
-                    }));
+                    }
                 }
-            }
+            };
+
+            self.events.push_back(event);
         }
+
+        Ok(())
     }
 
-    pub fn handle_input(&mut self, input: ControlHostInput) -> Result<(), ControlError> {
-        match input {
-            ControlHostInput::Timeout(timeout) => {
-                self.host.handle_input(EnetInput::Timeout(timeout))?;
-            }
-            ControlHostInput::Receive { now, addr, data } => {
-                self.host
-                    .handle_input(EnetInput::Receive { now, addr, data })?;
-            }
-        }
+    pub fn handle_receive(
+        &mut self,
+        now: Instant,
+        addr: SocketAddr,
+        data: &[u8],
+    ) -> Result<(), ControlError> {
+        self.host.handle_receive(now, addr, data);
 
+        self.handle_events()?;
+        Ok(())
+    }
+
+    pub fn handle_timeout(&mut self, now: Instant) -> Result<(), ControlError> {
+        self.host.handle_timeout(now);
+
+        self.handle_events()?;
         Ok(())
     }
 

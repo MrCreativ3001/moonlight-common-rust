@@ -1,14 +1,21 @@
 use std::{
+    collections::VecDeque,
     convert::Infallible,
     net::SocketAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use rusty_enet::{Event, Host, HostSettings, Peer, PeerID, ReadWrite};
+use rusty_enet::{
+    Address, Event, Host, HostSettings, MTU_MAX, PacketReceived, Peer, PeerID, ReadWrite, Socket,
+    SocketOptions,
+};
 use sans_io_time::Instant;
 use thiserror::Error;
 use tracing::{debug, trace};
+
+// TODO: dynamically set timeout, see https://github.com/jabuwu/rusty_enet/issues/4
+// TODO: this seems interesting: https://github.com/zpl-c/enet/blob/8647b6eaea881c86471ae29f732620d299fc20d7/include/enet.h#L296-L488
 
 #[derive(Debug, Error)]
 pub enum EnetError {
@@ -40,21 +47,6 @@ pub struct EnetConfig {
     pub outgoing_bandwidth: Option<usize>,
 }
 
-pub enum EnetInput<'a> {
-    Receive {
-        now: Instant,
-        addr: SocketAddr,
-        data: &'a [u8],
-    },
-    Timeout(Instant),
-}
-#[derive(Debug)]
-pub enum EnetOutput {
-    Send { addr: SocketAddr, data: Vec<u8> },
-    Event(EnetEvent),
-    Timeout(Instant),
-}
-
 #[derive(Debug)]
 pub enum EnetEvent {
     Connect {
@@ -75,7 +67,8 @@ pub enum EnetEvent {
 
 pub struct EnetHost {
     last_now: Arc<Mutex<Instant>>,
-    pub(crate) enet: Host<ReadWrite<SocketAddr, Infallible>>,
+    pub(crate) enet: Host<Io<SocketAddr>>,
+    events: VecDeque<EnetEvent>,
 }
 
 impl EnetHost {
@@ -85,7 +78,7 @@ impl EnetHost {
         // This unwrap is safe because those settings don't fail, which would be the only error source
         #[allow(clippy::unwrap_used)]
         let enet = Host::new(
-            ReadWrite::<SocketAddr, Infallible>::new(),
+            Io::<SocketAddr>::default(),
             HostSettings {
                 peer_limit: config.peer_count,
                 channel_limit: config.channel_limit,
@@ -113,7 +106,11 @@ impl EnetHost {
         )
         .unwrap();
 
-        Self { last_now, enet }
+        Self {
+            last_now,
+            enet,
+            events: Default::default(),
+        }
     }
 
     pub fn connect(
@@ -146,27 +143,55 @@ impl EnetHost {
         Ok(())
     }
 
-    pub fn peer(&mut self, id: PeerID) -> Option<&mut Peer<ReadWrite<SocketAddr, Infallible>>> {
+    pub fn peer(&mut self, id: PeerID) -> Option<&mut Peer<impl Socket<Address = SocketAddr>>> {
         self.enet.get_peer_mut(id)
     }
 
-    pub fn poll_output(&mut self) -> Result<EnetOutput, EnetError> {
-        if let Some((addr, data)) = self.enet.socket_mut().read() {
-            return Ok(EnetOutput::Send { addr, data });
-        }
+    pub fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
+        self.enet
+            .socket()
+            .outbound
+            .front()
+            .map(|(addr, bytes)| (*addr, bytes.as_slice()))
+    }
+    pub fn consume_send(&mut self) {
+        self.enet.socket_mut().outbound.pop_front();
+    }
+
+    pub fn poll_timeout(&self) -> Instant {
+        self.last_now() + Duration::from_millis(50)
+    }
+
+    pub fn poll_event(&mut self) -> Option<EnetEvent> {
+        self.events.pop_front()
+    }
+
+    pub fn handle_receive(&mut self, now: Instant, addr: SocketAddr, data: &[u8]) {
+        self.enet
+            .socket_mut()
+            .inbound
+            .push_back((addr, data.to_vec()));
+
+        self.handle_timeout(now);
+    }
+
+    pub fn handle_timeout(&mut self, now: Instant) {
+        self.set_last_now(now);
 
         // The error is infallible and cannot be constructed
         // -> we are allowed to unwrap
         #[allow(clippy::unwrap_used)]
-        if let Some(event) = self.enet.service().unwrap() {
-            match event {
+        while let Some(event) = self.enet.service().unwrap() {
+            trace!(event = ?event, "enet service event");
+
+            let event = match event {
                 Event::Connect { peer, data } => {
                     debug!(peer_id = ?peer.id(), connect_data = ?data, "enet peer connected");
 
-                    return Ok(EnetOutput::Event(EnetEvent::Connect {
+                    EnetEvent::Connect {
                         peer: peer.id(),
                         data,
-                    }));
+                    }
                 }
                 Event::Receive {
                     peer,
@@ -175,43 +200,24 @@ impl EnetHost {
                 } => {
                     trace!(peer_id = ?peer.id(), channel_id = ?channel_id, packet = ?packet, "enet received packet");
 
-                    return Ok(EnetOutput::Event(EnetEvent::Receive {
+                    EnetEvent::Receive {
                         peer: peer.id(),
                         channel_id,
                         data: packet.data().to_vec(),
-                    }));
+                    }
                 }
                 Event::Disconnect { peer, data } => {
                     debug!(peer_id = ?peer.id(), disconnect_data = ?data, "enet peer disconnected");
 
-                    return Ok(EnetOutput::Event(EnetEvent::Disconnect {
+                    EnetEvent::Disconnect {
                         peer: peer.id(),
                         data,
-                    }));
+                    }
                 }
-            }
+            };
+
+            self.events.push_back(event);
         }
-
-        // TODO: dynamically set timeout, see https://github.com/jabuwu/rusty_enet/issues/4
-        // TODO: this seems interesting: https://github.com/zpl-c/enet/blob/8647b6eaea881c86471ae29f732620d299fc20d7/include/enet.h#L296-L488
-        Ok(EnetOutput::Timeout(
-            self.last_now() + Duration::from_millis(50),
-        ))
-    }
-
-    pub fn handle_input(&mut self, input: EnetInput) -> Result<(), EnetError> {
-        match input {
-            EnetInput::Timeout(now) => {
-                self.set_last_now(now);
-            }
-            EnetInput::Receive { now, addr, data } => {
-                self.set_last_now(now);
-
-                self.enet.socket_mut().write(addr, data.to_vec());
-            }
-        }
-
-        Ok(())
     }
 
     fn set_last_now(&self, now: Instant) {
@@ -231,5 +237,62 @@ impl EnetHost {
         let last_now = self.last_now.lock().unwrap();
 
         *last_now
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Io<A> {
+    inbound: VecDeque<(A, Vec<u8>)>,
+    outbound: VecDeque<(A, Vec<u8>)>,
+}
+
+impl<A> Default for Io<A> {
+    fn default() -> Self {
+        Self {
+            inbound: Default::default(),
+            outbound: Default::default(),
+        }
+    }
+}
+
+impl<A: Address + 'static> Socket for Io<A> {
+    type Address = A;
+    type Error = Infallible;
+
+    fn init(&mut self, _socket_options: SocketOptions) -> Result<(), Self::Error> {
+        // NOTE: this implementation must not become fallable
+        Ok(())
+    }
+
+    fn send(&mut self, address: A, buffer: &[u8]) -> Result<usize, Infallible> {
+        self.outbound.push_back((address, buffer.to_vec()));
+        Ok(buffer.len())
+    }
+
+    fn receive(
+        &mut self,
+        buffer: &mut [u8; MTU_MAX],
+    ) -> Result<Option<(A, PacketReceived)>, Infallible> {
+        if let Some((address, inbound)) = self.inbound.pop_front() {
+            let bytes = inbound.len();
+            if bytes <= MTU_MAX {
+                #[cfg(feature = "std")]
+                {
+                    use std::io::{Cursor, copy};
+                    copy(&mut Cursor::new(inbound), &mut Cursor::new(&mut buffer[..]))
+                        .expect("Buffer copy should not fail.");
+                }
+                #[cfg(not(feature = "std"))]
+                unsafe {
+                    use core::ptr::copy_nonoverlapping;
+                    copy_nonoverlapping(inbound.as_ptr(), buffer.as_mut_ptr(), bytes);
+                }
+                Ok(Some((address, PacketReceived::Complete(bytes))))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }

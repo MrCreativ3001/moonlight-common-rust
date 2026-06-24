@@ -2,14 +2,18 @@ use sans_io_time::Instant as SInstant;
 use std::{
     any::Any,
     io::{self, Read, Write},
-    net::{SocketAddr, TcpStream, UdpSocket},
-    sync::{Arc, Condvar, Mutex, mpsc},
-    thread::{JoinHandle, sleep, spawn},
+    net::TcpStream,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, RecvTimeoutError},
+    },
+    thread::{self, sleep, spawn},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tracing::{Span, debug, debug_span, error, info, info_span, trace, warn};
+use tracing::{Level, debug, info, info_span, instrument, trace, warn};
 
 use crate::stream::{
     HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
@@ -18,26 +22,22 @@ use crate::stream::{
     proto::{
         DynCryptoBackend, MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
         MoonlightStreamProtoError, MoonlightStreamSetup, MoonlightStreamSetupOutput,
-        audio::{AudioStream, AudioStreamError, AudioStreamInput, AudioStreamOutput},
+        audio::{AudioStream, AudioStreamError, AudioStreamEvent},
         control::{
-            ControlStream, ControlStreamEvent, ControlStreamInput, ControlStreamOutput,
+            ControlStream, ControlStreamEvent,
             input_batcher::ClientInputEvent,
-            packet::ControlPacket,
-            peer::{ControlError, ControlHostAction},
+            packet::{ControlPacket, TerminationReason},
+            peer::ControlError,
         },
         crypto::CryptoBackend,
-        microphone::foundation::{
-            FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
-            FoundationMicStreamOutput,
-        },
-        video::{VideoStream, VideoStreamError, VideoStreamInput, VideoStreamOutput},
+        microphone::foundation::{FoundationMicStream, FoundationMicStreamError},
+        video::{VideoStream, VideoStreamError, VideoStreamEvent},
     },
-    std::{ringbuffer::RingBuffer, signal::StopSignal},
-    video::{DecodeResult, VideoDecoder},
+    std::driver::SyncUdpDriver,
+    video::VideoDecoder,
 };
 
-mod ringbuffer;
-mod signal;
+mod driver;
 
 #[derive(Debug, Error)]
 pub enum MoonlightStreamError {
@@ -60,83 +60,8 @@ pub enum MoonlightStreamError {
 }
 
 pub struct MoonlightStream {
-    inner: Arc<SharedInner>,
-    threads: Threads,
-    stop: StopSignal,
-    host_features: HostFeatures,
+    inner: Arc<Inner>,
 }
-
-#[derive(Debug, Default)]
-struct Threads {
-    audio_stream: Option<JoinHandle<()>>,
-    video_stream: Option<JoinHandle<()>>,
-    control_stream_sender: Option<JoinHandle<()>>,
-    control_stream_receiver: Option<JoinHandle<()>>,
-    foundation_mic_sender: Option<JoinHandle<()>>,
-}
-
-impl Threads {
-    /// This won't call the stop signal!
-    fn try_join_all(&mut self, mut on_error: impl FnMut(Box<dyn Any + Send + 'static>)) {
-        debug!("trying to join all threads of this stream");
-
-        if let Some(audio_stream) = self.audio_stream.take() {
-            if let Err(err) = audio_stream.join() {
-                on_error(err);
-            }
-        } else {
-            debug!("audio_stream_thread doesn't exist");
-        }
-        if let Some(video_stream) = self.video_stream.take() {
-            if let Err(err) = video_stream.join() {
-                on_error(err);
-            }
-        } else {
-            debug!("video_stream_thread doesn't exist");
-        }
-        if let Some(control_stream_sender) = self.control_stream_sender.take() {
-            if let Err(err) = control_stream_sender.join() {
-                on_error(err);
-            }
-        } else {
-            debug!("control_stream_sender_thread doesn't exist");
-        }
-        if let Some(control_stream_receiver) = self.control_stream_receiver.take() {
-            if let Err(err) = control_stream_receiver.join() {
-                on_error(err);
-            }
-        } else {
-            debug!("control_stream_receiver_thread doesn't exist");
-        }
-
-        if let Some(foundation_mic_sender) = self.foundation_mic_sender.take() {
-            if let Err(err) = foundation_mic_sender.join() {
-                on_error(err);
-            }
-        } else {
-            debug!("foundation_mic_sender_thread doesn't exist");
-        }
-
-        debug!("finished thread cleanup");
-    }
-    fn take(&mut self) -> Self {
-        Self {
-            audio_stream: self.audio_stream.take(),
-            video_stream: self.video_stream.take(),
-            control_stream_sender: self.control_stream_sender.take(),
-            control_stream_receiver: self.control_stream_receiver.take(),
-            foundation_mic_sender: self.foundation_mic_sender.take(),
-        }
-    }
-}
-
-struct SharedInner {
-    control_stream: Mutex<Option<ControlStream>>,
-    control_notify: Condvar,
-    foundation_mic_stream: Mutex<Option<FoundationMicStream>>,
-    foundation_mic_notify: Condvar,
-}
-
 // TODO: how to handle errors, maybe in the connection listener?
 
 impl MoonlightStream {
@@ -147,67 +72,13 @@ impl MoonlightStream {
     pub fn connect(
         config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
-        video_decoder: impl VideoDecoder + Send + 'static,
-        audio_decoder: impl AudioDecoder + Send + 'static,
+        mut video_decoder: impl VideoDecoder + Send + 'static,
+        mut audio_decoder: impl AudioDecoder + Send + 'static,
         connection_listener: impl ConnectionListener + Send + 'static,
         crypto_backend: DynCryptoBackend,
     ) -> Result<Self, MoonlightStreamError> {
         let base_time = Instant::now();
-        let stop = StopSignal::new();
 
-        let mut threads = Threads::default();
-        let mut host_features = HostFeatures::default();
-
-        let inner = match Self::connect_inner(
-            base_time,
-            config,
-            settings,
-            video_decoder,
-            audio_decoder,
-            connection_listener,
-            crypto_backend,
-            &mut threads,
-            &mut host_features,
-            &stop,
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                error!(error = ?err, "failed to start moonlight stream");
-                info!("cleaning up all threads");
-
-                // stop, wait all threads, then error
-                stop.stop();
-
-                threads.try_join_all(|err| {
-                    warn!(error = ?err, "error whilst joining thread");
-                });
-
-                return Err(err);
-            }
-        };
-
-        Ok(Self {
-            inner,
-            threads,
-            stop,
-            host_features,
-        })
-    }
-    fn connect_inner<Crypto>(
-        base_time: Instant,
-        config: MoonlightStreamConfig,
-        settings: MoonlightStreamSettings,
-        video_decoder: impl VideoDecoder + Send + 'static,
-        audio_decoder: impl AudioDecoder + Send + 'static,
-        connection_listener: impl ConnectionListener + Send + 'static,
-        crypto_backend: Crypto,
-        threads: &mut Threads,
-        host_features: &mut HostFeatures,
-        stop: &StopSignal,
-    ) -> Result<Arc<SharedInner>, MoonlightStreamError>
-    where
-        Crypto: CryptoBackend + Clone + 'static,
-    {
         let span = info_span!("stream");
         let _enter = span.enter();
 
@@ -216,18 +87,14 @@ impl MoonlightStream {
         let mut tcp_stream: Option<TcpStream> = None;
         let mut recv_buffer = vec![0; 2048];
 
+        let mut host_features = HostFeatures::default();
         let video_capabilities = video_decoder.capabilities();
 
-        let mut audio_decoder = Some(audio_decoder);
-        let mut video_decoder = Some(video_decoder);
-        let mut connection_listener = Some(connection_listener);
+        let mut audio_stream = None;
+        let mut video_stream = None;
+        let mut control_stream = None;
+        let mut foundation_mic_stream = None;
 
-        let shared_inner = Arc::new(SharedInner {
-            control_notify: Condvar::new(),
-            control_stream: Mutex::new(None),
-            foundation_mic_stream: Mutex::new(None),
-            foundation_mic_notify: Condvar::new(),
-        });
         let (on_enet_connect_sender, on_enet_connect) = mpsc::channel::<()>();
 
         let mut setup = MoonlightStreamSetup::new(
@@ -301,108 +168,42 @@ impl MoonlightStream {
                 MoonlightStreamSetupOutput::StartAudioStream {
                     addr,
                     config,
-                    audio_stream,
+                    audio_stream: new_audio_stream,
                 } => {
-                    let mut audio_decoder = audio_decoder
-                        .take()
-                        .expect("audio decoder was already taken");
-
                     // TODO: get audio config?
                     audio_decoder.setup(AudioConfig::STEREO, config);
 
-                    threads.audio_stream = Some(audio_thread(
-                        info_span!("audio_stream"),
-                        base_time,
-                        stop.clone(),
-                        addr,
-                        audio_stream,
-                        audio_decoder,
-                        shared_inner.clone(),
-                    ));
+                    debug_assert!(audio_stream.is_none());
+                    audio_stream = Some(SyncUdpDriver::connect(base_time, addr, new_audio_stream)?);
                 }
                 MoonlightStreamSetupOutput::StartVideoStream {
                     addr,
                     setup,
-                    video_stream,
+                    video_stream: new_video_stream,
                 } => {
-                    let mut video_decoder = video_decoder
-                        .take()
-                        .expect("video decoder was already taken");
-
                     video_decoder.setup(setup);
 
-                    threads.video_stream = Some(video_thread(
-                        info_span!("video_stream"),
-                        base_time,
-                        stop.clone(),
-                        addr,
-                        video_stream,
-                        video_decoder,
-                        shared_inner.clone(),
-                    ));
+                    debug_assert!(video_stream.is_none());
+                    video_stream = Some(SyncUdpDriver::connect(base_time, addr, new_video_stream)?);
                 }
                 MoonlightStreamSetupOutput::FoundationStartMic {
                     addr,
                     mic_stream: new_mic_stream,
                 } => {
-                    let socket = UdpSocket::bind("0.0.0.0:0")?;
-                    disable_udp_conn_reset(&socket);
-                    socket.connect(addr)?;
-
-                    {
-                        let mut mic_stream = shared_inner
-                            .foundation_mic_stream
-                            .lock()
-                            .expect("failed to lock foundation mic stream");
-                        *mic_stream = Some(new_mic_stream);
-                    }
-
-                    threads.foundation_mic_sender = Some(foundation_mic_sender(
-                        info_span!("foundation_mic_stream_sender"),
-                        base_time,
-                        stop.clone(),
-                        socket,
-                        shared_inner.clone(),
-                    ));
+                    debug_assert!(foundation_mic_stream.is_none());
+                    foundation_mic_stream =
+                        Some(SyncUdpDriver::connect(base_time, addr, new_mic_stream)?);
                 }
                 MoonlightStreamSetupOutput::StartControlStream {
                     addr,
                     control_stream: new_control_stream,
                 } => {
-                    let socket = Arc::new(UdpSocket::bind("0.0.0.0:0")?);
-                    disable_udp_conn_reset(&socket);
-                    socket.connect(addr)?;
-
-                    {
-                        let mut control_stream = shared_inner
-                            .control_stream
-                            .lock()
-                            .expect("failed to lock ControlStream");
-                        *control_stream = Some(new_control_stream);
-                    }
-
-                    threads.control_stream_sender = Some(control_thread_sender(
-                        info_span!("control_stream_sender"),
-                        base_time,
-                        stop.clone(),
-                        socket.clone(),
-                        connection_listener
-                            .take()
-                            .expect("connection listener was already taken"),
-                        shared_inner.clone(),
-                        on_enet_connect_sender.clone(),
-                    ));
-
-                    threads.control_stream_receiver = Some(control_thread_receiver(
-                        info_span!("control_stream_sender"),
-                        base_time,
-                        stop.clone(),
-                        socket.clone(),
-                        shared_inner.clone(),
-                    ));
+                    debug_assert!(control_stream.is_none());
+                    control_stream =
+                        Some(SyncUdpDriver::connect(base_time, addr, new_control_stream)?);
                 }
                 MoonlightStreamSetupOutput::Connected { features } => {
-                    *host_features = features;
+                    host_features = features;
                     break;
                 }
             }
@@ -412,10 +213,48 @@ impl MoonlightStream {
 
         drop(tcp_stream);
 
+        info!("finished setup, launching threads");
+
+        let inner = Arc::new(Inner {
+            host_features,
+            streams: Streams {
+                audio: audio_stream.expect("audio stream"),
+                video: video_stream.expect("video stream"),
+                control: control_stream.expect("control_stream"),
+                foundation_mic: foundation_mic_stream,
+            },
+            stopped: AtomicBool::new(false),
+        });
+
+        // TODO: use this handle in the stop fn
+        let handle = spawn({
+            let inner = inner.clone();
+            let span = span.clone();
+            move || {
+                let _enter = span.enter();
+
+                inner.run(
+                    on_enet_connect_sender,
+                    video_decoder,
+                    audio_decoder,
+                    connection_listener,
+                )
+            }
+        });
+
+        debug!("started threads, waiting for enet to connect");
+
         // wait until only control stream is connected: https://github.com/MrCreativ3001/moonlight-common-rust/issues/4
         match on_enet_connect.recv_timeout(Duration::from_secs(20)) {
             Ok(_) => {}
-            Err(_) => {
+            Err(RecvTimeoutError::Disconnected) => {
+                debug!("enet connect failed");
+                let error = handle.join();
+
+                error.map_err(MoonlightStreamError::ThreadJoin)??;
+                unreachable!()
+            }
+            Err(RecvTimeoutError::Timeout) => {
                 debug!("connection timeout on connect");
                 return Err(MoonlightStreamError::ConnectionTimeout);
             }
@@ -423,724 +262,245 @@ impl MoonlightStream {
 
         info!("started moonlight stream");
 
-        Ok(shared_inner)
+        Ok(Self { inner })
     }
 
     pub fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
         trace!(input = ?input, "received input from application");
 
-        self.use_control_stream(|stream| stream.batch_input(input))?;
+        self.inner
+            .streams
+            .control
+            .stream_mut(|stream| stream.batch_input(input))?;
 
         Ok(())
     }
     pub fn send_input_raw(&self, packet: ControlPacket) -> Result<(), ControlError> {
         trace!(packet = ?packet, "received packet from application");
 
-        self.use_control_stream(|stream| stream.send_raw(packet))?;
+        self.inner
+            .streams
+            .control
+            .stream_mut(|stream| stream.send_raw(packet))?;
 
         Ok(())
     }
 
     /// Use [host_features](Self::host_features) to detect support for microphone.
     pub fn send_microphone_opus_data(&self, timestamp: Duration, frame: &[u8]) -> bool {
-        match self.try_use_foundation_microphone(|stream| {
-            stream.send_microphone_opus_data(timestamp, frame)
-        }) {
-            Ok(value) => value,
-            Err(err) => {
-                warn!(error = ?err, "failed to send foundation microphone data");
+        if let Some(foundation_mic) = &self.inner.streams.foundation_mic {
+            match foundation_mic
+                .stream_mut(|stream| stream.send_microphone_opus_data(timestamp, frame))
+            {
+                Ok(_) => true,
+                Err(err) => {
+                    warn!(error = ?err, "failed to send foundation microphone data");
 
-                false
+                    false
+                }
             }
+        } else {
+            false
         }
     }
 
     pub fn host_features(&self) -> HostFeatures {
-        self.host_features.clone()
+        self.inner.host_features.clone()
     }
 
-    fn use_control_stream(
-        &self,
-        f: impl FnOnce(&mut ControlStream) -> Result<(), ControlError>,
-    ) -> Result<(), ControlError> {
-        if self.stop.is_notified() {
-            trace!("couldn't aquire control stream because the stream was stopped");
-            return Err(ControlError::NotConnected);
-        }
-
-        {
-            let mut control_stream = self
-                .inner
-                .control_stream
-                .lock()
-                .expect("failed to lock ControlStream");
-            let control_stream = control_stream
-                .as_mut()
-                .expect("failed to get ControlStream");
-
-            f(control_stream)?;
-        }
-
-        // this should notify both the sender and receiver
-        self.inner.control_notify.notify_all();
-
-        Ok(())
-    }
-    /// Returns if the closure was executed / if the stream is present
-    fn try_use_foundation_microphone(
-        &self,
-        f: impl FnOnce(&mut FoundationMicStream) -> Result<(), FoundationMicStreamError>,
-    ) -> Result<bool, FoundationMicStreamError> {
-        if self.stop.is_notified() {
-            trace!("couldn't aquire foundation microphone stream because the stream was stopped");
-            return Ok(true);
-        }
-
-        {
-            let mut mic_stream = self.inner.foundation_mic_stream.lock();
-            let mic_stream = mic_stream
-                .as_mut()
-                .expect("failed to get FoundationMicStream");
-
-            if let Some(mic_stream) = &mut **mic_stream {
-                f(mic_stream)?;
-            }
-        }
-
-        // this should notify both the sender and receiver
-        self.inner.foundation_mic_notify.notify_all();
-
-        Ok(true)
+    pub fn is_stopped(&self) -> bool {
+        self.inner.stopped.load(Ordering::Acquire)
     }
 
-    // TODO: make this use a &self ref
-    pub fn stop(mut self) {
-        // TODO: when dropping the connection should be closed in another thread, only stop should wait until the connection closed successful, maybe with result
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub fn stop(&self) {
+        // Stop self
+        self.inner.stop();
 
-        self.stop.stop();
-
-        self.threads.try_join_all(|err| {
-            warn!(error = ?err,"error whilst joining thread");
-        });
-
-        info!("fully terminated the stream");
+        info!("stopped all streams");
     }
 }
 
 impl Drop for MoonlightStream {
     fn drop(&mut self) {
-        if self.stop.is_notified() {
-            // We already clean up, likely using stop
-            return;
-        }
-
-        debug!("MoonlightStream was dropped, performing cleanup in another thread");
-
-        let mut threads = self.threads.take();
-
-        spawn(move || {
-            threads.try_join_all(|err| {
-                warn!(error = ?err,"error whilst joining thread");
-            });
-
-            info!("fully terminated the stream");
-        });
+        self.stop();
     }
 }
 
-// IMPORTANT: after this point errors shouldn't be propagated via ? because we also need to stop the stream
-fn handle_error(stop: &StopSignal, error: MoonlightStreamError) {
-    error!(error = ?error, "an error occured");
-    stop.stop();
+struct Inner {
+    streams: Streams,
+    stopped: AtomicBool,
+    host_features: HostFeatures,
+}
+struct Streams {
+    audio: SyncUdpDriver<AudioStream>,
+    video: SyncUdpDriver<VideoStream>,
+    control: SyncUdpDriver<ControlStream>,
+    foundation_mic: Option<SyncUdpDriver<FoundationMicStream>>,
 }
 
-const UDP_BUFFER_CAPACITY: usize = 4096;
-
-/// On Windows, a connected UDP socket returns `WSAECONNRESET` (10054) on the
-/// next `recv`/`send` after a previously sent datagram triggered an ICMP
-/// port-unreachable. This is the `SIO_UDP_CONNRESET` behavior and it is enabled
-/// by default. In the GameStream protocol the host only opens its RTP ports
-/// after the RTSP `PLAY`, so the pings the client sends beforehand elicit a
-/// transient port-unreachable. The resulting 10054 is reported on `recv`/`send`
-/// and is treated as fatal by the audio/video stream threads, which tears the
-/// stream down before the first frame is ever received.
-///
-/// Disable the behavior so transient ICMP port-unreachables no longer surface
-/// as socket errors, matching what native Moonlight clients do on Windows.
-#[cfg(windows)]
-fn disable_udp_conn_reset(socket: &UdpSocket) {
-    use std::os::windows::io::AsRawSocket;
-    use windows_sys::Win32::Networking::WinSock::{SIO_UDP_CONNRESET, WSAIoctl};
-
-    let enable: u32 = 0; // FALSE: stop raising WSAECONNRESET on ICMP port-unreachable
-    let mut bytes_returned: u32 = 0;
-    let _ = unsafe {
-        WSAIoctl(
-            socket.as_raw_socket() as _,
-            SIO_UDP_CONNRESET,
-            &enable as *const u32 as *const _,
-            core::mem::size_of::<u32>() as u32,
-            core::ptr::null_mut(),
-            0,
-            &mut bytes_returned,
-            core::ptr::null_mut(),
-            None,
-        )
-    };
-}
-
-#[cfg(not(windows))]
-fn disable_udp_conn_reset(_socket: &UdpSocket) {}
-
-fn udp_receiver(
-    span: Span,
-    stop: StopSignal,
-    socket: Arc<UdpSocket>,
-    buffer: Arc<RingBuffer>,
-) -> JoinHandle<()> {
-    spawn(move || {
-        let _enter = span.enter();
-
-        let mut recv_buffer = vec![0; buffer.max_packet_size()];
-
-        // Set read timeout to regularly check for the stop signal
-        if let Err(err) = socket.set_read_timeout(Some(Duration::from_secs(1))) {
-            handle_error(&stop, err.into());
-            return;
-        }
-
-        loop {
-            match socket.recv(&mut recv_buffer) {
-                Ok(len) => {
-                    buffer.push(&recv_buffer[0..len]);
-                }
-                Err(err)
-                    if matches!(
-                        err.kind(),
-                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    // handles read timeout
-                }
-                Err(err) => {
-                    handle_error(&stop, err.into());
-                    break;
-                }
-            }
-
-            if stop.is_notified() {
-                break;
-            }
-        }
-
-        debug!("stopped udp_receiver");
-    })
-}
-
-fn audio_thread(
-    span: Span,
-    base_time: Instant,
-    stop: StopSignal,
-    addr: SocketAddr,
-    mut audio_stream: AudioStream,
-    mut audio_decoder: impl AudioDecoder + Send + 'static,
-    _shared_inner: Arc<SharedInner>,
-) -> JoinHandle<()> {
-    spawn(move || {
-        let _enter = span.enter();
-
-        let socket = match UdpSocket::bind("0.0.0.0:0") {
-            Ok(value) => value,
-            Err(err) => {
-                handle_error(&stop, err.into());
-                return;
-            }
-        };
-        disable_udp_conn_reset(&socket);
-        let socket = Arc::new(socket);
-        if let Err(err) = socket.connect(addr) {
-            handle_error(&stop, err.into());
-            return;
-        }
-
-        let ring_buffer = Arc::new(RingBuffer::new(100, UDP_BUFFER_CAPACITY));
-
-        let receive_handle = udp_receiver(
-            debug_span!("udp_receiver"),
-            stop.clone(),
-            socket.clone(),
-            ring_buffer.clone(),
-        );
-
-        let mut buffer = vec![0; ring_buffer.max_packet_size()];
-        let mut started = false;
-
-        loop {
-            let poll_output = match audio_stream.poll_output() {
-                Ok(value) => value,
-                Err(err) => {
-                    handle_error(&stop, err.into());
-                    break;
-                }
-            };
-
-            let timeout = match poll_output {
-                AudioStreamOutput::Send { data } => {
-                    if let Err(err) = socket.send(data) {
-                        handle_error(&stop, err.into());
-                        break;
-                    }
-                    continue;
-                }
-                AudioStreamOutput::AudioFrame(frame) => {
-                    if !started {
-                        audio_decoder.start();
-
-                        started = true;
-                    }
-
-                    audio_decoder.decode_and_play_sample(AudioFrame {
-                        buffer: &frame.buffer,
-                        timestamp: frame.timestamp,
-                    });
-                    continue;
-                }
-                AudioStreamOutput::Timeout(timeout) => timeout,
-            };
-
-            let mut timeout = timeout.saturating_duration_since(SInstant::from_std(base_time));
-
-            // Will likely never happen, but we need to regularly check on the stop signal
-            timeout = timeout.min(Duration::from_secs(1));
-
-            let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
-                None => AudioStreamInput::Timeout(SInstant::from_std(base_time)),
-                Some(len) => AudioStreamInput::Receive {
-                    now: SInstant::from_std(base_time),
-                    data: &mut buffer[0..len],
-                },
-            };
-
-            if let Err(err) = audio_stream.handle_input(input) {
-                handle_error(&stop, err.into());
-                break;
-            }
-
-            if stop.is_notified() {
-                break;
-            }
-        }
-
-        // handle receive thread
-        if let Err(err) = receive_handle.join() {
-            handle_error(&stop, MoonlightStreamError::ThreadJoin(err));
-        }
-
-        debug!("stopped audio_thread");
-    })
-}
-
-fn video_thread(
-    span: Span,
-    base_time: Instant,
-    stop: StopSignal,
-    addr: SocketAddr,
-    mut video_stream: VideoStream,
-    mut video_decoder: impl VideoDecoder + Send + 'static,
-    shared_inner: Arc<SharedInner>,
-) -> JoinHandle<()> {
-    spawn(move || {
-        let _enter = span.enter();
-
-        let socket = match UdpSocket::bind("0.0.0.0:0") {
-            Ok(value) => value,
-            Err(err) => {
-                handle_error(&stop, err.into());
-                return;
-            }
-        };
-        disable_udp_conn_reset(&socket);
-        let socket = Arc::new(socket);
-        if let Err(err) = socket.connect(addr) {
-            handle_error(&stop, err.into());
-            return;
-        }
-
-        let ring_buffer = Arc::new(RingBuffer::new(100, UDP_BUFFER_CAPACITY));
-
-        let receive_handle = udp_receiver(
-            debug_span!("udp_receiver"),
-            stop.clone(),
-            socket.clone(),
-            ring_buffer.clone(),
-        );
-
-        let mut buffer = vec![0; ring_buffer.max_packet_size()];
-        let mut started = false;
-
-        let mut decode_result = DecodeResult::Ok;
-
-        loop {
-            if matches!(decode_result, DecodeResult::NeedIdr) {
-                video_stream.request_idr();
-                decode_result = DecodeResult::Ok;
-            }
-
-            let timeout = {
-                let poll_output = match video_stream.poll_output() {
-                    Ok(value) => value,
-                    Err(err) => {
-                        handle_error(&stop, err.into());
-                        break;
-                    }
-                };
-
-                match poll_output {
-                    VideoStreamOutput::Send { data } => {
-                        if let Err(err) = socket.send(data) {
-                            handle_error(&stop, err.into());
-                            break;
-                        }
-                        continue;
-                    }
-                    VideoStreamOutput::VideoFrame(decode_unit) => {
-                        if !started {
-                            video_decoder.start();
-
-                            started = true;
-                        }
-
-                        decode_result = video_decoder.submit_decode_unit(decode_unit);
-
-                        continue;
-                    }
-                    VideoStreamOutput::SendControlMessage { message } => {
-                        // grab the control stream and send a packet
-
-                        let mut control_stream = shared_inner
-                            .control_stream
-                            .lock()
-                            .expect("failed to get lock on ControlStream");
-                        let control_stream = control_stream
-                            .as_mut()
-                            .expect("failed to get ControlStream");
-
-                        if let Err(err) = control_stream.handle_input(ControlStreamInput::Message {
-                            now: SInstant::from_std(base_time),
-                            message,
-                        }) {
-                            handle_error(&stop, err.into());
-                            break;
-                        }
-
-                        continue;
-                    }
-                    VideoStreamOutput::Timeout(timeout) => timeout.to_std(base_time),
-                }
-            };
-
-            let mut timeout = timeout.saturating_duration_since(Instant::now());
-
-            // Will likely never happen, but we need to regularly check on the stop signal
-            timeout = timeout.min(Duration::from_secs(1));
-
-            let input = match ring_buffer.pop(&mut buffer, Some(timeout)) {
-                None => VideoStreamInput::Timeout(SInstant::from_std(base_time)),
-                Some(len) => VideoStreamInput::Receive {
-                    now: SInstant::from_std(base_time),
-                    data: &mut buffer[0..len],
-                },
-            };
-
-            if let Err(err) = video_stream.handle_input(input) {
-                handle_error(&stop, err.into());
-                break;
-            }
-
-            if stop.is_notified() {
-                break;
-            }
-        }
-
-        // handle receive thread
-        if let Err(err) = receive_handle.join() {
-            handle_error(&stop, MoonlightStreamError::ThreadJoin(err));
-        }
-
-        debug!("stopped video_thread");
-    })
-}
-
-fn foundation_mic_sender(
-    span: Span,
-    base_time: Instant,
-    stop: StopSignal,
-    socket: UdpSocket,
-    shared_inner: Arc<SharedInner>,
-) -> JoinHandle<()> {
-    spawn(move || {
-        let _enter = span.enter();
-
-        let mut timeout = Duration::ZERO;
-
-        'outer: loop {
-            // Check if we're stopped
-            if stop.is_notified() {
-                break 'outer;
-            }
-
-            // Wait on Condvar
-            let foundation_mic = shared_inner
-                .foundation_mic_stream
-                .lock()
-                .expect("failed to lock on FoundationMicStream");
-            let (mut foundation_mic, _) = shared_inner
-                .foundation_mic_notify
-                .wait_timeout(foundation_mic, timeout)
-                .expect("failed to wait on FoundationMicStream");
-            let foundation_mic = foundation_mic
-                .as_mut()
-                .expect("failed to get FoundationMicStream");
-
-            // Handle sans io event loop
-            if let Err(err) = foundation_mic.handle_input(FoundationMicStreamInput::Timeout(
-                SInstant::from_std(base_time),
-            )) {
-                handle_error(&stop, err.into());
-                break 'outer;
-            }
-
-            loop {
-                let poll_output = match foundation_mic.poll_output() {
-                    Ok(value) => value,
-                    Err(err) => {
-                        handle_error(&stop, err.into());
-                        break 'outer;
-                    }
-                };
-
-                match poll_output {
-                    FoundationMicStreamOutput::Send { data } => {
-                        if let Err(err) = socket.send(data) {
-                            handle_error(&stop, err.into());
-                            break 'outer;
-                        }
-                    }
-                    FoundationMicStreamOutput::Timeout(wait_until) => {
-                        // Keep time lower or equal to 1 to allow for stopping this thread
-                        timeout = wait_until
-                            .duration_since(SInstant::from_std(base_time))
-                            .min(Duration::from_secs(1));
-                        break;
-                    }
-                }
-            }
-        }
-
-        debug!("stopped foundation_mic_send");
-    })
-}
-
-fn control_thread_sender(
-    span: Span,
-    base_time: Instant,
-    stop: StopSignal,
-    socket: Arc<UdpSocket>,
-    mut connection_listener: impl ConnectionListener + Send + 'static,
-    shared_inner: Arc<SharedInner>,
-    on_enet_connect: mpsc::Sender<()>,
-) -> JoinHandle<()> {
-    spawn(move || {
-        let _enter = span.enter();
-
-        let mut final_shutdown_timeout = None;
-
-        let mut timeout = Duration::ZERO;
-
-        'outer: loop {
-            let mut control_stream = shared_inner
-                .control_stream
-                .lock()
-                .expect("failed to get lock on ControlStream");
-            {
-                let control_stream = control_stream
-                    .as_mut()
-                    .expect("failed to get ControlStream");
-
-                // Check for shutdown
-                if let Some(final_shutdown_timeout) = final_shutdown_timeout
-                    && Instant::now() > final_shutdown_timeout
-                {
-                    warn!("failed to gracefully close the stream. exiting now");
-
-                    return;
-                }
-
-                if stop.is_notified() && final_shutdown_timeout.is_none() {
-                    // This will only get called once on shutdown
-                    final_shutdown_timeout = Some(Instant::now() + Duration::from_secs(10));
-
-                    // TODO: figure the disconnect code out
-                    if let Err(err) = control_stream.disconnect(0) {
-                        handle_error(&stop, err.into());
-                        break 'outer;
-                    }
-                }
-
-                if stop.is_notified() && control_stream.can_discard() {
-                    break 'outer;
-                }
-            }
-
-            // Wait on Condvar
-            let (mut control_stream, _) = shared_inner
-                .control_notify
-                .wait_timeout(control_stream, timeout)
-                .expect("failed to wait on ControlStream");
-            let control_stream = control_stream
-                .as_mut()
-                .expect("failed to get ControlStream");
-
-            // Do event loop for control stream
-            let deadline = loop {
-                if control_stream.can_discard() {
-                    debug!(
-                        "stopping control_thread_sender because the ControlStream can be discarded"
-                    );
-                    break 'outer;
-                }
-
-                let poll_output = match control_stream.poll_output() {
-                    Ok(value) => value,
-                    Err(err) => {
-                        handle_error(&stop, err.into());
-                        break 'outer;
-                    }
-                };
-
-                match poll_output {
-                    ControlStreamOutput::Action(ControlHostAction::SendUdp { addr, data }) => {
-                        if let Err(err) = socket.send_to(&data, addr) {
-                            handle_error(&stop, err.into());
-                            break 'outer;
-                        }
-                        continue;
-                    }
-                    ControlStreamOutput::Event(ControlStreamEvent::Connect) => {
-                        let _ = on_enet_connect.send(());
-                        continue;
-                    }
-                    ControlStreamOutput::Event(ControlStreamEvent::Packet(packet)) => {
-                        match packet {
-                            ControlPacket::HdrMode { enabled, sunshine } => {
-                                connection_listener.set_hdr_mode(enabled, sunshine);
+impl Inner {
+    fn run(
+        &self,
+        on_enet_connect: mpsc::Sender<()>,
+        mut video_decoder: impl VideoDecoder + Send + 'static,
+        mut audio_decoder: impl AudioDecoder + Send + 'static,
+        mut connection_listener: impl ConnectionListener + Send + 'static,
+    ) -> Result<(), MoonlightStreamError> {
+        let audio = info_span!("audio_stream");
+        let video = info_span!("video_stream");
+        let control = info_span!("control_stream");
+        let foundation_mic = info_span!("foundation_mic");
+
+        thread::scope::<_, Result<_, MoonlightStreamError>>(|scope| {
+            let audio_run = scope
+                .spawn(|| audio.in_scope(|| self.streams.audio.run().inspect_err(|_| self.stop())));
+            let audio_events = scope.spawn(|| {
+                audio.in_scope(|| {
+                    while let Some(event) = self.streams.audio.blocking_poll_event() {
+                        trace!(event = ?event, "event");
+
+                        match event {
+                            AudioStreamEvent::Connected => {
+                                audio_decoder.start();
                             }
-                            // TODO: add other host->client packets
-                            _ => {
-                                debug!(packet = ?packet, "received unrecognized packet by std implementation")
+                            AudioStreamEvent::Frame(frame) => {
+                                audio_decoder.decode_and_play_sample(AudioFrame {
+                                    timestamp: frame.timestamp,
+                                    buffer: &frame.buffer,
+                                });
                             }
                         }
-                        continue;
                     }
-                    ControlStreamOutput::Event(ControlStreamEvent::Disconnect) => {
-                        stop.stop();
-                        continue;
+                    audio_decoder.stop();
+                })
+            });
+
+            let video_run = scope
+                .spawn(|| video.in_scope(|| self.streams.video.run().inspect_err(|_| self.stop())));
+            let video_events = scope.spawn(|| {
+                video.in_scope(|| {
+                    while let Some(event) = self.streams.video.blocking_poll_event() {
+                        trace!(event = ?event, "event");
+
+                        match event {
+                            VideoStreamEvent::Connected => {
+                                video_decoder.start();
+                            }
+                            VideoStreamEvent::FrameAvailable => {
+                                self.streams.video.stream_mut(|stream| {
+                                    while let Some(frame) = stream.poll_frame() {
+                                        video_decoder.submit_decode_unit(frame);
+                                    }
+                                });
+                            }
+                            VideoStreamEvent::SignalIdr => {
+                                self.streams.control.stream_mut(|stream| {
+                                    let _ = stream.send_raw(ControlPacket::RequestIdr);
+                                });
+                            }
+                        }
                     }
-                    ControlStreamOutput::Action(ControlHostAction::Timeout(timeout)) => {
-                        break timeout;
+                    video_decoder.stop();
+                })
+            });
+
+            let control_run = scope.spawn(|| {
+                control.in_scope(|| self.streams.control.run().inspect_err(|_| self.stop()))
+            });
+            let control_events = scope.spawn(|| {
+                control.in_scope(|| {
+                    debug!("starting control events");
+
+                    let mut error_code = 0;
+
+                    while let Some(event) = self.streams.control.blocking_poll_event() {
+                        trace!(event = ?event, "event");
+
+                        match event {
+                            ControlStreamEvent::Connect => {
+                                let _ = on_enet_connect.send(());
+                            }
+                            ControlStreamEvent::Packet(control_packet) => match control_packet {
+                                // TODO: other control packets
+                                ControlPacket::ServerTermination { reason } => {
+                                    error_code = match reason {
+                                        TerminationReason::Long(reason) => reason as i32,
+                                        TerminationReason::Short(reason) => reason as i32,
+                                    };
+                                }
+                                _ => {}
+                            },
+                            ControlStreamEvent::Disconnect => {
+                                info!("stopping stream because control stream got disconnected");
+                                self.stopped.store(true, Ordering::Release);
+                                break;
+                            }
+                        }
                     }
-                }
-            };
 
-            timeout = deadline.saturating_duration_since(SInstant::from_std(base_time));
+                    connection_listener.connection_terminated(error_code);
 
-            // Will likely never happen, but we need to regularly check on the stop signal
-            timeout = timeout.min(Duration::from_secs(1));
+                    debug!("stopping control events");
+                })
+            });
+
+            let foundation_mic_run =
+                if let Some(stream_foundation_mic) = &self.streams.foundation_mic {
+                    Some(scope.spawn(|| {
+                        foundation_mic
+                            .in_scope(|| stream_foundation_mic.run().inspect_err(|_| self.stop()))
+                    }))
+                } else {
+                    None
+                };
+            // No need for foundation mic events, it's only sending
+
+            // -- Join all threads
+            let audio_run_res = audio_run.join();
+            let audio_events_res = audio_events.join();
+
+            let video_run_res = video_run.join();
+            let video_events_res = video_events.join();
+
+            let control_run_res = control_run.join();
+            let control_events_res = control_events.join();
+
+            let foundation_mic_res = foundation_mic_run.map(|x| x.join());
+
+            // -- Handle possible errors
+            audio_run_res.map_err(MoonlightStreamError::ThreadJoin)??;
+            audio_events_res.map_err(MoonlightStreamError::ThreadJoin)?;
+
+            video_run_res.map_err(MoonlightStreamError::ThreadJoin)??;
+            video_events_res.map_err(MoonlightStreamError::ThreadJoin)?;
+
+            control_run_res.map_err(MoonlightStreamError::ThreadJoin)??;
+            control_events_res.map_err(MoonlightStreamError::ThreadJoin)?;
+
+            foundation_mic_res
+                .transpose()
+                .map_err(MoonlightStreamError::ThreadJoin)?
+                .transpose()?;
+
+            Ok(())
+        })?;
+
+        self.stop();
+
+        Ok(())
+    }
+
+    fn stop(&self) {
+        // Stop self
+        self.stopped.store(true, Ordering::Release);
+
+        // Stop all streams
+        self.streams.audio.stop();
+        self.streams.video.stop();
+        self.streams.control.stop();
+        if let Some(foundation_mic) = &self.streams.foundation_mic {
+            foundation_mic.stop();
         }
-
-        debug!("stopped control_thread_sender");
-    })
-}
-
-fn control_thread_receiver(
-    span: Span,
-    base_time: Instant,
-    stop: StopSignal,
-    socket: Arc<UdpSocket>,
-    control: Arc<SharedInner>,
-) -> JoinHandle<()> {
-    spawn(move || {
-        let _enter = span.enter();
-
-        // This should be more than enough
-        let mut recv_buffer = vec![0; 2048];
-
-        // Set read timeout to regularly check for the stop signal
-        if let Err(err) = socket.set_read_timeout(Some(Duration::from_secs(1))) {
-            handle_error(&stop, err.into());
-            return;
-        }
-
-        let mut final_shutdown_timeout = None;
-
-        loop {
-            // Check if this thread needs to shutdown
-            if let Some(final_shutdown_timeout) = final_shutdown_timeout
-                && Instant::now() > final_shutdown_timeout
-            {
-                warn!("failed to gracefully close the stream. exiting now");
-
-                return;
-            }
-
-            if stop.is_notified() && final_shutdown_timeout.is_none() {
-                final_shutdown_timeout = Some(Instant::now() + Duration::from_secs(10));
-            }
-
-            // Receive data and create input
-            let input = match socket.recv_from(&mut recv_buffer) {
-                Ok((len, addr)) => ControlStreamInput::Receive {
-                    now: SInstant::from_std(base_time),
-                    addr,
-                    data: &mut recv_buffer[0..len],
-                },
-                Err(err)
-                    if matches!(
-                        err.kind(),
-                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    // handles read timeout
-                    ControlStreamInput::Timeout(SInstant::from_std(base_time))
-                }
-                Err(err) => {
-                    handle_error(&stop, err.into());
-                    break;
-                }
-            };
-
-            {
-                // Give input into ControlStream
-                let mut control_stream = control
-                    .control_stream
-                    .lock()
-                    .expect("failed to get lock on ControlStream");
-                let control_stream = control_stream
-                    .as_mut()
-                    .expect("failed to get ControlStream");
-
-                if let Err(err) = control_stream.handle_input(input) {
-                    handle_error(&stop, err.into());
-                    break;
-                }
-
-                // Check if we can discard the control stream
-                if stop.is_notified() && control_stream.can_discard() {
-                    break;
-                }
-            }
-        }
-
-        debug!("stopped control_thread_receiver");
-    })
+    }
 }

@@ -125,7 +125,7 @@ impl FoundationMicPayloader {
             .unwrap_or_else(|| vec![0; len])
     }
 
-    pub fn poll_packet(&mut self) -> Result<Option<&[u8]>, FoundationMicPayloaderError> {
+    pub fn poll_packet(&mut self) -> Option<&[u8]> {
         if let Some(old_packet) = self.current_packet.take() {
             self.unused.push(old_packet);
         }
@@ -136,9 +136,9 @@ impl FoundationMicPayloader {
             // The value was just set to some, this cannot fail
             #[allow(clippy::unwrap_used)]
             let packet = self.current_packet.as_ref().unwrap();
-            Ok(Some(packet))
+            Some(packet)
         } else {
-            Ok(None)
+            None
         }
     }
 }
