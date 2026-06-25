@@ -101,6 +101,7 @@ where
             if len != 0 {
                 // We were blocked to see if this thread should stop
             } else if let Some((pending_addr, pending_send)) = stream.pending_send() {
+                #[cfg(debug_assertions)]
                 trace!(pending_send = ?pending_send, "got pending sending buffer");
 
                 addr = pending_addr;
@@ -110,16 +111,19 @@ where
                 stream.consume_send();
             } else {
                 // Wait for pending packet
+                #[cfg(debug_assertions)]
                 trace!("waiting for change of stream");
                 stream = self.stream_condvar.wait(stream).expect("wait on stream");
                 continue;
             }
             drop(stream);
 
+            #[cfg(debug_assertions)]
             trace!("sending packet");
             // Send packet
             match self.socket.send_to(&buffer[0..len], addr) {
                 Ok(_) => {
+                    #[cfg(debug_assertions)]
                     trace!(packet = &buffer[0..len], "successfully sent packet");
                     // Submit packet using len = 0
                     len = 0;
@@ -136,6 +140,7 @@ where
                 }
                 Err(err) => return Err(err.into()),
             }
+            #[cfg(debug_assertions)]
             trace!("finished sending packet");
 
             // Re-lock stream
@@ -175,6 +180,7 @@ where
                 break;
             }
 
+            #[cfg(debug_assertions)]
             trace!(packet = ?buffer[0..len], "received packet");
 
             let mut stream = self.stream.lock().expect("lock stream failed");
@@ -206,6 +212,7 @@ where
                     // Make sure that the other threads can have access
                     .unwrap_or(Duration::from_millis(1));
 
+                #[cfg(debug_assertions)]
                 trace!(timeout = ?timeout, "waiting on stream");
 
                 let (new_stream, result) = self
@@ -215,6 +222,7 @@ where
                 stream = new_stream;
 
                 if result.timed_out() {
+                    #[cfg(debug_assertions)]
                     trace!("handling timeout");
 
                     stream
@@ -222,9 +230,11 @@ where
                         .map_err(MoonlightStreamError::from)?;
                     self.stream_condvar.notify_all();
                 } else {
+                    #[cfg(debug_assertions)]
                     trace!("not handling timeout because the timeout wasn't reached");
                 }
             } else {
+                #[cfg(debug_assertions)]
                 trace!("waiting on stream without timeout");
 
                 stream = self.stream_condvar.wait(stream).expect("wait on stream");
@@ -246,9 +256,11 @@ where
             if let Some(event) = stream.poll_event() {
                 return Some(event);
             } else {
+                #[cfg(debug_assertions)]
                 trace!("no events found");
             }
 
+            #[cfg(debug_assertions)]
             trace!("waiting on stream for events");
             stream = self
                 .stream_condvar
