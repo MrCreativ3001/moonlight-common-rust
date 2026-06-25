@@ -14,6 +14,7 @@ use num::FromPrimitive;
 use crate::stream::{
     c::bindings::{ConnectionStatus, Stage},
     connection::ConnectionListener,
+    control::MotionType,
     video::{Primary, SunshineHdrMetadata},
 };
 
@@ -166,7 +167,13 @@ unsafe extern "C" fn controller_set_motion_event_state(
     report_rate_hz: c_ushort,
 ) {
     global_listener(|(listener, _)| {
-        listener.controller_set_motion_event_state(controller_number, motion_type, report_rate_hz);
+        if let Some(motion_type) = MotionType::from_i8(motion_type as i8) {
+            listener.controller_set_motion_event_state(
+                controller_number,
+                motion_type,
+                report_rate_hz,
+            );
+        }
     })
 }
 unsafe extern "C" fn controller_set_led(controller_number: u16, r: u8, g: u8, b: u8) {

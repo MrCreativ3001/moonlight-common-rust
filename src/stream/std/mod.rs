@@ -39,6 +39,8 @@ use crate::stream::{
 
 mod driver;
 
+// TODO: how to handle graceful shutdown??
+
 #[derive(Debug, Error)]
 pub enum MoonlightStreamError {
     #[error("io: {0}")]
@@ -174,7 +176,7 @@ impl MoonlightStream {
                     audio_decoder.setup(AudioConfig::STEREO, config);
 
                     debug_assert!(audio_stream.is_none());
-                    audio_stream = Some(SyncUdpDriver::connect(base_time, addr, new_audio_stream)?);
+                    audio_stream = Some(SyncUdpDriver::bind(base_time, new_audio_stream)?);
                 }
                 MoonlightStreamSetupOutput::StartVideoStream {
                     addr,
@@ -184,23 +186,21 @@ impl MoonlightStream {
                     video_decoder.setup(setup);
 
                     debug_assert!(video_stream.is_none());
-                    video_stream = Some(SyncUdpDriver::connect(base_time, addr, new_video_stream)?);
+                    video_stream = Some(SyncUdpDriver::bind(base_time, new_video_stream)?);
                 }
                 MoonlightStreamSetupOutput::FoundationStartMic {
                     addr,
                     mic_stream: new_mic_stream,
                 } => {
                     debug_assert!(foundation_mic_stream.is_none());
-                    foundation_mic_stream =
-                        Some(SyncUdpDriver::connect(base_time, addr, new_mic_stream)?);
+                    foundation_mic_stream = Some(SyncUdpDriver::bind(base_time, new_mic_stream)?);
                 }
                 MoonlightStreamSetupOutput::StartControlStream {
                     addr,
                     control_stream: new_control_stream,
                 } => {
                     debug_assert!(control_stream.is_none());
-                    control_stream =
-                        Some(SyncUdpDriver::connect(base_time, addr, new_control_stream)?);
+                    control_stream = Some(SyncUdpDriver::bind(base_time, new_control_stream)?);
                 }
                 MoonlightStreamSetupOutput::Connected { features } => {
                     host_features = features;
@@ -422,7 +422,34 @@ impl Inner {
                                 let _ = on_enet_connect.send(());
                             }
                             ControlStreamEvent::Packet(control_packet) => match control_packet {
-                                // TODO: other control packets
+                                // TODO: implement other packets
+                                ControlPacket::HdrMode { enabled, sunshine } => {
+                                    connection_listener.set_hdr_mode(enabled, sunshine);
+                                }
+                                ControlPacket::ControllerSetLed {
+                                    controller_number,
+                                    r,
+                                    g,
+                                    b,
+                                } => {
+                                    connection_listener.controller_set_led(
+                                        controller_number,
+                                        r,
+                                        g,
+                                        b,
+                                    );
+                                }
+                                ControlPacket::ControllerSetMotion {
+                                    controller_number,
+                                    rate,
+                                    motion_type,
+                                } => {
+                                    connection_listener.controller_set_motion_event_state(
+                                        controller_number,
+                                        motion_type,
+                                        rate,
+                                    );
+                                }
                                 ControlPacket::ServerTermination { reason } => {
                                     error_code = match reason {
                                         TerminationReason::Long(reason) => reason as i32,

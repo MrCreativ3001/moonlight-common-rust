@@ -1,8 +1,6 @@
-use crate::stream::video::SunshineHdrMetadata;
+use crate::stream::{control::MotionType, video::SunshineHdrMetadata};
 
 pub trait ConnectionListener {
-    // TODO: add on stop / fail function?
-
     /// This callback is invoked to notify the client of a change in HDR mode on
     /// the host. The client will probably want to update the local display mode
     /// to match the state of HDR on the host. This callback may be invoked even
@@ -10,7 +8,9 @@ pub trait ConnectionListener {
     ///
     /// See also:
     /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L963-L988>
-    fn set_hdr_mode(&mut self, enabled: bool, sunshine: Option<SunshineHdrMetadata>);
+    fn set_hdr_mode(&mut self, enabled: bool, sunshine: Option<SunshineHdrMetadata>) {
+        let _ = (enabled, sunshine);
+    }
 
     /// This callback is invoked to rumble a gamepad. The rumble effect values
     /// set in this callback are expected to persist until a future call sets a
@@ -22,7 +22,9 @@ pub trait ConnectionListener {
         controller_number: u16,
         low_frequency_motor: u16,
         high_frequency_motor: u16,
-    );
+    ) {
+        let _ = (controller_number, low_frequency_motor, high_frequency_motor);
+    }
 
     /// This callback is invoked to rumble a gamepad's triggers. For more details,
     /// see the comment above on ConnListenerRumble().
@@ -31,7 +33,9 @@ pub trait ConnectionListener {
         controller_number: u16,
         left_trigger_motor: u16,
         right_trigger_motor: u16,
-    );
+    ) {
+        let _ = (controller_number, left_trigger_motor, right_trigger_motor);
+    }
 
     /// This callback is invoked to notify the client that the host would like motion
     /// sensor reports for the specified gamepad (see LiSendControllerMotionEvent())
@@ -41,9 +45,11 @@ pub trait ConnectionListener {
     fn controller_set_motion_event_state(
         &mut self,
         controller_number: u16,
-        motion_type: u8,
+        motion_type: MotionType,
         report_rate_hz: u16,
-    );
+    ) {
+        let _ = (controller_number, motion_type, report_rate_hz);
+    }
 
     /// This callback is invoked to notify the client of a change in the dualsense
     /// adaptive trigger configuration.
@@ -55,10 +61,21 @@ pub trait ConnectionListener {
         type_right: u8,
         left: &mut u8,
         right: &mut u8,
-    );
+    ) {
+        let _ = (
+            controller_number,
+            event_flags,
+            type_left,
+            type_right,
+            left,
+            right,
+        );
+    }
 
     /// This callback is invoked to set a controller's RGB LED (if present).
-    fn controller_set_led(&mut self, controller_number: u16, r: u8, g: u8, b: u8);
+    fn controller_set_led(&mut self, controller_number: u16, r: u8, g: u8, b: u8) {
+        let _ = (controller_number, r, g, b);
+    }
 
     // TODO: use the termination code from packet.rs
     // This callback is invoked when a connection is terminated after establishment.
@@ -67,5 +84,7 @@ pub trait ConnectionListener {
     // non-zero, it means the termination was probably unexpected (loss of network,
     // crash, or similar conditions). This will not be invoked as a result of a call
     // to LiStopConnection() or LiInterruptConnection().
-    fn connection_terminated(&mut self, error_code: i32);
+    fn connection_terminated(&mut self, error_code: i32) {
+        let _ = error_code;
+    }
 }

@@ -5,7 +5,7 @@
 // Mic receive: https://github.com/AlkaidLab/foundation-sunshine/blob/013388962e547698b34a1e6087f44b1ec2b58d17/src/stream.cpp#L1659-L1925
 // Client impl: https://github.com/moonlight-stream/moonlight-common-c/pull/123/changes
 
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, net::SocketAddr, time::Duration};
 
 use sans_io_time::Instant;
 
@@ -22,7 +22,7 @@ use crate::stream::{
                 FoundationMicPayloader, FoundationMicPayloaderConfig, FoundationMicPayloaderError,
             },
         },
-        stream::UdpStream,
+        runtime::UdpStream,
     },
 };
 
@@ -46,12 +46,14 @@ pub enum FoundationMicStreamError {
 
 #[derive(Debug)]
 pub struct FoundationMicStreamConfig {
+    pub addr: SocketAddr,
     /// If [Some] the mic stream is encrypted.
     pub encryption: Option<SunshineEncryption>,
 }
 
 #[derive(Debug)]
 pub struct FoundationMicStream {
+    addr: SocketAddr,
     payloader: FoundationMicPayloader,
     current_packet: Vec<u8>,
 }
@@ -64,6 +66,7 @@ impl FoundationMicStream {
         crypto_backend: DynCryptoBackend,
     ) -> Self {
         Self {
+            addr: config.addr,
             payloader: FoundationMicPayloader::new(
                 FoundationMicPayloaderConfig {
                     encryption: config.encryption,
@@ -98,9 +101,9 @@ impl UdpStream for FoundationMicStream {
 
     type Event = Infallible;
 
-    fn pending_send(&self) -> Option<&[u8]> {
+    fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
         if !self.current_packet.is_empty() {
-            Some(&self.current_packet)
+            Some((self.addr, &self.current_packet))
         } else {
             None
         }
@@ -119,7 +122,12 @@ impl UdpStream for FoundationMicStream {
         None
     }
 
-    fn handle_receive(&mut self, _now: Instant, _data: &[u8]) -> Result<(), Self::Error> {
+    fn handle_receive(
+        &mut self,
+        _now: Instant,
+        _addr: SocketAddr,
+        _data: &[u8],
+    ) -> Result<(), Self::Error> {
         Ok(())
     }
 

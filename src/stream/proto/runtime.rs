@@ -13,14 +13,19 @@ pub trait UdpStream: Send + Sync {
 
     type Event;
 
-    fn pending_send(&self) -> Option<&[u8]>;
+    fn pending_send(&self) -> Option<(SocketAddr, &[u8])>;
     fn consume_send(&mut self);
 
     fn poll_timeout(&self) -> Option<Instant>;
 
     fn poll_event(&mut self) -> Option<Self::Event>;
 
-    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error>;
+    fn handle_receive(
+        &mut self,
+        now: Instant,
+        addr: SocketAddr,
+        data: &[u8],
+    ) -> Result<(), Self::Error>;
 
     fn handle_timeout(&mut self, now: Instant) -> Result<(), Self::Error>;
 }
@@ -32,9 +37,8 @@ pub trait Runtime {
 
     fn sleep_until(&self, deadline: Instant) -> impl Future<Output = ()>;
 
-    fn connect_udp_socket(
+    fn bind_udp_socket(
         &self,
-        addr: SocketAddr,
     ) -> impl Future<Output = Result<Self::Socket, <Self::Socket as AsyncUdpSocket>::Error>>;
 }
 
@@ -44,13 +48,16 @@ pub trait AsyncUdpSocket: Sized {
     /// # Cancel Safety
     /// This function is cancel safe.
     /// If it is cancelled no packet was consumed.
-    fn recv(&self, buffer: &mut [u8]) -> impl Future<Output = Result<usize, Self::Error>>;
+    fn recv(
+        &self,
+        buffer: &mut [u8],
+    ) -> impl Future<Output = Result<(SocketAddr, usize), Self::Error>>;
 
     /// # Cancel Safety
     /// This function is cancel safe.
     fn writable(&self) -> impl Future<Output = Result<(), Self::Error>>;
 
-    fn try_send(&self, buffer: &[u8]) -> Result<bool, Self::Error>;
+    fn try_send(&self, addr: SocketAddr, buffer: &[u8]) -> Result<bool, Self::Error>;
 }
 
 pub struct AsyncUdpDriver<Rt, Stream>
@@ -70,10 +77,9 @@ where
 {
     pub async fn connect(
         runtime: Rt,
-        addr: SocketAddr,
         stream: Stream,
     ) -> Result<Self, <Rt::Socket as AsyncUdpSocket>::Error> {
-        let socket = runtime.connect_udp_socket(addr).await?;
+        let socket = runtime.bind_udp_socket().await?;
 
         Ok(Self {
             runtime,
@@ -118,17 +124,17 @@ where
                 result = writable.fuse() => {
                     result?;
 
-                    while let Some(pending_send) = self.stream.pending_send() {
-                        if !self.socket.try_send(pending_send)? {
+                    while let Some((addr,pending_send)) = self.stream.pending_send() {
+                        if !self.socket.try_send(addr, pending_send)? {
                             break;
                         }
                         self.stream.consume_send();
                     }
                 },
                 result = self.socket.recv(&mut self.read_buffer).fuse() => {
-                    let len = result?;
+                    let (addr, len) = result?;
 
-                    self.stream.handle_receive(self.runtime.now(), &self.read_buffer[0..len])?;
+                    self.stream.handle_receive(self.runtime.now(), addr, &self.read_buffer[0..len])?;
                 }
                 _ = timeout.fuse() => {
                     self.stream.handle_timeout(self.runtime.now())?;

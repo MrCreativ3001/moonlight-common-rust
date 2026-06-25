@@ -10,7 +10,7 @@ use sans_io_time::Instant;
 
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument};
+use tracing::{Level, debug, info, instrument, trace};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -25,7 +25,7 @@ use crate::{
             },
             packet::SunshinePing,
             ping::{PingSender, PingSenderConfig, PingSenderState},
-            stream::UdpStream,
+            runtime::UdpStream,
         },
     },
 };
@@ -66,6 +66,7 @@ pub enum AudioStreamEvent {
 }
 
 pub struct AudioStream {
+    addr: SocketAddr,
     last_frame: Instant,
     dropped_frames: bool,
     ping_sender: PingSender,
@@ -83,6 +84,7 @@ impl AudioStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
+            addr: config.addr,
             last_frame: now,
             dropped_frames: true,
             ping_sender: PingSender::new(
@@ -145,8 +147,8 @@ impl UdpStream for AudioStream {
 
     type Event = AudioStreamEvent;
 
-    fn pending_send(&self) -> Option<&[u8]> {
-        self.ping_sender.pending_send()
+    fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
+        self.ping_sender.pending_send().map(|x| (self.addr, x))
     }
     fn consume_send(&mut self) {
         self.ping_sender.consume_send();
@@ -164,7 +166,17 @@ impl UdpStream for AudioStream {
         self.events.pop_front()
     }
 
-    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error> {
+    fn handle_receive(
+        &mut self,
+        now: Instant,
+        addr: SocketAddr,
+        data: &[u8],
+    ) -> Result<(), Self::Error> {
+        if self.addr != addr {
+            trace!(stream_addr = %self.addr, recv_addr = %addr, "received packet from non stream address");
+            return Ok(());
+        }
+
         self.depayloader.handle_packet(data)?;
 
         if !matches!(self.ping_sender.state(), PingSenderState::Finished) {

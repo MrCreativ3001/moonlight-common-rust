@@ -317,6 +317,7 @@ impl ControlHost {
         Ok(())
     }
 
+    // TODO: implement UdpStream for ControlHost
     pub fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
         self.host.pending_send()
     }

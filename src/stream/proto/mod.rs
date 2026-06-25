@@ -68,7 +68,7 @@ pub mod microphone;
 pub mod ping;
 pub mod video;
 
-pub mod stream;
+pub mod runtime;
 
 pub mod rtsp;
 pub mod sdp;
@@ -454,6 +454,7 @@ impl MoonlightStreamSetup {
                             let video_stream = VideoStream::new(
                                 self.last_now,
                                 VideoStreamConfig {
+                                    addr,
                                     queue: VideoDepayloaderConfig {
                                         server_version: self.server_version,
                                         // Packet size will always exist
@@ -524,6 +525,7 @@ impl MoonlightStreamSetup {
                             let mic_stream = FoundationMicStream::new(
                                 self.last_now,
                                 FoundationMicStreamConfig {
+                                    addr,
                                     encryption: encrypted.then_some(self.client_config.encryption),
                                 },
                                 self.crypto_backend.clone(),

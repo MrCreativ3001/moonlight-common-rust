@@ -31,8 +31,8 @@ use crate::{
                 },
             },
             enet::EnetError,
+            runtime::UdpStream,
             soonest,
-            stream::UdpStream,
         },
     },
 };
@@ -429,8 +429,8 @@ impl UdpStream for ControlStream {
 
     type Event = ControlStreamEvent;
 
-    fn pending_send(&self) -> Option<&[u8]> {
-        self.host.pending_send().map(|(_, bytes)| bytes)
+    fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
+        self.host.pending_send()
     }
 
     fn consume_send(&mut self) {
@@ -455,8 +455,18 @@ impl UdpStream for ControlStream {
         self.events.pop_front()
     }
 
-    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error> {
-        self.host.handle_receive(now, self.addr, data)?;
+    fn handle_receive(
+        &mut self,
+        now: Instant,
+        addr: SocketAddr,
+        data: &[u8],
+    ) -> Result<(), Self::Error> {
+        if self.addr != addr {
+            trace!(stream_addr = %self.addr, recv_addr = %addr, "received packet from non stream address");
+            return Ok(());
+        }
+
+        self.host.handle_receive(now, addr, data)?;
 
         self.do_update(now)?;
 

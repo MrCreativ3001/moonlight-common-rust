@@ -182,7 +182,7 @@ fn main() {
     }
 
     // Wait some time to stop the stream
-    sleep(Duration::from_secs(20));
+    sleep(Duration::from_secs(100));
 
     // Stop the stream: this will block
     // Dropping the [MoonlightStream] will also stop the stream without blocking the current thread

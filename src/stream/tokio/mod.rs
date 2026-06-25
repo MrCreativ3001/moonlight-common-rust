@@ -36,7 +36,7 @@ use crate::stream::{
             FoundationMicStream, FoundationMicStreamError, FoundationMicStreamInput,
             FoundationMicStreamOutput,
         },
-        stream::{AsyncUdpDriver, AsyncUdpSocket, Runtime},
+        runtime::{AsyncUdpDriver, AsyncUdpSocket, Runtime},
         video::{VideoStreamError, VideoStreamEvent, VideoStreamInput, VideoStreamOutput},
     },
     tokio::signal::StopSignal,

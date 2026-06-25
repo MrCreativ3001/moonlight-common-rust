@@ -1,4 +1,4 @@
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant as StdInstant};
@@ -7,12 +7,11 @@ use std::{io, thread};
 use sans_io_time::Instant;
 use tracing::{Level, Span, debug, instrument, trace};
 
-use crate::stream::{proto::stream::UdpStream, std::MoonlightStreamError};
+use crate::stream::{proto::runtime::UdpStream, std::MoonlightStreamError};
 
 const UDP_BUFFER_CAPACITY: usize = 4096;
 
 pub struct SyncUdpDriver<Stream> {
-    addr: SocketAddr,
     socket: UdpSocket,
     base_time: StdInstant,
     stream_condvar: Condvar,
@@ -25,15 +24,10 @@ where
     Stream: UdpStream,
     MoonlightStreamError: From<Stream::Error>,
 {
-    pub fn connect(
-        base_time: StdInstant,
-        addr: SocketAddr,
-        stream: Stream,
-    ) -> Result<Self, io::Error> {
+    pub fn bind(base_time: StdInstant, stream: Stream) -> Result<Self, io::Error> {
         let socket = UdpSocket::bind("0.0.0.0:0")?;
 
         Ok(Self {
-            addr,
             socket,
             base_time,
             stream_condvar: Condvar::new(),
@@ -92,6 +86,7 @@ where
 
         // This handles sending packets
 
+        let mut addr = SocketAddr::new(Ipv4Addr::new(0, 0, 0, 0).into(), 0);
         let mut len = 0;
         let mut buffer = vec![0; UDP_BUFFER_CAPACITY];
         let mut stream = self.stream.lock().expect("lock stream failed");
@@ -105,9 +100,10 @@ where
 
             if len != 0 {
                 // We were blocked to see if this thread should stop
-            } else if let Some(pending_send) = stream.pending_send() {
+            } else if let Some((pending_addr, pending_send)) = stream.pending_send() {
                 trace!(pending_send = ?pending_send, "got pending sending buffer");
 
+                addr = pending_addr;
                 len = pending_send.len();
                 buffer[0..len].copy_from_slice(pending_send);
 
@@ -122,7 +118,7 @@ where
 
             trace!("sending packet");
             // Send packet
-            match self.socket.send_to(&buffer[0..len], self.addr) {
+            match self.socket.send_to(&buffer[0..len], addr) {
                 Ok(_) => {
                     trace!(packet = &buffer[0..len], "successfully sent packet");
                     // Submit packet using len = 0
@@ -179,14 +175,10 @@ where
                 break;
             }
 
-            if addr != self.addr {
-                // Discard packet
-                continue;
-            }
             trace!(packet = ?buffer[0..len], "received packet");
 
             let mut stream = self.stream.lock().expect("lock stream failed");
-            stream.handle_receive(Instant::from_std(self.base_time), &buffer[0..len])?;
+            stream.handle_receive(Instant::from_std(self.base_time), addr, &buffer[0..len])?;
 
             self.stream_condvar.notify_all();
         }

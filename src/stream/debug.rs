@@ -4,6 +4,7 @@ use crate::stream::{
     AudioConfig, VideoFormats,
     audio::{AudioDecoder, AudioFrame, OpusMultistreamConfig},
     connection::ConnectionListener,
+    control::MotionType,
     video::{
         DecodeResult, SunshineHdrMetadata, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
         VideoSetup,
@@ -102,7 +103,7 @@ impl ConnectionListener for NullListener {
     fn controller_set_motion_event_state(
         &mut self,
         controller_number: u16,
-        motion_type: u8,
+        motion_type: MotionType,
         report_rate_hz: u16,
     ) {
         let _ = (controller_number, motion_type, report_rate_hz);
@@ -160,7 +161,7 @@ impl ConnectionListener for DebugListener {
     fn controller_set_motion_event_state(
         &mut self,
         controller_number: u16,
-        motion_type: u8,
+        motion_type: MotionType,
         report_rate_hz: u16,
     ) {
         let _ = (controller_number, motion_type, report_rate_hz);

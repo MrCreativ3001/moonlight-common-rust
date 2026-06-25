@@ -1,13 +1,14 @@
 use std::{
     collections::{HashMap, VecDeque},
     fmt::{self, Debug, Formatter},
+    net::SocketAddr,
     time::Duration,
 };
 
 use sans_io_time::Instant;
 
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument};
+use tracing::{Level, debug, info, instrument, trace};
 
 use crate::stream::{
     AesKey,
@@ -16,7 +17,7 @@ use crate::stream::{
         crypto::CryptoError,
         packet::SunshinePing,
         ping::{PingSender, PingSenderConfig, PingSenderState},
-        stream::UdpStream,
+        runtime::UdpStream,
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
             packet::FrameType,
@@ -59,6 +60,7 @@ pub enum VideoStreamEvent {
 
 #[derive(Debug, Clone)]
 pub struct VideoStreamConfig {
+    pub addr: SocketAddr,
     pub queue: VideoDepayloaderConfig,
     pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
@@ -70,6 +72,7 @@ pub struct VideoStream {
     crypto_backend: DynCryptoBackend,
     #[allow(unused)]
     aes_key: Option<AesKey>,
+    addr: SocketAddr,
     last_now: Instant,
     ping_sender: PingSender,
     depayloader: VideoDepayloader,
@@ -89,6 +92,7 @@ impl VideoStream {
         Self {
             crypto_backend,
             aes_key: config.sunshine_encryption,
+            addr: config.addr,
             last_now: now,
             ping_sender: PingSender::new(
                 now,
@@ -284,8 +288,8 @@ impl UdpStream for VideoStream {
 
     type Event = VideoStreamEvent;
 
-    fn pending_send(&self) -> Option<&[u8]> {
-        self.ping_sender.pending_send()
+    fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
+        self.ping_sender.pending_send().map(|x| (self.addr, x))
     }
     fn consume_send(&mut self) {
         self.ping_sender.consume_send()
@@ -308,10 +312,22 @@ impl UdpStream for VideoStream {
         Ok(())
     }
 
-    fn handle_receive(&mut self, now: Instant, data: &[u8]) -> Result<(), Self::Error> {
+    fn handle_receive(
+        &mut self,
+        now: Instant,
+        addr: SocketAddr,
+        data: &[u8],
+    ) -> Result<(), Self::Error> {
         self.last_now = now;
 
         self.ping_sender.handle_timeout(now);
+
+        if self.addr != addr {
+            self.update(now)?;
+
+            trace!(stream_addr = %self.addr, recv_addr = %addr, "received packet from non stream address");
+            return Ok(());
+        }
 
         if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
             info!(now = ?now, "received first video packet");
