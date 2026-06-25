@@ -235,7 +235,7 @@ where
     }
 
     /// Returns [None] if the stream was stopped
-    pub fn blocking_poll_event(&self) -> Option<Stream::Event> {
+    pub fn blocking_next_event(&self) -> Option<Stream::Event> {
         let mut stream = self.stream.lock().expect("lock stream failed");
 
         loop {

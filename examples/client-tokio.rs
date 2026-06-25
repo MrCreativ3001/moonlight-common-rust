@@ -1,8 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{sync::Arc, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
-use async_trait::async_trait;
 use clap::Parser;
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
@@ -15,15 +14,25 @@ use moonlight_common::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::{AudioConfig, AudioDecoder, AudioFrame, OpusMultistreamConfig},
         control::ActiveGamepads,
-        proto::control::{input_batcher::ClientInputEvent, packet::ControlPacket},
-        tokio::{MoonlightStream, MoonlightStreamError, MoonlightStreamHandler},
+        proto::{
+            MoonlightStreamSetup,
+            audio::AudioStreamEvent,
+            control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
+            runtime::{ConnectedStream, connect_stream},
+            video::VideoStreamEvent,
+        },
+        tokio::{MoonlightStreamError, TokioRuntime},
         video::{
-            ColorRange, ColorSpace, DecodeResult, VideoDecodeUnit, VideoDecoder, VideoFormats,
-            VideoSetup,
+            ColorRange, ColorSpace, DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
+            VideoFormats, VideoSetup,
         },
     },
 };
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{
+    select, spawn,
+    sync::{Mutex, mpsc},
+    time::sleep,
+};
 use tracing::info;
 
 use crate::common::{
@@ -145,14 +154,11 @@ async fn main() {
         )
         .unwrap();
 
-    // -- Create a handler struct that'll handle all events for the stream
+    // -- Create media pipelines
     gstreamer::init().unwrap();
 
-    let handler = Arc::new(StreamHandler {
-        // normally you should use tokio in io heavy scenarios, but in this example it's just passing data into a decoder
-        video_decoder: Mutex::new(GStreamerVideoDecoder::new().unwrap()),
-        audio_decoder: Mutex::new(GStreamerAudioDecoder::new().unwrap()),
-    });
+    let mut audio_decoder = GStreamerAudioDecoder::new().unwrap();
+    let mut video_decoder = GStreamerVideoDecoder::new().unwrap();
 
     // -- Start Stream
     // Generate an aes key and aes iv
@@ -166,16 +172,117 @@ async fn main() {
             &settings,
             aes_key,
             aes_iv,
-            MoonlightStream::launch_query_parameters(),
+            MoonlightStreamSetup::launch_query_parameters(),
         )
         .await
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream = MoonlightStream::connect(config, settings, Arc::new(crypto_backend) as _, handler)
-        .await
-        .unwrap();
-    let stream = Arc::new(stream);
+    let ConnectedStream {
+        host_features,
+        audio_setup,
+        mut audio_stream,
+        video_setup,
+        mut video_stream,
+        mut control_stream,
+        foundation_mic_stream: _,
+    } = connect_stream(
+        &TokioRuntime::new(),
+        config,
+        settings,
+        Arc::new(crypto_backend),
+        VideoCapabilities::default(),
+    )
+    .await
+    .unwrap();
+
+    // Setup and start the decoders
+    // TODO: replace stereo audio config
+    audio_decoder.setup(AudioConfig::STEREO, audio_setup);
+    video_decoder.setup(video_setup);
+
+    // -- Start individual tasks for each stream
+    let (input_sender, mut input_receiver) = mpsc::channel(10);
+    let (packet_sender, mut packet_receiver) = mpsc::channel(10);
+
+    // Audio
+    spawn(async move {
+        loop {
+            match audio_stream
+                .next_event::<MoonlightStreamError>()
+                .await
+                .unwrap()
+            {
+                AudioStreamEvent::Connected => {
+                    audio_decoder.start();
+                }
+                AudioStreamEvent::Frame(frame) => {
+                    audio_decoder.decode_and_play_sample(AudioFrame {
+                        timestamp: frame.timestamp,
+                        buffer: &frame.buffer,
+                    });
+                }
+            }
+        }
+    });
+
+    // Video
+    spawn(async move {
+        loop {
+            match video_stream
+                .next_event::<MoonlightStreamError>()
+                .await
+                .unwrap()
+            {
+                VideoStreamEvent::Connected => {
+                    video_decoder.start();
+                }
+                VideoStreamEvent::FrameAvailable => {
+                    while let Some(frame) = video_stream.stream_mut().poll_frame() {
+                        video_decoder.submit_decode_unit(frame);
+                    }
+                }
+                VideoStreamEvent::SignalIdr => {
+                    packet_sender.send(ControlPacket::RequestIdr).await.unwrap();
+                }
+            }
+        }
+    });
+
+    // Control
+    spawn(async move {
+        loop {
+            select! {
+                result = control_stream.next_event::<MoonlightStreamError>() => {
+                    let event = result.unwrap();
+
+                    match event {
+                        ControlStreamEvent::Packet(packet) => {
+                            info!(packet = ?packet, "received packet");
+                        }
+                        ControlStreamEvent::Disconnect => {
+                            info!("control stream disconnect");
+                            // TODO: how to notify the other streams to stop?
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                packet = packet_receiver.recv(), if !packet_receiver.is_closed() =>{
+                    if let Some(packet) = packet {
+                        control_stream.stream_mut().send_raw(packet).unwrap();
+                    }
+                }
+                input = input_receiver.recv(), if !input_receiver.is_closed() =>{
+                    if let Some(input) = input {
+                        control_stream.stream_mut().batch_input(input).unwrap();
+                    }
+                }
+            }
+        }
+    });
+
+    // -- Use the stream
 
     // Move the cursor from the left side to the right side of the screen
     info!("starting mouse test");
@@ -183,8 +290,8 @@ async fn main() {
         // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
         // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/80
         // However this is just a simple example so we don't care
-        stream
-            .send_input(ClientInputEvent::MouseMoveAbsolute {
+        input_sender
+            .send(ClientInputEvent::MouseMoveAbsolute {
                 x: i,
                 y: 50,
                 reference_width: 100,
@@ -201,71 +308,6 @@ async fn main() {
     sleep(Duration::from_secs(20)).await;
 
     // Stop the stream
-    stream.stop().await;
-}
-
-struct StreamHandler {
-    video_decoder: Mutex<GStreamerVideoDecoder>,
-    audio_decoder: Mutex<GStreamerAudioDecoder>,
-}
-
-#[async_trait]
-impl MoonlightStreamHandler for StreamHandler {
-    async fn setup_video(&self, setup: VideoSetup) -> Result<(), MoonlightStreamError> {
-        let mut video_decoder = self.video_decoder.lock().await;
-
-        if video_decoder.setup(setup) != 0 {
-            // TODO: throw error
-            todo!();
-        }
-
-        // TODO: call start on first frame receive
-        video_decoder.start();
-
-        Ok(())
-    }
-    async fn on_video_frame(&self, frame: VideoDecodeUnit<&[u8]>) -> DecodeResult {
-        let mut video_decoder = self.video_decoder.lock().await;
-
-        video_decoder.submit_decode_unit(frame)
-    }
-
-    async fn setup_audio(
-        &self,
-        audio_config: AudioConfig,
-        opus_config: OpusMultistreamConfig,
-    ) -> Result<(), MoonlightStreamError> {
-        let mut audio_decoder = self.audio_decoder.lock().await;
-
-        if audio_decoder.setup(audio_config, opus_config) != 0 {
-            // TODO: throw error
-            todo!();
-        }
-
-        // TODO: call start on first frame receive
-        audio_decoder.start();
-
-        Ok(())
-    }
-    async fn on_audio_frame(&self, frame: AudioFrame<&[u8]>) {
-        let mut audio_decoder = self.audio_decoder.lock().await;
-
-        audio_decoder.decode_and_play_sample(frame);
-    }
-
-    async fn on_control_packet(&self, packet: ControlPacket) {
-        // handle packets
-        info!(packet = ?packet, "received control packet");
-    }
-
-    async fn on_stop(&self) {
-        {
-            let mut video_decoder = self.video_decoder.lock().await;
-            video_decoder.stop();
-        }
-        {
-            let mut audio_decoder = self.audio_decoder.lock().await;
-            audio_decoder.stop();
-        }
-    }
+    // TODO: how to stop the stream?
+    todo!();
 }

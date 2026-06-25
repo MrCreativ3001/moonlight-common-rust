@@ -168,7 +168,6 @@ impl MoonlightStream {
                     tcp_stream.write_all(&data)?;
                 }
                 MoonlightStreamSetupOutput::StartAudioStream {
-                    addr,
                     config,
                     audio_stream: new_audio_stream,
                 } => {
@@ -179,7 +178,6 @@ impl MoonlightStream {
                     audio_stream = Some(SyncUdpDriver::bind(base_time, new_audio_stream)?);
                 }
                 MoonlightStreamSetupOutput::StartVideoStream {
-                    addr,
                     setup,
                     video_stream: new_video_stream,
                 } => {
@@ -189,14 +187,12 @@ impl MoonlightStream {
                     video_stream = Some(SyncUdpDriver::bind(base_time, new_video_stream)?);
                 }
                 MoonlightStreamSetupOutput::FoundationStartMic {
-                    addr,
                     mic_stream: new_mic_stream,
                 } => {
                     debug_assert!(foundation_mic_stream.is_none());
                     foundation_mic_stream = Some(SyncUdpDriver::bind(base_time, new_mic_stream)?);
                 }
                 MoonlightStreamSetupOutput::StartControlStream {
-                    addr,
                     control_stream: new_control_stream,
                 } => {
                     debug_assert!(control_stream.is_none());
@@ -357,7 +353,7 @@ impl Inner {
                 .spawn(|| audio.in_scope(|| self.streams.audio.run().inspect_err(|_| self.stop())));
             let audio_events = scope.spawn(|| {
                 audio.in_scope(|| {
-                    while let Some(event) = self.streams.audio.blocking_poll_event() {
+                    while let Some(event) = self.streams.audio.blocking_next_event() {
                         trace!(event = ?event, "event");
 
                         match event {
@@ -380,7 +376,7 @@ impl Inner {
                 .spawn(|| video.in_scope(|| self.streams.video.run().inspect_err(|_| self.stop())));
             let video_events = scope.spawn(|| {
                 video.in_scope(|| {
-                    while let Some(event) = self.streams.video.blocking_poll_event() {
+                    while let Some(event) = self.streams.video.blocking_next_event() {
                         trace!(event = ?event, "event");
 
                         match event {
@@ -414,7 +410,7 @@ impl Inner {
 
                     let mut error_code = 0;
 
-                    while let Some(event) = self.streams.control.blocking_poll_event() {
+                    while let Some(event) = self.streams.control.blocking_next_event() {
                         trace!(event = ?event, "event");
 
                         match event {

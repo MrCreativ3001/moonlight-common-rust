@@ -123,24 +123,20 @@ pub enum MoonlightStreamSetupOutput {
     },
     /// Can only be called once by the implementation
     StartAudioStream {
-        addr: SocketAddr,
         config: OpusMultistreamConfig,
         audio_stream: AudioStream,
     },
     /// Can only be called once by the implementation
     StartVideoStream {
-        addr: SocketAddr,
         setup: VideoSetup,
         video_stream: VideoStream,
     },
     /// Can only be called once by the implementation
     FoundationStartMic {
-        addr: SocketAddr,
         mic_stream: FoundationMicStream,
     },
     /// Can only be called once by the implementation
     StartControlStream {
-        addr: SocketAddr,
         control_stream: ControlStream,
     },
     /// The stream is now fully started and the [MoonlightStreamSetup] can be discarded
@@ -418,7 +414,6 @@ impl MoonlightStreamSetup {
                             info!("starting audio stream");
 
                             return Ok(MoonlightStreamSetupOutput::StartAudioStream {
-                                addr,
                                 config: opus_config,
                                 audio_stream,
                             });
@@ -476,7 +471,6 @@ impl MoonlightStreamSetup {
                             info!("starting video stream");
 
                             return Ok(MoonlightStreamSetupOutput::StartVideoStream {
-                                addr,
                                 setup: VideoSetup {
                                     format: sdp.video_format,
                                     width: sdp
@@ -542,7 +536,6 @@ impl MoonlightStreamSetup {
                             self.host_features.extensions.foundation_microphone = true;
 
                             return Ok(MoonlightStreamSetupOutput::FoundationStartMic {
-                                addr,
                                 mic_stream,
                             });
                         }
@@ -628,7 +621,6 @@ impl MoonlightStreamSetup {
                             info!("starting control stream");
 
                             return Ok(MoonlightStreamSetupOutput::StartControlStream {
-                                addr,
                                 control_stream,
                             });
                         }
