@@ -54,7 +54,7 @@ pub enum VideoStreamError {
 #[derive(Debug)]
 pub enum VideoStreamEvent {
     Connected,
-    FrameAvailable,
+    OnFrame,
     SignalIdr,
 }
 
@@ -235,7 +235,7 @@ impl VideoStream {
             self.last_frame = now;
 
             self.current_frame = Some(frame_index);
-            self.events.push_back(VideoStreamEvent::FrameAvailable);
+            self.events.push_back(VideoStreamEvent::OnFrame);
 
             return Ok(());
         }

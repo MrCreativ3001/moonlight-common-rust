@@ -360,12 +360,14 @@ impl Inner {
                             AudioStreamEvent::Connected => {
                                 audio_decoder.start();
                             }
-                            AudioStreamEvent::Frame(frame) => {
-                                audio_decoder.decode_and_play_sample(AudioFrame {
-                                    timestamp: frame.timestamp,
-                                    buffer: &frame.buffer,
-                                });
-                            }
+                            AudioStreamEvent::OnFrame => self.streams.audio.stream_mut(|stream| {
+                                while let Some(frame) = stream.poll_frame() {
+                                    audio_decoder.decode_and_play_sample(AudioFrame {
+                                        timestamp: frame.timestamp,
+                                        buffer: &frame.buffer,
+                                    });
+                                }
+                            }),
                         }
                     }
                     audio_decoder.stop();
@@ -383,7 +385,7 @@ impl Inner {
                             VideoStreamEvent::Connected => {
                                 video_decoder.start();
                             }
-                            VideoStreamEvent::FrameAvailable => {
+                            VideoStreamEvent::OnFrame => {
                                 self.streams.video.stream_mut(|stream| {
                                     while let Some(frame) = stream.poll_frame() {
                                         video_decoder.submit_decode_unit(frame);
@@ -469,14 +471,16 @@ impl Inner {
             });
 
             let foundation_mic_run =
-                if let Some(stream_foundation_mic) = &self.streams.foundation_mic {
-                    Some(scope.spawn(|| {
-                        foundation_mic
-                            .in_scope(|| stream_foundation_mic.run().inspect_err(|_| self.stop()))
-                    }))
-                } else {
-                    None
-                };
+                self.streams
+                    .foundation_mic
+                    .as_ref()
+                    .map(|stream_foundation_mic| {
+                        scope.spawn(|| {
+                            foundation_mic.in_scope(|| {
+                                stream_foundation_mic.run().inspect_err(|_| self.stop())
+                            })
+                        })
+                    });
             // No need for foundation mic events, it's only sending
 
             // -- Join all threads

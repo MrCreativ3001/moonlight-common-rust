@@ -175,6 +175,25 @@ pub struct AudioFrame<Buf> {
     pub buffer: Buf,
 }
 
+impl<Buf> AudioFrame<Buf>
+where
+    Buf: AsRef<[u8]>,
+{
+    pub fn to_vec(&self) -> AudioFrame<Vec<u8>> {
+        AudioFrame {
+            timestamp: self.timestamp,
+            buffer: self.buffer.as_ref().to_vec(),
+        }
+    }
+
+    pub fn as_ref(&self) -> AudioFrame<&[u8]> {
+        AudioFrame {
+            timestamp: self.timestamp,
+            buffer: self.buffer.as_ref(),
+        }
+    }
+}
+
 pub trait AudioDecoder {
     /// This callback initializes the audio renderer. The audio configuration parameter
     /// provides the negotiated audio configuration. This may differ from the one

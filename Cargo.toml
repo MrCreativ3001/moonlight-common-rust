@@ -227,4 +227,4 @@ required-features = ["ureq", "std", "openssl", "stream-c"]
 [[example]]
 name = "client-tokio"
 path = "examples/client-tokio.rs"
-required-features = ["tokio-hyper", "tokio", "tokio/sync", "rustcrypto"]
+required-features = ["tokio-hyper", "tokio", "rustcrypto"]

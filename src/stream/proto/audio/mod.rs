@@ -62,7 +62,7 @@ pub enum AudioStreamError {
 #[derive(Debug)]
 pub enum AudioStreamEvent {
     Connected,
-    Frame(AudioFrame<Vec<u8>>),
+    OnFrame,
 }
 
 pub struct AudioStream {
@@ -71,6 +71,7 @@ pub struct AudioStream {
     dropped_frames: bool,
     ping_sender: PingSender,
     depayloader: AudioDepayloader,
+    frames: VecDeque<AudioFrame<Vec<u8>>>,
     events: VecDeque<AudioStreamEvent>,
 }
 
@@ -101,14 +102,27 @@ impl AudioStream {
                 },
                 crypto_backend,
             ),
+            frames: Default::default(),
             events: Default::default(),
         }
     }
 
+    pub fn poll_frame(&mut self) -> Option<AudioFrame<Vec<u8>>> {
+        self.frames.pop_front()
+    }
+
     fn poll_depayloader(&mut self, now: Instant) -> Result<(), AudioStreamError> {
+        let mut has_polled_frame = false;
         while let Some(frame) = self.depayloader.poll_frame()? {
+            self.frames.push_back(frame);
+
+            has_polled_frame = true;
+        }
+
+        if has_polled_frame {
             self.last_frame = now;
-            self.events.push_back(AudioStreamEvent::Frame(frame));
+
+            self.events.push_back(AudioStreamEvent::OnFrame);
         }
 
         Ok(())

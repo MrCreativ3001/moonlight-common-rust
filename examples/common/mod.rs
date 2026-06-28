@@ -48,6 +48,7 @@ pub fn init() {
         .parse()
         .unwrap();
     let std: Directive = "moonlight_common::stream::std=debug".parse().unwrap();
+    let tokio: Directive = "moonlight_common::stream::tokio=debug".parse().unwrap();
 
     let venator = Venator::default();
 
@@ -62,7 +63,8 @@ pub fn init() {
                 .add_directive(audio_directive)
                 .add_directive(video_directive)
                 .add_directive(control_directive)
-                .add_directive(std),
+                .add_directive(std)
+                .add_directive(tokio),
         )
         .init();
 }

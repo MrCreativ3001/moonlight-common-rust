@@ -18,10 +18,9 @@ use moonlight_common::{
             MoonlightStreamSetup,
             audio::AudioStreamEvent,
             control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
-            runtime::{ConnectedStream, connect_stream},
             video::VideoStreamEvent,
         },
-        tokio::{MoonlightStreamError, TokioRuntime},
+        tokio::{MoonlightStream, MoonlightStreamError},
         video::{
             ColorRange, ColorSpace, DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
             VideoFormats, VideoSetup,
@@ -178,105 +177,69 @@ async fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let ConnectedStream {
-        host_features,
-        audio_setup,
-        mut audio_stream,
-        video_setup,
-        mut video_stream,
-        mut control_stream,
-        foundation_mic_stream: _,
-    } = connect_stream(
-        &TokioRuntime::new(),
-        config,
-        settings,
-        Arc::new(crypto_backend),
-        VideoCapabilities::default(),
-    )
-    .await
-    .unwrap();
+    let stream = Arc::new(
+        MoonlightStream::connect(
+            config,
+            settings,
+            Arc::new(crypto_backend),
+            VideoCapabilities::default(),
+        )
+        .await
+        .unwrap(),
+    );
 
     // Setup and start the decoders
-    // TODO: replace stereo audio config
-    audio_decoder.setup(AudioConfig::STEREO, audio_setup);
-    video_decoder.setup(video_setup);
-
-    // -- Start individual tasks for each stream
-    let (input_sender, mut input_receiver) = mpsc::channel(10);
-    let (packet_sender, mut packet_receiver) = mpsc::channel(10);
+    // TODO: how to get the audio_config?
+    audio_decoder.setup(AudioConfig::STEREO, stream.audio_setup());
+    video_decoder.setup(stream.video_setup());
 
     // Audio
-    spawn(async move {
-        loop {
-            match audio_stream
-                .next_event::<MoonlightStreamError>()
-                .await
-                .unwrap()
-            {
-                AudioStreamEvent::Connected => {
+    spawn({
+        let stream = stream.clone();
+        async move {
+            let mut started = false;
+
+            while let Ok(frame) = stream.poll_audio_frame().await {
+                if !started {
+                    started = true;
                     audio_decoder.start();
                 }
-                AudioStreamEvent::Frame(frame) => {
-                    audio_decoder.decode_and_play_sample(AudioFrame {
-                        timestamp: frame.timestamp,
-                        buffer: &frame.buffer,
-                    });
-                }
+
+                audio_decoder.decode_and_play_sample(frame.as_ref());
             }
+
+            audio_decoder.stop();
         }
     });
 
     // Video
-    spawn(async move {
-        loop {
-            match video_stream
-                .next_event::<MoonlightStreamError>()
-                .await
-                .unwrap()
-            {
-                VideoStreamEvent::Connected => {
-                    video_decoder.start();
-                }
-                VideoStreamEvent::FrameAvailable => {
-                    while let Some(frame) = video_stream.stream_mut().poll_frame() {
-                        video_decoder.submit_decode_unit(frame);
+    spawn({
+        let stream = stream.clone();
+        async move {
+            loop {
+                let mut started = false;
+
+                while let Ok(frame) = stream.poll_video_frame().await {
+                    if !started {
+                        video_decoder.start();
+                        started = true;
                     }
+
+                    video_decoder.submit_decode_unit(frame.as_ref());
                 }
-                VideoStreamEvent::SignalIdr => {
-                    packet_sender.send(ControlPacket::RequestIdr).await.unwrap();
-                }
+
+                video_decoder.stop();
             }
         }
     });
 
     // Control
-    spawn(async move {
-        loop {
-            select! {
-                result = control_stream.next_event::<MoonlightStreamError>() => {
-                    let event = result.unwrap();
-
-                    match event {
-                        ControlStreamEvent::Packet(packet) => {
-                            info!(packet = ?packet, "received packet");
-                        }
-                        ControlStreamEvent::Disconnect => {
-                            info!("control stream disconnect");
-                            // TODO: how to notify the other streams to stop?
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                packet = packet_receiver.recv(), if !packet_receiver.is_closed() =>{
-                    if let Some(packet) = packet {
-                        control_stream.stream_mut().send_raw(packet).unwrap();
-                    }
-                }
-                input = input_receiver.recv(), if !input_receiver.is_closed() =>{
-                    if let Some(input) = input {
-                        control_stream.stream_mut().batch_input(input).unwrap();
-                    }
+    spawn({
+        let stream = stream.clone();
+        async move {
+            loop {
+                while let Ok(packet) = stream.poll_packet().await {
+                    info!(packet = ?packet, "receive control packet");
                 }
             }
         }
@@ -290,14 +253,13 @@ async fn main() {
         // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
         // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/80
         // However this is just a simple example so we don't care
-        input_sender
-            .send(ClientInputEvent::MouseMoveAbsolute {
+        stream
+            .send_input(ClientInputEvent::MouseMoveAbsolute {
                 x: i,
                 y: 50,
                 reference_width: 100,
                 reference_height: 100,
             })
-            .await
             .unwrap();
 
         sleep(Duration::from_secs(5) / 100).await;
@@ -305,9 +267,8 @@ async fn main() {
     info!("ending mouse test");
 
     // Wait a few seconds
-    sleep(Duration::from_secs(20)).await;
+    sleep(Duration::from_secs(100)).await;
 
     // Stop the stream
-    // TODO: how to stop the stream?
-    todo!();
+    stream.stop();
 }
