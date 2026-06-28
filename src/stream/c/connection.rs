@@ -76,6 +76,7 @@ unsafe extern "C" fn connection_started() {
 }
 unsafe extern "C" fn connection_terminated(error_code: c_int) {
     global_listener(|(listener, _)| {
+        #[allow(clippy::unnecessary_cast)]
         listener.connection_terminated(error_code as i32);
     });
 }
