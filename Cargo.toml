@@ -43,6 +43,7 @@ pem = "3.0.6"
 roxmltree = "0.21.1"
 form_urlencoded = "1.2.2"
 smallvec = "1.15.1"
+bytes = "1.12.0"
 
 # Stream Proto
 sans-io-time = "0.2.0"
@@ -74,7 +75,6 @@ ureq = { version = "3.2.0", features = [
 
 # Hyper Client
 # TODO: rename to tokio hyper
-bytes = { version = "1.11.1", optional = true }
 rustls = { version = "0.23.37", default-features = false, optional = true }
 hyper-util = { version = "0.1.20", features = [
     "client",
@@ -167,7 +167,6 @@ rustcrypto = [
 # Request implementations
 ureq = ["dep:http", "dep:hyper", "dep:ureq"]
 tokio-hyper = [
-    "dep:bytes",
     "dep:http",
     "dep:rustls",
     "dep:hyper",

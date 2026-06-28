@@ -4,10 +4,8 @@ use crate::{
     ServerVersion,
     stream::{
         proto::video::{
-            depayloader::{
-                VideoDepayloader, VideoDepayloaderConfig, VideoFrame, VideoFrameMetadata,
-                create_video_reed_solomon,
-            },
+            depayloader::{VideoDepayloader, VideoDepayloaderConfig, create_video_reed_solomon},
+            frame::{VideoFrame, VideoFrameMetadata},
             packet::{
                 FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
                 VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
@@ -1268,7 +1266,7 @@ fn depayloader_nofec_noparse() {
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 1 packet
     depayloader
@@ -1281,7 +1279,7 @@ fn depayloader_nofec_noparse() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 2 packet
     depayloader
@@ -1294,7 +1292,7 @@ fn depayloader_nofec_noparse() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 3 packet, receive
     depayloader
@@ -1315,7 +1313,7 @@ fn depayloader_nofec_noparse() {
         metadata,
         parsed_frame_type,
         buffers,
-    }) = depayloader.frame(FrameIndex(1)).unwrap()
+    }) = depayloader.frame(FrameIndex(1))
     else {
         panic!("expected Frame");
     };
@@ -1344,7 +1342,7 @@ fn depayloader_nofec_noparse() {
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 }
 
 #[test]
@@ -1393,7 +1391,7 @@ fn depayloader_nofec_h264() {
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 1 packet
     depayloader
@@ -1406,7 +1404,7 @@ fn depayloader_nofec_h264() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 2 packet
     depayloader
@@ -1419,7 +1417,7 @@ fn depayloader_nofec_h264() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 3 packet
     depayloader
@@ -1436,7 +1434,7 @@ fn depayloader_nofec_h264() {
         vec![FrameIndex(1)]
     );
     assert_eq!(
-        depayloader.frame(FrameIndex(1)).unwrap(),
+        depayloader.frame(FrameIndex(1)),
         Some(VideoFrame {
             metadata: VideoFrameMetadata {
                 frame_type: FrameType::Idr,
@@ -1502,7 +1500,7 @@ fn depayloader_nofec_h265() {
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 1 packet
     depayloader
@@ -1515,7 +1513,7 @@ fn depayloader_nofec_h265() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 2 packet
     depayloader
@@ -1528,7 +1526,7 @@ fn depayloader_nofec_h265() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 3 packet
     depayloader
@@ -1545,7 +1543,7 @@ fn depayloader_nofec_h265() {
         vec![FrameIndex(1)]
     );
     assert_eq!(
-        depayloader.frame(FrameIndex(1)).unwrap(),
+        depayloader.frame(FrameIndex(1)),
         Some(VideoFrame {
             metadata: VideoFrameMetadata {
                 frame_type: FrameType::Idr,
@@ -1599,7 +1597,7 @@ fn depayloader_fec_noparse() {
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 1 packet
     depayloader
@@ -1612,7 +1610,7 @@ fn depayloader_fec_noparse() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // assert 2 packet
     depayloader
@@ -1625,7 +1623,7 @@ fn depayloader_fec_noparse() {
         vec![FrameIndex(1)]
     );
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 
     // drop packet 3
     let _ = payloader.poll_packet().unwrap();
@@ -1649,7 +1647,7 @@ fn depayloader_fec_noparse() {
         metadata,
         parsed_frame_type,
         buffers,
-    }) = depayloader.frame(FrameIndex(1)).unwrap()
+    }) = depayloader.frame(FrameIndex(1))
     else {
         panic!("expected Frame");
     };
@@ -1678,5 +1676,5 @@ fn depayloader_fec_noparse() {
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
     assert_eq!(depayloader.known_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
-    assert_eq!(depayloader.frame(FrameIndex(1)).unwrap(), None);
+    assert_eq!(depayloader.frame(FrameIndex(1)), None);
 }

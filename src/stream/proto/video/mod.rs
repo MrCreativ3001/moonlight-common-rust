@@ -20,13 +20,15 @@ use crate::stream::{
         runtime::UdpStream,
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
+            frame::OwnedVideoFrame,
             packet::FrameType,
         },
     },
-    video::{ColorSpace, FrameIndex, VideoDecodeUnit},
+    video::FrameIndex,
 };
 
 pub mod depayloader;
+pub mod frame;
 #[allow(unused)]
 mod nal;
 mod packet;
@@ -213,8 +215,8 @@ impl VideoStream {
             for frame_index in self.depayloader.available_frames() {
                 let frame = self
                     .depayloader
-                    .frame_metadata(frame_index)?
-                    .expect("frame is available but couldn't be produced");
+                    .frame_metadata(frame_index)
+                    .expect("the frame should have metadata at this point");
 
                 if frame.frame_type == FrameType::Idr {
                     debug!(now = ?now, frame_metadata = ?frame, "received idr");
@@ -244,19 +246,12 @@ impl VideoStream {
         Ok(())
     }
 
-    pub fn poll_frame(&mut self) -> Option<VideoDecodeUnit<&[u8]>> {
+    pub fn poll_frame(&mut self) -> Option<OwnedVideoFrame> {
         if let Some(current_frame) = self.current_frame {
-            let frame = self.depayloader.frame(current_frame).ok()??;
+            let frame = self.depayloader.take_frame(current_frame)?;
             self.current_frame = Some(FrameIndex(*current_frame + 1));
 
-            Some(VideoDecodeUnit {
-                frame_number: frame.metadata.frame_index,
-                frame_type: frame.parsed_frame_type,
-                frame_processing_latency: frame.metadata.host_processing_latency,
-                timestamp: frame.metadata.timestamp,
-                color_space: ColorSpace::Rec709,
-                buffers: frame.buffers,
-            })
+            Some(frame)
         } else {
             None
         }

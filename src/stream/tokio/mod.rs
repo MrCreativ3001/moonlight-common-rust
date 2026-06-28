@@ -31,10 +31,10 @@ use crate::stream::{
             packet::ControlPacket, peer::ControlError,
         },
         microphone::foundation::{FoundationMicStream, FoundationMicStreamError},
-        video::{VideoStream, VideoStreamError, VideoStreamEvent},
+        video::{VideoStream, VideoStreamError, VideoStreamEvent, frame::OwnedVideoFrame},
     },
     tokio::driver::{StreamRef, TokioStreamExt},
-    video::{VideoCapabilities, VideoDecodeUnit, VideoSetup},
+    video::{VideoCapabilities, VideoSetup},
 };
 use driver::bind_udp_stream;
 
@@ -327,12 +327,12 @@ impl MoonlightStream {
     pub fn video_setup(&self) -> VideoSetup {
         self.0.video_setup
     }
-    pub async fn poll_video_frame(&self) -> Result<VideoDecodeUnit<Vec<u8>>, MoonlightStreamError> {
+    pub async fn poll_video_frame(&self) -> Result<OwnedVideoFrame, MoonlightStreamError> {
         loop {
             if let Some(frame) = self
                 .0
                 .video_stream
-                .stream_mut(|stream| (false, stream.poll_frame().map(|x| x.to_vec())))
+                .stream_mut(|stream| (false, stream.poll_frame()))
             {
                 return Ok(frame);
             }

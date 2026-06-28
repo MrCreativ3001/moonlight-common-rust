@@ -225,7 +225,7 @@ async fn main() {
                         started = true;
                     }
 
-                    video_decoder.submit_decode_unit(frame.as_ref());
+                    video_decoder.submit_decode_unit(frame.as_ref().into_decode_unit());
                 }
 
                 video_decoder.stop();

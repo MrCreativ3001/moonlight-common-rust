@@ -396,7 +396,8 @@ impl Inner {
 
                                 self.streams.video.stream_mut(|stream| {
                                     while let Some(frame) = stream.poll_frame() {
-                                        video_decoder.submit_decode_unit(frame);
+                                        video_decoder
+                                            .submit_decode_unit(frame.as_ref().into_decode_unit());
                                     }
                                 });
                             }
