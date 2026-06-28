@@ -89,7 +89,7 @@ impl MoonlightStream {
         let mut tcp_stream: Option<TcpStream> = None;
         let mut recv_buffer = vec![0; 2048];
 
-        let mut host_features = HostFeatures::default();
+        let host_features;
         let video_capabilities = video_decoder.capabilities();
 
         let mut audio_stream = None;
@@ -353,14 +353,18 @@ impl Inner {
                 .spawn(|| audio.in_scope(|| self.streams.audio.run().inspect_err(|_| self.stop())));
             let audio_events = scope.spawn(|| {
                 audio.in_scope(|| {
+                    let mut started = false;
+
                     while let Some(event) = self.streams.audio.blocking_next_event() {
                         trace!(event = ?event, "event");
 
                         match event {
-                            AudioStreamEvent::Connected => {
-                                audio_decoder.start();
-                            }
                             AudioStreamEvent::OnFrame => self.streams.audio.stream_mut(|stream| {
+                                if !started {
+                                    audio_decoder.start();
+                                    started = true;
+                                }
+
                                 while let Some(frame) = stream.poll_frame() {
                                     audio_decoder.decode_and_play_sample(AudioFrame {
                                         timestamp: frame.timestamp,
@@ -378,14 +382,18 @@ impl Inner {
                 .spawn(|| video.in_scope(|| self.streams.video.run().inspect_err(|_| self.stop())));
             let video_events = scope.spawn(|| {
                 video.in_scope(|| {
+                    let mut started = false;
+
                     while let Some(event) = self.streams.video.blocking_next_event() {
                         trace!(event = ?event, "event");
 
                         match event {
-                            VideoStreamEvent::Connected => {
-                                video_decoder.start();
-                            }
                             VideoStreamEvent::OnFrame => {
+                                if !started {
+                                    video_decoder.start();
+                                    started = true;
+                                }
+
                                 self.streams.video.stream_mut(|stream| {
                                     while let Some(frame) = stream.poll_frame() {
                                         video_decoder.submit_decode_unit(frame);

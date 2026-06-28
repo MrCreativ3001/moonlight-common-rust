@@ -53,7 +53,6 @@ pub enum VideoStreamError {
 
 #[derive(Debug)]
 pub enum VideoStreamEvent {
-    Connected,
     OnFrame,
     SignalIdr,
 }
@@ -332,7 +331,6 @@ impl UdpStream for VideoStream {
         if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
             info!(now = ?now, "received first video packet");
 
-            self.events.push_back(VideoStreamEvent::Connected);
             self.ping_sender.set_finished();
         }
 

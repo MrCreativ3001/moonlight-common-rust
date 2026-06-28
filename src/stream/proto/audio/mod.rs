@@ -61,7 +61,6 @@ pub enum AudioStreamError {
 
 #[derive(Debug)]
 pub enum AudioStreamEvent {
-    Connected,
     OnFrame,
 }
 
@@ -194,7 +193,6 @@ impl UdpStream for AudioStream {
         self.depayloader.handle_packet(data)?;
 
         if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
-            self.events.push_back(AudioStreamEvent::Connected);
             self.ping_sender.set_finished();
         }
 

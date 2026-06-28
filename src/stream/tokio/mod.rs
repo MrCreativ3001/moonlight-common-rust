@@ -97,7 +97,7 @@ impl MoonlightStream {
         let mut buffer = vec![0; 4096];
         let mut tcp_stream = None;
 
-        let mut host_features = HostFeatures::default();
+        let host_features;
 
         let mut audio_setup = None;
         let mut video_setup = None;
@@ -410,7 +410,6 @@ impl TokioStreamExt for AudioStream {
 
         match event {
             AudioStreamEvent::OnFrame => notify.on_frame.notify_one(),
-            _ => {}
         }
     }
 
@@ -433,7 +432,6 @@ impl TokioStreamExt for VideoStream {
         trace!(event = ?event, "video stream event");
 
         match event {
-            VideoStreamEvent::Connected => {}
             VideoStreamEvent::OnFrame => notify.on_frame.notify_one(),
             VideoStreamEvent::SignalIdr => notify.on_request_idr.notify_one(),
         }
