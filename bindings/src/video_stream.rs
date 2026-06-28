@@ -1,4 +1,5 @@
 use std::{
+    net::SocketAddr,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -10,35 +11,29 @@ use moonlight_common::{
         AesKey,
         proto::{
             Instant,
-            control::ControlMessage,
             packet::SunshinePing,
+            runtime::UdpStream,
             video::{
                 VideoStream as VideoStream2, VideoStreamConfig as VideoStreamConfig2,
-                VideoStreamInput as VideoStreamInput2, VideoStreamOutput as VideoStreamOutput2,
-                depayloader::VideoDepayloaderConfig,
+                VideoStreamEvent, depayloader::VideoDepayloaderConfig,
             },
         },
         video::{BufferType, ColorSpace, FrameIndex, FrameType, VideoFormat},
     },
 };
-use uniffi::{Enum, Object, Record, custom_type, export, remote};
+use uniffi::{Object, Record, custom_type, export, remote};
 
-use crate::MoonlightError;
+use crate::{MoonlightError, UdpTransmit};
 
 #[derive(Debug, Record)]
 pub struct VideoStreamConfig {
+    pub addr: SocketAddr,
     pub packet_size: u32,
     pub format: VideoFormat,
     pub server_version: ServerVersion,
     pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
     pub sunshine_encryption: Option<AesKey>,
-}
-
-#[derive(Debug, Enum)]
-pub enum VideoStreamInput {
-    Timeout(Instant),
-    Receive { now: Instant, data: Vec<u8> },
 }
 
 custom_type!(FrameIndex, u32, {
@@ -84,12 +79,10 @@ pub struct VideoDecodeUnit {
     pub buffers: Vec<VideoFrameBuffer>,
 }
 
-#[derive(Debug, Enum)]
-pub enum VideoStreamOutput {
-    Send { data: Vec<u8> },
-    VideoFrame(VideoDecodeUnit),
-    SendControlMessage { message: ControlMessage },
-    Timeout(Instant),
+#[remote(Enum)]
+pub enum VideoStreamEvent {
+    OnFrame,
+    SignalIdr,
 }
 
 #[derive(Debug, Object)]
@@ -105,6 +98,7 @@ impl VideoStream {
             inner: Mutex::new(VideoStream2::new(
                 now,
                 VideoStreamConfig2 {
+                    addr: config.addr,
                     fps: config.fps,
                     queue: VideoDepayloaderConfig {
                         format: config.format,
@@ -124,48 +118,44 @@ impl VideoStream {
         inner.request_idr();
     }
 
-    pub fn handle_input(&self, input: VideoStreamInput) -> Result<(), MoonlightError> {
-        let input = match input {
-            VideoStreamInput::Timeout(timeout) => VideoStreamInput2::Timeout(timeout),
-            VideoStreamInput::Receive { now, ref data } => VideoStreamInput2::Receive { now, data },
-        };
+    // -- Sans IO
 
+    pub fn poll_event(&self) -> Option<VideoStreamEvent> {
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        inner.handle_input(input)?;
+        inner.poll_event()
+    }
+
+    pub fn poll_timeout(&self) -> Option<Instant> {
+        let inner = self.inner.lock().expect("lock VideoStream");
+        inner.poll_timeout()
+    }
+
+    pub fn poll_packet(&self) -> Option<UdpTransmit> {
+        let mut inner = self.inner.lock().expect("lock VideoStream");
+
+        let result = inner.pending_send().map(|(addr, contents)| UdpTransmit {
+            addr,
+            contents: contents.to_vec(),
+        });
+        inner.consume_send();
+
+        result
+    }
+
+    pub fn handle_receive(
+        &self,
+        now: Instant,
+        addr: SocketAddr,
+        contents: Vec<u8>,
+    ) -> Result<(), MoonlightError> {
+        let mut inner = self.inner.lock().expect("lock VideoStream");
+        inner.handle_receive(now, addr, &contents)?;
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<VideoStreamOutput, MoonlightError> {
+    pub fn handle_timeout(&self, now: Instant) -> Result<(), MoonlightError> {
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        let output = inner.poll_output()?;
-
-        let output = match output {
-            VideoStreamOutput2::Timeout(timeout) => VideoStreamOutput::Timeout(timeout),
-            VideoStreamOutput2::Send { data } => VideoStreamOutput::Send {
-                data: data.to_vec(),
-            },
-            VideoStreamOutput2::VideoFrame(frame) => {
-                VideoStreamOutput::VideoFrame(VideoDecodeUnit {
-                    frame_number: frame.frame_number,
-                    frame_type: frame.frame_type,
-                    frame_processing_latency: frame.frame_processing_latency,
-                    timestamp: frame.timestamp,
-                    color_space: frame.color_space,
-                    buffers: frame
-                        .buffers
-                        .into_iter()
-                        .map(|buffer| VideoFrameBuffer {
-                            buffer_type: buffer.buffer_type,
-                            data: buffer.data.to_vec(),
-                        })
-                        .collect(),
-                })
-            }
-            VideoStreamOutput2::SendControlMessage { message } => {
-                VideoStreamOutput::SendControlMessage { message }
-            }
-        };
-
-        Ok(output)
+        inner.handle_timeout(now)?;
+        Ok(())
     }
 }

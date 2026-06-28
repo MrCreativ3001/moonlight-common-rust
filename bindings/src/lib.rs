@@ -229,3 +229,9 @@ impl From<VideoFormats2> for VideoFormats {
         bools
     }
 }
+
+#[derive(Debug, Record)]
+pub struct UdpTransmit {
+    pub addr: SocketAddr,
+    pub contents: Vec<u8>,
+}

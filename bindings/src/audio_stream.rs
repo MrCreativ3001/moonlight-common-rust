@@ -1,10 +1,9 @@
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
-use uniffi::{Enum, Object, Record, custom_type, deps::anyhow::anyhow, export};
+use uniffi::{Object, Record, custom_type, deps::anyhow::anyhow, export, remote};
 
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
@@ -15,14 +14,15 @@ use moonlight_common::{
             Instant,
             audio::{
                 AudioStream as AudioStream2, AudioStreamConfig as AudioStreamConfig2,
-                AudioStreamInput as AudioStreamInput2, AudioStreamOutput as AudioStreamOutput2,
+                AudioStreamEvent,
             },
             packet::SunshinePing,
+            runtime::UdpStream,
         },
     },
 };
 
-use crate::MoonlightError;
+use crate::{MoonlightError, UdpTransmit};
 
 #[derive(Debug, Record)]
 pub struct OpusMultistreamConfig {
@@ -51,17 +51,9 @@ pub struct AudioStreamConfig {
     pub sunshine_ping: Option<SunshinePing>,
 }
 
-#[derive(Debug, Enum)]
-pub enum AudioStreamInput {
-    Timeout(Instant),
-    Receive { now: Instant, data: Vec<u8> },
-}
-
-#[derive(Debug, Enum)]
-pub enum AudioStreamOutput {
-    Timeout(Instant),
-    Send { data: Vec<u8> },
-    AudioFrame { timestamp: Duration, frame: Vec<u8> },
+#[remote(Enum)]
+pub enum AudioStreamEvent {
+    OnFrame,
 }
 
 #[derive(Debug, Object)]
@@ -95,32 +87,44 @@ impl AudioStream {
         })
     }
 
-    pub fn handle_input(&self, input: AudioStreamInput) -> Result<(), MoonlightError> {
-        let input = match input {
-            AudioStreamInput::Timeout(timeout) => AudioStreamInput2::Timeout(timeout),
-            AudioStreamInput::Receive { now, ref data } => AudioStreamInput2::Receive { now, data },
-        };
+    // -- Sans IO
 
+    pub fn poll_event(&self) -> Option<AudioStreamEvent> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        inner.handle_input(input)?;
+        inner.poll_event()
+    }
+
+    pub fn poll_timeout(&self) -> Option<Instant> {
+        let inner = self.inner.lock().expect("lock AudioStream");
+        inner.poll_timeout()
+    }
+
+    pub fn poll_packet(&self) -> Option<UdpTransmit> {
+        let mut inner = self.inner.lock().expect("lock AudioStream");
+
+        let result = inner.pending_send().map(|(addr, contents)| UdpTransmit {
+            addr,
+            contents: contents.to_vec(),
+        });
+        inner.consume_send();
+
+        result
+    }
+
+    pub fn handle_receive(
+        &self,
+        now: Instant,
+        addr: SocketAddr,
+        contents: Vec<u8>,
+    ) -> Result<(), MoonlightError> {
+        let mut inner = self.inner.lock().expect("lock AudioStream");
+        inner.handle_receive(now, addr, &contents)?;
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<AudioStreamOutput, MoonlightError> {
+    pub fn handle_timeout(&self, now: Instant) -> Result<(), MoonlightError> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        let output = inner.poll_output()?;
-
-        let output = match output {
-            AudioStreamOutput2::Timeout(timeout) => AudioStreamOutput::Timeout(timeout),
-            AudioStreamOutput2::Send { data } => AudioStreamOutput::Send {
-                data: data.to_vec(),
-            },
-            AudioStreamOutput2::AudioFrame(frame) => AudioStreamOutput::AudioFrame {
-                timestamp: frame.timestamp,
-                frame: frame.buffer.to_vec(),
-            },
-        };
-
-        Ok(output)
+        inner.handle_timeout(now)?;
+        Ok(())
     }
 }

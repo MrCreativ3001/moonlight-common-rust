@@ -37,7 +37,6 @@ pub enum AudioDepayloaderError {
 }
 
 // TODO: make a cap for the amount of fec packets and the amount of packets that can be buffered
-// TODO: make the api more like the video decoder
 
 #[derive(Debug)]
 pub struct AudioDepayloaderConfig {

@@ -4,3 +4,4 @@ __pycache__
 # UniFFI output
 moonlight_common_bindings.dll
 moonlight_common_bindings.py
+libmoonlight_common_bindings.so

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use uniffi::{Enum, Error, Object, Record, custom_type, export, remote};
+use uniffi::{Enum, Error, Object, Record, export, remote};
 
 use moonlight_common::{
     ServerVersion,
@@ -13,50 +13,18 @@ use moonlight_common::{
         proto::{
             Instant,
             control::{
-                ControlMessage, ControlMessageInner as ControlMessageInner2,
                 ControlStream as ControlStream2, ControlStreamConfig as ControlStreamConfig2,
                 ControlStreamEvent as ControlStreamEvent2,
-                ControlStreamInput as ControlStreamInput2,
-                ControlStreamOutput as ControlStreamOutput2,
-                peer::{ControlEncryptionMethod, ControlError as ControlError2, ControlHostAction},
+                peer::{ControlEncryptionMethod, ControlError as ControlError2},
             },
+            runtime::UdpStream,
         },
     },
 };
 
-use crate::{MoonlightError, control_packet::ControlPacket, input_batcher::ClientInputEvent};
-
-custom_type!(ControlMessage, ControlMessageInner, {
-    remote,
-    lower: |msg| msg.0.into(),
-    try_lift: |inner| Ok(ControlMessage(inner.into())),
-});
-
-#[derive(Debug, Enum)]
-pub enum ControlMessageInner {
-    SendPacket { packet: ControlPacket, force: bool },
-}
-
-impl From<ControlMessageInner2> for ControlMessageInner {
-    fn from(value: ControlMessageInner2) -> Self {
-        match value {
-            ControlMessageInner2::SendPacket { packet, force } => Self::SendPacket {
-                packet: packet.into(),
-                force,
-            },
-        }
-    }
-}
-impl From<ControlMessageInner> for ControlMessageInner2 {
-    fn from(value: ControlMessageInner) -> Self {
-        match value {
-            ControlMessageInner::SendPacket { packet, force } => Self::SendPacket {
-                packet: packet.into(),
-                force,
-            },
-        }
-    }
-}
+use crate::{
+    MoonlightError, UdpTransmit, control_packet::ControlPacket, input_batcher::ClientInputEvent,
+};
 
 #[derive(Debug, thiserror::Error, Error)]
 pub enum ControlStreamError {
@@ -109,31 +77,10 @@ pub struct ControlStreamConfig {
 }
 
 #[derive(Debug, Enum)]
-pub enum ControlStreamInput {
-    Timeout(Instant),
-    Message {
-        now: Instant,
-        message: ControlMessage,
-    },
-    Receive {
-        now: Instant,
-        addr: SocketAddr,
-        data: Vec<u8>,
-    },
-}
-
-#[derive(Debug, Enum)]
 pub enum ControlStreamEvent {
     Connect,
     Packet(ControlPacket),
     Disconnect,
-}
-
-#[derive(Debug, Enum)]
-pub enum ControlStreamOutput {
-    Timeout(Instant),
-    Send { addr: SocketAddr, data: Vec<u8> },
-    Event(ControlStreamEvent),
 }
 
 #[derive(Debug, Object)]
@@ -182,46 +129,48 @@ impl ControlStream {
         Ok(())
     }
 
-    pub fn handle_input(&self, input: ControlStreamInput) -> Result<(), MoonlightError> {
-        let input = match input {
-            ControlStreamInput::Receive {
-                now,
-                addr,
-                ref data,
-            } => ControlStreamInput2::Receive { now, addr, data },
-            ControlStreamInput::Timeout(instant) => ControlStreamInput2::Timeout(instant),
-            ControlStreamInput::Message { now, message } => {
-                ControlStreamInput2::Message { now, message }
-            }
-        };
+    // -- Sans IO
 
+    pub fn poll_event(&self) -> Option<ControlStreamEvent> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
-        inner.handle_input(input)?;
+        Some(match inner.poll_event()? {
+            ControlStreamEvent2::Connect => ControlStreamEvent::Connect,
+            ControlStreamEvent2::Packet(packet) => ControlStreamEvent::Packet(packet.into()),
+            ControlStreamEvent2::Disconnect => ControlStreamEvent::Disconnect,
+        })
+    }
+
+    pub fn poll_timeout(&self) -> Option<Instant> {
+        let inner = self.inner.lock().expect("lock ControlStream");
+        inner.poll_timeout()
+    }
+
+    pub fn poll_packet(&self) -> Option<UdpTransmit> {
+        let mut inner = self.inner.lock().expect("lock ControlStream");
+
+        let result = inner.pending_send().map(|(addr, contents)| UdpTransmit {
+            addr,
+            contents: contents.to_vec(),
+        });
+        inner.consume_send();
+
+        result
+    }
+
+    pub fn handle_receive(
+        &self,
+        now: Instant,
+        addr: SocketAddr,
+        contents: Vec<u8>,
+    ) -> Result<(), MoonlightError> {
+        let mut inner = self.inner.lock().expect("lock ControlStream");
+        inner.handle_receive(now, addr, &contents)?;
         Ok(())
     }
 
-    pub fn poll_output(&self) -> Result<ControlStreamOutput, MoonlightError> {
+    pub fn handle_timeout(&self, now: Instant) -> Result<(), MoonlightError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
-        let output = inner.poll_output()?;
-
-        let output = match output {
-            ControlStreamOutput2::Action(ControlHostAction::SendUdp { addr, data }) => {
-                ControlStreamOutput::Send { addr, data }
-            }
-            ControlStreamOutput2::Action(ControlHostAction::Timeout(timeout)) => {
-                ControlStreamOutput::Timeout(timeout)
-            }
-            ControlStreamOutput2::Event(ControlStreamEvent2::Connect) => {
-                ControlStreamOutput::Event(ControlStreamEvent::Connect)
-            }
-            ControlStreamOutput2::Event(ControlStreamEvent2::Packet(packet)) => {
-                ControlStreamOutput::Event(ControlStreamEvent::Packet(packet.into()))
-            }
-            ControlStreamOutput2::Event(ControlStreamEvent2::Disconnect) => {
-                ControlStreamOutput::Event(ControlStreamEvent::Disconnect)
-            }
-        };
-
-        Ok(output)
+        inner.handle_timeout(now)?;
+        Ok(())
     }
 }

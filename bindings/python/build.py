@@ -15,13 +15,11 @@ SYSTEM = platform.system()
 LIB_NAME = "moonlight_common_bindings"
 
 if SYSTEM == "Windows":
-    LIB_EXT = "dll"
-    LIB_FILE = f"{LIB_NAME}.{LIB_EXT}"
+    LIB_FILE = f"{LIB_NAME}.dll"
 elif SYSTEM == "Darwin":
     raise "no mac for you"
 else:
-    LIB_EXT = "so"
-    LIB_FILE = Path(CARGO_TARGET_DIR) / "debug" / f"lib{LIB_NAME}.{LIB_EXT}"
+    LIB_FILE = f"lib{LIB_NAME}.so"
 
 LIB_OUTPUT_PATH = Path(CARGO_TARGET_DIR) / "debug" / LIB_FILE
 
