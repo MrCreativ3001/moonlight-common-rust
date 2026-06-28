@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 openssl-sys.workspace = true
 
-printf-compat = "0.3.1"
+printf-compat = "0.4.0"
 
 [package.metadata.cargo-shear]
 # openssl sys is required for moonlight common c to compile
