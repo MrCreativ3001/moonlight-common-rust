@@ -13,15 +13,13 @@ use crate::{
             video::{
                 frame::{OwnedVideoFrame, VideoFrame, VideoFrameMetadata, parse_frame},
                 packet::{
-                    MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
-                    RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader,
-                    VideoHeaderFlags, fec_percentage_to_parity_shards,
+                    MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
+                    VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
+                    fec_percentage_to_parity_shards,
                 },
             },
         },
-        video::{
-            FrameIndex, VideoFormat, VideoFormats,
-        },
+        video::{FrameIndex, VideoFormat, VideoFormats},
     },
 };
 
