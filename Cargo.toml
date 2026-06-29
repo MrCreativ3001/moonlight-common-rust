@@ -49,7 +49,6 @@ bytes = "1.12.0"
 sans-io-time = "0.2.0"
 fec-rs = { version = "0.1.0", features = ["parallel"], optional = true }
 rusty_enet = { version = "0.4.0", optional = true }
-futures = "0.3.32"
 
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
@@ -59,7 +58,6 @@ moonlight-common-sys = { workspace = true, optional = true }
 tokio = { version = "1.49.0", default-features = false, features = [
     "full",
 ], optional = true }
-async-trait = "0.1.89"
 
 # -- Request clients
 http = { version = "1.4.0", default-features = false, optional = true }
@@ -126,13 +124,6 @@ sdp-types = "0.1.8"
 
 # serde serialization for some types
 serde = { version = "1.0.228", features = ["derive"], optional = true }
-
-# Windows-only: disabling SIO_UDP_CONNRESET on UDP sockets (see src/stream/std/mod.rs)
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = [
-    "Win32_Networking_WinSock",
-    "Win32_System_IO",
-] }
 
 [features]
 default = ["ureq", "std", "rustcrypto"]
@@ -227,3 +218,6 @@ required-features = ["ureq", "std", "openssl", "stream-c"]
 name = "client-tokio"
 path = "examples/client-tokio.rs"
 required-features = ["tokio-hyper", "tokio", "rustcrypto"]
+
+[lib]
+doctest = false
