@@ -81,6 +81,10 @@ impl OwnedVideoFrame {
         self.metadata.clone()
     }
 
+    pub fn raw(&self) -> &[u8] {
+        &self.frame_data
+    }
+
     pub fn as_ref<'a>(&'a self) -> VideoFrame<'a> {
         parse_frame(self.metadata.clone(), &self.frame_data, self.format)
     }
