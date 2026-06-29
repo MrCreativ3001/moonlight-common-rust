@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{io, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use clap::Parser;
 use moonlight_common::{
@@ -12,24 +12,21 @@ use moonlight_common::{
     },
     stream::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
-        audio::{AudioConfig, AudioDecoder, AudioFrame, OpusMultistreamConfig},
+        audio::{AudioConfig, AudioDecoder},
         control::ActiveGamepads,
         proto::{
             MoonlightStreamSetup,
-            audio::AudioStreamEvent,
-            control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
-            video::VideoStreamEvent,
+            control::input_batcher::ClientInputEvent,
         },
-        tokio::{MoonlightStream, MoonlightStreamError},
+        tokio::MoonlightStream,
         video::{
-            ColorRange, ColorSpace, DecodeResult, VideoCapabilities, VideoDecodeUnit, VideoDecoder,
-            VideoFormats, VideoSetup,
+            ColorRange, ColorSpace, VideoCapabilities, VideoDecoder,
+            VideoFormats,
         },
     },
 };
 use tokio::{
-    select, spawn,
-    sync::{Mutex, mpsc},
+    spawn,
     time::sleep,
 };
 use tracing::info;
