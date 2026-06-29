@@ -14,21 +14,12 @@ use moonlight_common::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::{AudioConfig, AudioDecoder},
         control::ActiveGamepads,
-        proto::{
-            MoonlightStreamSetup,
-            control::input_batcher::ClientInputEvent,
-        },
+        proto::{MoonlightStreamSetup, control::input_batcher::ClientInputEvent},
         tokio::MoonlightStream,
-        video::{
-            ColorRange, ColorSpace, VideoCapabilities, VideoDecoder,
-            VideoFormats,
-        },
+        video::{ColorRange, ColorSpace, VideoCapabilities, VideoDecoder, VideoFormats},
     },
 };
-use tokio::{
-    spawn,
-    time::sleep,
-};
+use tokio::{spawn, time::sleep};
 use tracing::info;
 
 use crate::common::{
