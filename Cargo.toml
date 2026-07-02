@@ -111,7 +111,7 @@ x509-cert = { version = "0.2.5", features = [
 ], default-features = false, optional = true }
 pkcs8 = { version = "0.10.2", default-features = false, optional = true }
 signature = { version = "2.2.0", default-features = false, optional = true }
-aes-gcm = { version = "0", default-features = false, features = [
+aes-gcm = { version = "0.10.3", default-features = false, features = [
     "aes",
 ], optional = true }
 # this must match the aes version
