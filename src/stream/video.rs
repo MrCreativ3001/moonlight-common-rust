@@ -102,7 +102,7 @@ impl Display for VideoFormats {
 }
 
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, FromPrimitive)]
+#[derive(Debug, Clone, Copy, Hash, FromPrimitive)]
 pub enum VideoFormat {
     H264 = VIDEO_FORMAT_H264,                      // H.264 High Profile
     H264High8_444 = VIDEO_FORMAT_H264_HIGH8_444,   // H.264 High 4:4:4 8-bit Profile
