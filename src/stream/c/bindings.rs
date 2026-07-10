@@ -1,4 +1,4 @@
-use std::{ffi::CStr, fmt::Debug, time::Duration};
+use std::{ffi::CStr, fmt::Debug};
 
 use bitflags::bitflags;
 use moonlight_common_sys::limelight::{
@@ -131,11 +131,4 @@ pub enum TerminationError {
     UnexpectedEarlyTermination = ML_ERROR_UNEXPECTED_EARLY_TERMINATION,
     ProtectedContent = ML_ERROR_PROTECTED_CONTENT,
     FrameConversion = ML_ERROR_FRAME_CONVERSION,
-}
-
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy)]
-pub struct EstimatedRttInfo {
-    pub rtt: Duration,
-    pub rtt_variance: Duration,
 }

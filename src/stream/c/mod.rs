@@ -26,12 +26,12 @@ use crate::{
     stream::{
         HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings, RawHostFeatures,
         audio::AudioDecoder,
-        c::{bindings::EstimatedRttInfo, connection::ConnectionListenerC},
+        c::connection::ConnectionListenerC,
         connection::ConnectionListener,
         control::{
             ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
-            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
-            MouseButtonAction, TouchEventType,
+            ControllerType, EstimatedRttInfo, KeyAction, KeyCode, KeyFlags, KeyModifiers,
+            MotionType, MouseButton, MouseButtonAction, TouchEventType,
         },
         video::VideoDecoder,
     },

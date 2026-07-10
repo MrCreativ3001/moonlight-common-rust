@@ -143,8 +143,11 @@ impl EnetHost {
         Ok(())
     }
 
-    pub fn peer(&mut self, id: PeerID) -> Option<&mut Peer<impl Socket<Address = SocketAddr>>> {
+    pub fn peer_mut(&mut self, id: PeerID) -> Option<&mut Peer<impl Socket<Address = SocketAddr>>> {
         self.enet.get_peer_mut(id)
+    }
+    pub fn peer(&self, id: PeerID) -> Option<&Peer<impl Socket<Address = SocketAddr>>> {
+        self.enet.get_peer(id)
     }
 
     pub fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {

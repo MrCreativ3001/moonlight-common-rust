@@ -46,6 +46,14 @@ where
         self.stream_condvar.notify_all();
         res
     }
+    #[instrument(level = Level::TRACE, skip(self, f))]
+    pub fn stream<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Stream) -> R,
+    {
+        let mut guard = self.stream.lock().expect("lock stream failed");
+        f(&mut guard)
+    }
 
     pub fn run(&self) -> Result<(), MoonlightStreamError> {
         if self.is_stopped() {

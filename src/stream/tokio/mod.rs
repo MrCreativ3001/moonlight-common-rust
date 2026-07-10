@@ -22,6 +22,7 @@ use tracing::{Instrument, Level, debug, info, info_span, instrument, trace, warn
 use crate::stream::{
     HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
     audio::{AudioFrame, OpusMultistreamConfig},
+    control::EstimatedRttInfo,
     proto::{
         DynCryptoBackend, MoonlightStreamInput, MoonlightStreamProtoError, MoonlightStreamSetup,
         MoonlightStreamSetupOutput,
@@ -269,6 +270,12 @@ impl MoonlightStream {
         });
 
         Ok(this)
+    }
+
+    pub async fn estimated_rtt(&self) -> Result<EstimatedRttInfo, ControlError> {
+        self.0
+            .control_stream
+            .stream_mut(|stream| (false, stream.estimated_rtt()))
     }
 
     pub fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {

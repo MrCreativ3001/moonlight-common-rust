@@ -12,6 +12,7 @@ use crate::{
     ServerVersion,
     stream::{
         AesKey,
+        control::EstimatedRttInfo,
         proto::{
             DynCryptoBackend,
             control::{
@@ -27,6 +28,7 @@ use crate::{
                 },
             },
             enet::{EnetConfig, EnetError, EnetEvent, EnetHost},
+            runtime::UdpStream,
         },
     },
 };
@@ -240,7 +242,7 @@ impl ControlHost {
         }
 
         // Firstly see if the peer exists
-        let Some(peer) = self.host.peer(id.0) else {
+        let Some(peer) = self.host.peer_mut(id.0) else {
             return Err(ControlError::Enet(EnetError::PeerNotFound));
         };
 
@@ -303,6 +305,15 @@ impl ControlHost {
         self.peer_data.keys().copied()
     }
 
+    pub fn peer_estimated_rtt(&self, peer: ControlPeerId) -> Option<EstimatedRttInfo> {
+        let peer = self.host.peer(peer.0)?;
+
+        Some(EstimatedRttInfo {
+            rtt: peer.round_trip_time(),
+            rtt_variance: peer.round_trip_time_variance(),
+        })
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub fn disconnect(&mut self, id: ControlPeerId, data: u32) -> Result<(), ControlError> {
         self.host.disconnect(id.0, data)?;
@@ -315,22 +326,6 @@ impl ControlHost {
         self.host.disconnect_now(id.0, data)?;
 
         Ok(())
-    }
-
-    // TODO: implement UdpStream for ControlHost
-    pub fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
-        self.host.pending_send()
-    }
-    pub fn consume_send(&mut self) {
-        self.host.consume_send();
-    }
-
-    pub fn poll_timeout(&self) -> Instant {
-        self.host.poll_timeout()
-    }
-
-    pub fn poll_event(&mut self) -> Option<ControlHostEvent> {
-        self.events.pop_front()
     }
 
     fn handle_events(&mut self) -> Result<(), ControlError> {
@@ -418,25 +413,6 @@ impl ControlHost {
         Ok(())
     }
 
-    pub fn handle_receive(
-        &mut self,
-        now: Instant,
-        addr: SocketAddr,
-        data: &[u8],
-    ) -> Result<(), ControlError> {
-        self.host.handle_receive(now, addr, data);
-
-        self.handle_events()?;
-        Ok(())
-    }
-
-    pub fn handle_timeout(&mut self, now: Instant) -> Result<(), ControlError> {
-        self.host.handle_timeout(now);
-
-        self.handle_events()?;
-        Ok(())
-    }
-
     /// If this object can be discarded
     /// - Checks if there's still any connection that is currently happening
     pub fn can_discard(&mut self) -> bool {
@@ -458,5 +434,45 @@ impl ControlHost {
             })
             .count()
             == 0
+    }
+}
+
+impl UdpStream for ControlHost {
+    type Error = ControlError;
+
+    type Event = ControlHostEvent;
+
+    fn pending_send(&self) -> Option<(SocketAddr, &[u8])> {
+        self.host.pending_send()
+    }
+    fn consume_send(&mut self) {
+        self.host.consume_send();
+    }
+
+    fn poll_timeout(&self) -> Option<Instant> {
+        Some(self.host.poll_timeout())
+    }
+
+    fn poll_event(&mut self) -> Option<ControlHostEvent> {
+        self.events.pop_front()
+    }
+
+    fn handle_receive(
+        &mut self,
+        now: Instant,
+        addr: SocketAddr,
+        data: &[u8],
+    ) -> Result<(), ControlError> {
+        self.host.handle_receive(now, addr, data);
+
+        self.handle_events()?;
+        Ok(())
+    }
+
+    fn handle_timeout(&mut self, now: Instant) -> Result<(), ControlError> {
+        self.host.handle_timeout(now);
+
+        self.handle_events()?;
+        Ok(())
     }
 }

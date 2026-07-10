@@ -16,6 +16,7 @@ use crate::{
     http::server_info::ApolloPermissions,
     stream::{
         AesKey,
+        control::EstimatedRttInfo,
         proto::{
             DynCryptoBackend,
             control::{
@@ -158,6 +159,12 @@ impl ControlStream {
             host,
             events: Default::default(),
         })
+    }
+
+    pub fn estimated_rtt(&self) -> Result<EstimatedRttInfo, ControlError> {
+        self.host
+            .peer_estimated_rtt(self.peer)
+            .ok_or(ControlError::NotConnected)
     }
 
     /// This will intelligently batch or instantly send the input based on if it makes sense to do so.

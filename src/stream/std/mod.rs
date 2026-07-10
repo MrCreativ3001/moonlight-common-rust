@@ -19,6 +19,7 @@ use crate::stream::{
     HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
     audio::{AudioConfig, AudioDecoder, AudioFrame},
     connection::ConnectionListener,
+    control::EstimatedRttInfo,
     proto::{
         DynCryptoBackend, MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
         MoonlightStreamProtoError, MoonlightStreamSetup, MoonlightStreamSetupOutput,
@@ -259,6 +260,13 @@ impl MoonlightStream {
         info!("started moonlight stream");
 
         Ok(Self { inner })
+    }
+
+    pub fn estimated_rtt(&self) -> Result<EstimatedRttInfo, ControlError> {
+        self.inner
+            .streams
+            .control
+            .stream(|stream| stream.estimated_rtt())
     }
 
     pub fn send_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {

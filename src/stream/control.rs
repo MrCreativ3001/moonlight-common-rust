@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bitflags::bitflags;
 use num_derive::{FromPrimitive, ToPrimitive};
 
@@ -267,4 +269,12 @@ pub enum BatteryState {
     NotCharging = LI_BATTERY_STATE_NOT_CHARGING as u8,
     /// Battery is full.
     Full = LI_BATTERY_STATE_FULL as u8,
+}
+
+/// Enet estimated round trip time
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy)]
+pub struct EstimatedRttInfo {
+    pub rtt: Duration,
+    pub rtt_variance: Duration,
 }
