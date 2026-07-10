@@ -111,16 +111,10 @@ impl AudioStream {
     }
 
     fn poll_depayloader(&mut self, now: Instant) -> Result<(), AudioStreamError> {
-        let mut has_polled_frame = false;
         while let Some(frame) = self.depayloader.poll_frame()? {
             self.frames.push_back(frame);
 
-            has_polled_frame = true;
-        }
-
-        if has_polled_frame {
             self.last_frame = now;
-
             self.events.push_back(AudioStreamEvent::OnFrame);
         }
 
@@ -205,17 +199,19 @@ impl UdpStream for AudioStream {
         self.ping_sender.handle_timeout(now);
 
         if self.last_frame + MAXIMUM_SAMPLE_WAIT < now {
+            if !self.dropped_frames {
+                debug!(
+                    "Dropping audio frame because it took too long to receive: Last Frame: {:?}, Current Time: {:?}",
+                    self.last_frame, now
+                );
+            }
+
             self.dropped_frames = true;
 
-            debug!(
-                "Dropping audio frame because it took too long to receive: Last Frame: {:?}, Current Time: {:?}",
-                self.last_frame, now
-            );
-
             self.depayloader.try_skip_samples()?;
-
-            self.poll_depayloader(now)?;
         }
+
+        self.poll_depayloader(now)?;
 
         Ok(())
     }
