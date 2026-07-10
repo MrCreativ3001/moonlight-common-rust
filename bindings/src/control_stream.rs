@@ -1,6 +1,7 @@
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use uniffi::{Enum, Error, Object, Record, export, remote};
@@ -10,6 +11,7 @@ use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     stream::{
         AesKey,
+        control::EstimatedRttInfo,
         proto::{
             Instant,
             control::{
@@ -83,6 +85,12 @@ pub enum ControlStreamEvent {
     Disconnect,
 }
 
+#[remote(Record)]
+pub struct EstimatedRttInfo {
+    pub rtt: Duration,
+    pub rtt_variance: Duration,
+}
+
 #[derive(Debug, Object)]
 pub struct ControlStream {
     inner: Mutex<ControlStream2>,
@@ -109,6 +117,12 @@ impl ControlStream {
         });
 
         Ok(this)
+    }
+
+    pub fn estimated_rtt(&self) -> Result<EstimatedRttInfo, ControlStreamError> {
+        let inner = self.inner.lock().expect("lock AudioStream");
+        let rtt = inner.estimated_rtt()?;
+        Ok(rtt)
     }
 
     pub fn batch_input(&self, input: ClientInputEvent) -> Result<(), ControlStreamError> {
