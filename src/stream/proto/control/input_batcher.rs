@@ -432,17 +432,17 @@ impl InputBatcher {
 
         // mouse scroll
         if self.mouse_scroll_x != 0 {
-            packets.push(ControlPacket::MouseScroll {
-                scroll_amount_1: self.mouse_scroll_x,
-                scroll_amount_2: 0,
-                zero: 0,
+            packets.push(ControlPacket::MouseHorizontalScroll {
+                scroll_amount: self.mouse_scroll_x,
             });
 
             self.mouse_scroll_x = 0;
         }
         if self.mouse_scroll_y != 0 {
-            packets.push(ControlPacket::MouseHorizontalScroll {
-                scroll_amount: self.mouse_scroll_y,
+            packets.push(ControlPacket::MouseScroll {
+                scroll_amount_1: self.mouse_scroll_y,
+                scroll_amount_2: 0,
+                zero: 0,
             });
 
             self.mouse_scroll_y = 0;
