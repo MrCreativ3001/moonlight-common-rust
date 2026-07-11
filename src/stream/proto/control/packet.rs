@@ -1488,9 +1488,9 @@ impl ControlPacket {
                 buffer[8..12].copy_from_slice(&ty.to_le_bytes());
 
                 // Data
-                buffer[12..14].copy_from_slice(&scroll_amount_1.to_le_bytes());
-                buffer[14..16].copy_from_slice(&scroll_amount_2.to_le_bytes());
-                buffer[16..18].copy_from_slice(&zero.to_le_bytes());
+                buffer[12..14].copy_from_slice(&scroll_amount_1.to_be_bytes());
+                buffer[14..16].copy_from_slice(&scroll_amount_2.to_be_bytes());
+                buffer[16..18].copy_from_slice(&zero.to_be_bytes());
 
                 Ok(4 + content_len as usize)
             }
@@ -1512,7 +1512,7 @@ impl ControlPacket {
                 buffer[8..12].copy_from_slice(&ty.to_le_bytes());
 
                 // Data
-                buffer[12..14].copy_from_slice(&scroll_amount.to_le_bytes());
+                buffer[12..14].copy_from_slice(&scroll_amount.to_be_bytes());
 
                 Ok(4 + content_len as usize)
             }
@@ -2272,8 +2272,8 @@ impl ControlPacket {
                             warn!(input_len = ?input_len, "MouseScroll packet too small!");
                             None
                         } else {
-                            let scroll_amount_1 = i16::from_le_bytes([payload[12], payload[13]]);
-                            let scroll_amount_2 = i16::from_le_bytes([payload[14], payload[15]]);
+                            let scroll_amount_1 = i16::from_be_bytes([payload[12], payload[13]]);
+                            let scroll_amount_2 = i16::from_be_bytes([payload[14], payload[15]]);
                             let zero = i16::from_le_bytes([payload[16], payload[17]]);
 
                             Some(ControlPacket::MouseScroll {
@@ -2288,7 +2288,7 @@ impl ControlPacket {
                             warn!(input_len = ?input_len, "MouseHorizontalScroll packet too small!");
                             None
                         } else {
-                            let scroll_amount = i16::from_le_bytes([payload[12], payload[13]]);
+                            let scroll_amount = i16::from_be_bytes([payload[12], payload[13]]);
 
                             Some(ControlPacket::MouseHorizontalScroll { scroll_amount })
                         }

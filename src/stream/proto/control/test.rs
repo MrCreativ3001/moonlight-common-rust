@@ -403,8 +403,8 @@ fn mouse_scroll() {
             0x0e, 0x00, // Len
             0x00, 0x00, 0x00, 0xa, // Input Len
             0x0a, 0x00, 0x00, 0x00, // Input Type
-            2, 0, // amount 1
-            2, 0, // amount 2
+            0, 2, // amount 1
+            0, 2, // amount 2
             0x00, 0x00, // Zero
         ],
     );
@@ -422,7 +422,7 @@ fn mouse_horizontal_scroll() {
             0x0a, 0x00, // Len
             0x00, 0x00, 0x00, 0x6, // Input Len
             0x01, 0x00, 0x00, 0x55, // Input Type
-            10, 0x0, // amount
+            0x0, 10, // amount
         ],
     );
 }
