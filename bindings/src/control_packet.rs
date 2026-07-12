@@ -6,10 +6,12 @@ use moonlight_common::stream::{
         MouseButtonAction, PenButtons as PenButtons2, ToolType, TouchEventType,
     },
     proto::control::packet::{
-        ControlPacket as ControlPacket2, TerminationReason, UTF8_TEXT_MAX_COUNT,
+        ControlPacket as ControlPacket2, DS_EFFECT_PAYLOAD_SIZE, TerminationReason,
+        UTF8_TEXT_MAX_COUNT,
     },
     video::{Primary, SunshineHdrMetadata as SunshineHdrMetadata2},
 };
+use tracing::warn;
 use uniffi::{Enum, Record, custom_type, remote};
 
 #[remote(Enum)]
@@ -652,6 +654,8 @@ pub enum ControlPacket {
     },
     ControllerRumbleTriggers {
         controller_number: u16,
+        left_trigger_motor: u16,
+        right_trigger_motor: u16,
     },
     ControllerSetMotion {
         controller_number: u16,
@@ -663,6 +667,14 @@ pub enum ControlPacket {
         r: u8,
         g: u8,
         b: u8,
+    },
+    ControllerSetAdaptiveTriggers {
+        controller_number: u16,
+        event_flags: u8,
+        type_left: u8,
+        type_right: u8,
+        left: Vec<u8>,
+        right: Vec<u8>,
     },
     RequestIdr,
     StartB,
@@ -821,9 +833,15 @@ impl From<ControlPacket> for ControlPacket2 {
                 high_frequency,
             },
 
-            ControlPacket::ControllerRumbleTriggers { controller_number } => {
-                Self::ControllerRumbleTriggers { controller_number }
-            }
+            ControlPacket::ControllerRumbleTriggers {
+                controller_number,
+                left_trigger_motor,
+                right_trigger_motor,
+            } => Self::ControllerRumbleTriggers {
+                controller_number,
+                left_trigger_motor,
+                right_trigger_motor,
+            },
 
             ControlPacket::ControllerSetMotion {
                 controller_number,
@@ -846,6 +864,36 @@ impl From<ControlPacket> for ControlPacket2 {
                 g,
                 b,
             },
+
+            ControlPacket::ControllerSetAdaptiveTriggers {
+                controller_number,
+                event_flags,
+                type_left,
+                type_right,
+                mut left,
+                mut right,
+            } => {
+                if left.len() != DS_EFFECT_PAYLOAD_SIZE || right.len() != DS_EFFECT_PAYLOAD_SIZE {
+                    warn!(
+                        "ControllerSetAdaptiveTriggers packet requires the array to be of size {DS_EFFECT_PAYLOAD_SIZE}!"
+                    );
+                    left.resize(10, 0);
+                    right.resize(10, 0);
+                }
+
+                Self::ControllerSetAdaptiveTriggers {
+                    controller_number,
+                    event_flags,
+                    type_left,
+                    type_right,
+                    left: left
+                        .try_into()
+                        .expect("valid ControllerSetAdaptiveTriggers left len"),
+                    right: right
+                        .try_into()
+                        .expect("valid ControllerSetAdaptiveTriggers right len"),
+                }
+            }
 
             ControlPacket::RequestIdr => Self::RequestIdr,
             ControlPacket::StartB => Self::StartB,
@@ -1127,9 +1175,15 @@ impl From<ControlPacket2> for ControlPacket {
                 high_frequency,
             },
 
-            ControlPacket2::ControllerRumbleTriggers { controller_number } => {
-                Self::ControllerRumbleTriggers { controller_number }
-            }
+            ControlPacket2::ControllerRumbleTriggers {
+                controller_number,
+                left_trigger_motor,
+                right_trigger_motor,
+            } => Self::ControllerRumbleTriggers {
+                controller_number,
+                left_trigger_motor,
+                right_trigger_motor,
+            },
 
             ControlPacket2::ControllerSetMotion {
                 controller_number,
@@ -1151,6 +1205,22 @@ impl From<ControlPacket2> for ControlPacket {
                 r,
                 g,
                 b,
+            },
+
+            ControlPacket2::ControllerSetAdaptiveTriggers {
+                controller_number,
+                event_flags,
+                type_left,
+                type_right,
+                left,
+                right,
+            } => Self::ControllerSetAdaptiveTriggers {
+                controller_number,
+                event_flags,
+                type_left,
+                type_right,
+                left: left.to_vec(),
+                right: right.to_vec(),
             },
 
             ControlPacket2::RequestIdr => Self::RequestIdr,
