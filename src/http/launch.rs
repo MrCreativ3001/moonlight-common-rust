@@ -6,6 +6,7 @@ use std::{
 use roxmltree::Document;
 
 use crate::{
+    AppId,
     http::{
         Endpoint, FromQueryError, ParseError, QueryBuilder, QueryBuilderError, QueryMap,
         QueryParam, Request, TextResponse,
@@ -37,7 +38,7 @@ impl Endpoint for LaunchEndpoint {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientStreamRequest {
-    pub app_id: u32,
+    pub app_id: AppId,
     pub mode_width: u32,
     pub mode_height: u32,
     pub mode_fps: u32,
@@ -78,7 +79,7 @@ impl Request for ClientStreamRequest {
         }
 
         let mut appid_buffer = [0u8; _];
-        let appid = u32_to_str(self.app_id, &mut appid_buffer);
+        let appid = u32_to_str(self.app_id.0, &mut appid_buffer);
         query_builder.append(QueryParam {
             key: "appid",
             value: appid,
@@ -198,7 +199,7 @@ impl Request for ClientStreamRequest {
     where
         Q: QueryMap,
     {
-        let app_id: u32 = query_map.get("appid")?.parse()?;
+        let app_id = query_map.get("appid")?.parse().map(AppId)?;
 
         let mode = query_map.get("mode")?;
         let mut mode_split = mode.split("x");

@@ -7,11 +7,11 @@ use uuid::Uuid;
 use tracing::info;
 
 use crate::{
-    ServerState, ServerVersion,
+    App, AppId, ServerState, ServerVersion,
     http::{
         ClientInfo, DEFAULT_UNIQUE_ID, FromQueryError, ParseError, QueryBuilder, QueryBuilderError,
         QueryMap, QueryParam, Request, TextResponse,
-        app_list::{App, AppListRequest, AppListResponse},
+        app_list::{AppListRequest, AppListResponse},
         box_art::AppBoxArtRequest,
         cancel::{CancelRequest, CancelResponse},
         helper::fmt_write_to_buffer,
@@ -145,7 +145,7 @@ fn request_client_info() {
             },
             QueryParam {
                 key: "uuid",
-                value: &uuid.to_hyphenated().to_string(),
+                value: &uuid.as_hyphenated().to_string(),
             },
         ],
     );
@@ -333,12 +333,12 @@ fn response_app_list() {
         AppListResponse {
             apps: vec![
                 App {
-                    id: 881448767,
+                    id: AppId(881448767),
                     title: "Desktop".to_string(),
                     is_hdr_supported: false,
                 },
                 App {
-                    id: 1093255277,
+                    id: AppId(1093255277),
                     title: "Steam Big Picture".to_string(),
                     is_hdr_supported: true,
                 },
@@ -367,7 +367,7 @@ fn request_box_art() {
 
     test_request(
         AppBoxArtRequest {
-            app_id: 1093255277,
+            app_id: AppId(1093255277),
             asset_type: 2,
             asset_idx: 0,
         },
@@ -394,7 +394,7 @@ fn request_launch_and_resume() {
 
     test_request(
         ClientStreamRequest {
-            app_id: 10,
+            app_id: AppId(10),
             mode_width: 1920,
             mode_height: 1080,
             mode_fps: 60,
@@ -462,7 +462,7 @@ fn request_launch_and_resume() {
 fn request_launch_and_resume_hdr() {
     test_request(
         ClientStreamRequest {
-            app_id: 10,
+            app_id: AppId(10),
             mode_width: 1920,
             mode_height: 1080,
             mode_fps: 60,

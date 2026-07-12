@@ -81,6 +81,12 @@ fn test_packet(
     let len = expected_packet.serialize(&config, &mut bytes).unwrap();
     let bytes = &bytes[0..len];
     assert_eq!(bytes, expected_bytes, "Serialize: {:?}", expected_packet);
+    assert_eq!(
+        u16::from_le_bytes([bytes[2], bytes[3]]) as usize,
+        len - 4,
+        "serialized length doesn't match for {:?}",
+        bytes
+    );
 
     let packet = ControlPacket::deserialize(direction, &config, bytes).unwrap();
     assert_eq!(
@@ -747,6 +753,74 @@ fn controller_battery() {
             5,  // battery state
             10, // battery percentage
             0,  // reserved
+        ],
+    );
+}
+
+#[test]
+fn controller_rumble() {
+    test_packet(
+        PacketDirection::ClientBound,
+        sunshine_gen_7_enc_config(),
+        ControlPacket::ControllerRumbleData {
+            unused: 0,
+            controller_number: 1,
+            low_frequency: 2,
+            high_frequency: 3,
+        },
+        &[
+            0x0b, 0x01, // Type
+            10, 0, // Length
+            0, 0, 0, 0, // unused
+            1, 0, // controller number
+            2, 0, // low frequency
+            3, 0, // high frequency
+        ],
+    );
+}
+
+#[test]
+fn controller_rumble_triggers() {
+    test_packet(
+        PacketDirection::ClientBound,
+        sunshine_gen_7_enc_config(),
+        ControlPacket::ControllerRumbleTriggers {
+            controller_number: 1,
+            left_trigger_motor: 2,
+            right_trigger_motor: 3,
+        },
+        &[
+            0x00, 0x55, // Type
+            6, 0, // Length
+            1, 0, // controller number
+            2, 0, // left trigger
+            3, 0, // right trigger
+        ],
+    );
+}
+
+#[test]
+fn controller_set_adaptive_triggers() {
+    test_packet(
+        PacketDirection::ClientBound,
+        sunshine_gen_7_enc_config(),
+        ControlPacket::ControllerSetAdaptiveTriggers {
+            controller_number: 1,
+            event_flags: 2,
+            type_left: 3,
+            type_right: 4,
+            left: [5; _],
+            right: [6; _],
+        },
+        &[
+            0x03, 0x55, // Type
+            25, 0, // Length
+            1, 0, // controller number
+            2, // event flags
+            3, // type left
+            4, // type right
+            5, 5, 5, 5, 5, 5, 5, 5, 5, 5, // left
+            6, 6, 6, 6, 6, 6, 6, 6, 6, 6, // right
         ],
     );
 }

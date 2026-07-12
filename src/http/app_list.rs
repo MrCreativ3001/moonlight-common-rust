@@ -2,9 +2,12 @@ use std::{fmt, str::FromStr};
 
 use roxmltree::Document;
 
-use crate::http::{
-    Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryMap, Request, TextResponse,
-    helper::{parse_xml_child_text, parse_xml_root_node},
+use crate::{
+    App, AppId,
+    http::{
+        Endpoint, ParseError, QueryBuilder, QueryBuilderError, QueryMap, Request, TextResponse,
+        helper::{parse_xml_child_text, parse_xml_root_node},
+    },
 };
 
 pub struct AppListEndpoint;
@@ -40,15 +43,6 @@ impl Request for AppListRequest {
     }
 }
 
-// TODO: move App somewhere else
-#[derive(Debug, Clone, PartialEq)]
-pub struct App {
-    // TODO: make this a wrapper type: pub AppId(pub u32);
-    pub id: u32,
-    pub title: String,
-    pub is_hdr_supported: bool,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppListResponse {
     pub apps: Vec<App>,
@@ -75,7 +69,7 @@ impl TextResponse for AppListResponse {
             write!(body_writer, "<AppTitle>{}</AppTitle>", app.title)?;
 
             // <ID>
-            write!(body_writer, "<ID>{}</ID>", app.id)?;
+            write!(body_writer, "<ID>{}</ID>", app.id.0)?;
 
             // close app
             write!(body_writer, "</App>")?;
@@ -103,7 +97,7 @@ impl FromStr for AppListResponse {
         {
             let title = parse_xml_child_text(app_node, "AppTitle")?.to_string();
 
-            let id = parse_xml_child_text(app_node, "ID")?.parse()?;
+            let id = parse_xml_child_text(app_node, "ID")?.parse().map(AppId)?;
 
             let is_hdr_supported = parse_xml_child_text(app_node, "IsHdrSupported")
                 .unwrap_or("0")

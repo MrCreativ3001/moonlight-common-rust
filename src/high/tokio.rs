@@ -11,11 +11,11 @@ use tokio::{
 use uuid::Uuid;
 
 use crate::{
-    ServerState, ServerVersion,
+    App, AppId, ServerState, ServerVersion,
     high::MoonlightClientError,
     http::{
         ClientIdentifier, ClientInfo, ClientSecret, DEFAULT_UNIQUE_ID, ServerIdentifier,
-        app_list::{App, AppListEndpoint, AppListRequest, AppListResponse},
+        app_list::{AppListEndpoint, AppListRequest, AppListResponse},
         box_art::{AppBoxArtEndpoint, AppBoxArtRequest},
         cancel::{CancelEndpoint, CancelRequest},
         client::async_client::RequestClient,
@@ -503,7 +503,7 @@ where
         }
     }
 
-    pub async fn request_app_image(&self, app_id: u32) -> Result<Vec<u8>, MoonlightClientError> {
+    pub async fn request_app_image(&self, app_id: AppId) -> Result<Vec<u8>, MoonlightClientError> {
         self.check_paired().await?;
 
         let https_address = self.https_address().await?;
@@ -536,7 +536,7 @@ where
     /// Before starting the stream you should adjust the settings using [MoonlightStreamSettings::adjust_for_server].
     pub async fn start_stream(
         &self,
-        app_id: u32,
+        app_id: AppId,
         settings: &MoonlightStreamSettings,
         aes_key: AesKey,
         aes_iv: AesIv,

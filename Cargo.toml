@@ -16,8 +16,7 @@ openssl = "0.10.73"
 [workspace.lints.clippy]
 too_many_arguments = "allow"
 needless_range_loop = "allow"
-# TODO: make this warn
-# todo = "warn"
+todo = "warn"
 unwrap_used = "warn"
 
 [package]
@@ -36,8 +35,7 @@ tracing = "0.1.44"
 
 thiserror.workspace = true
 
-# TODO: should the v4 feature for random be used?
-uuid = { version = "0.8.2", features = ["v4", "stdweb"] }
+uuid = { version = "1.23.4", features = ["v4"] }
 hex = "0.4.3"
 pem = "3.0.6"
 roxmltree = "0.21.1"
@@ -54,9 +52,10 @@ rusty_enet = { version = "0.4.0", optional = true }
 moonlight-common-sys = { workspace = true, optional = true }
 
 # Stream Tokio
-# TODO: only pick needed features, maybe also behind a feature lock
-tokio = { version = "1.49.0", default-features = false, features = [
-    "full",
+tokio = { version = "1.52.3", default-features = false, features = [
+    "net",
+    "sync",
+    "time",
 ], optional = true }
 
 # -- Request clients
@@ -72,7 +71,6 @@ ureq = { version = "3.2.0", features = [
 ], default-features = false, optional = true }
 
 # Hyper Client
-# TODO: rename to tokio hyper
 rustls = { version = "0.23.37", default-features = false, optional = true }
 hyper-util = { version = "0.1.20", features = [
     "client",

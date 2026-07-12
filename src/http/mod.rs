@@ -10,7 +10,7 @@ use std::{
 use pem::Pem;
 use roxmltree::Error;
 use thiserror::Error;
-use uuid::{Uuid, adapter::Hyphenated};
+use uuid::{Uuid, fmt::Hyphenated};
 
 use crate::{ParseServerStateError, ParseServerVersionError, mac::ParseMacError};
 
@@ -225,7 +225,7 @@ impl Request for ClientInfo {
         })?;
 
         let mut uuid_bytes = [0; Hyphenated::LENGTH];
-        self.uuid.to_hyphenated_ref().encode_lower(&mut uuid_bytes);
+        self.uuid.as_hyphenated().encode_lower(&mut uuid_bytes);
         let uuid_str = str::from_utf8(&uuid_bytes).expect("uuid string");
 
         query_builder.append(QueryParam {

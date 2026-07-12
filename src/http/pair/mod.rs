@@ -205,8 +205,13 @@ pub enum PairResponse {
 }
 
 impl TextResponse for PairResponse {
-    fn serialize_into(&self, _body_writer: &mut impl fmt::Write) -> fmt::Result {
-        todo!()
+    fn serialize_into(&self, body_writer: &mut impl fmt::Write) -> fmt::Result {
+        match self {
+            PairResponse::Phase1(response) => response.serialize_into(body_writer),
+            PairResponse::Phase2(response) => response.serialize_into(body_writer),
+            PairResponse::Phase3(response) => response.serialize_into(body_writer),
+            PairResponse::Phase4(response) => response.serialize_into(body_writer),
+        }
     }
 }
 
@@ -214,8 +219,6 @@ impl FromStr for PairResponse {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TODO: find a better way to do this
-
         if s.contains("plaincert") {
             PairPhase1Response::from_str(s).map(Self::Phase1)
         } else if s.contains("challengeresponse") {

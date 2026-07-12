@@ -13,9 +13,9 @@ use crate::{
             video::{
                 frame::{OwnedVideoFrame, VideoFrame, VideoFrameMetadata, parse_frame},
                 packet::{
-                    MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
-                    VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
-                    fec_percentage_to_parity_shards,
+                    FrameType, MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader,
+                    VideoHeaderFlags, fec_percentage_to_parity_shards,
                 },
             },
         },
@@ -244,8 +244,16 @@ impl VideoDepayloader {
         // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L855-L972
 
         if full_frame.len() < 8 {
-            // TODO: what now?
-            todo!();
+            warn!(full_frame = ?full_frame, "received a frame that is too small to be a valid frame! This will lead to an invalid video stream!");
+            return (
+                VideoFrameMetadata {
+                    frame_index,
+                    frame_type: FrameType::PFrame,
+                    host_processing_latency: None,
+                    timestamp,
+                },
+                0..0,
+            );
         }
         #[allow(clippy::unwrap_used)]
         let frame_header = VideoFrameHeader::deserialize(full_frame[0..8].try_into().unwrap());

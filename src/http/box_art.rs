@@ -1,6 +1,9 @@
-use crate::http::{
-    Endpoint, FromQueryError, QueryBuilder, QueryBuilderError, QueryMap, QueryParam, Request,
-    helper::u32_to_str,
+use crate::{
+    AppId,
+    http::{
+        Endpoint, FromQueryError, QueryBuilder, QueryBuilderError, QueryMap, QueryParam, Request,
+        helper::u32_to_str,
+    },
 };
 
 pub struct AppBoxArtEndpoint;
@@ -22,7 +25,7 @@ impl Endpoint for AppBoxArtEndpoint {
 /// - Get the app image: asset_type=2, asset_idx=0
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppBoxArtRequest {
-    pub app_id: u32,
+    pub app_id: AppId,
     /// Default: 2
     pub asset_type: i32,
     /// Default: 0
@@ -35,7 +38,7 @@ impl Request for AppBoxArtRequest {
         query_builder: &mut impl QueryBuilder,
     ) -> Result<(), QueryBuilderError> {
         let mut appid_buffer = [0u8; _];
-        let appid = u32_to_str(self.app_id, &mut appid_buffer);
+        let appid = u32_to_str(self.app_id.0, &mut appid_buffer);
         query_builder.append(QueryParam {
             key: "appid",
             value: appid,
@@ -57,7 +60,7 @@ impl Request for AppBoxArtRequest {
     where
         Q: QueryMap,
     {
-        let app_id: u32 = query_map.get("appid")?.parse()?;
+        let app_id = query_map.get("appid")?.parse().map(AppId)?;
 
         let asset_type: i32 = query_map.get("AssetType")?.parse()?;
         let asset_idx: i32 = query_map.get("AssetIdx")?.parse()?;

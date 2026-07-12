@@ -228,7 +228,7 @@ pub struct ControlPacketConfig {
     /// Sunshine Extension
     ///
     /// See also:
-    /// - [ControlPacket::RumbleTriggers]
+    /// - [ControlPacket::ControllerRumbleTriggers]
     pub rumble_triggers: Option<RawControlPacketType>,
     /// Sunshine Extension
     ///
@@ -357,7 +357,7 @@ pub enum ControlPacketType {
     ControllerRumbleTriggers,
     ControllerSetMotion,
     ControllerSetLed,
-    SetAdaptiveTriggers,
+    ControllerSetAdaptiveTriggers,
 }
 
 impl ControlPacketType {
@@ -370,15 +370,15 @@ impl ControlPacketType {
             Self::LongTermReferenceFrameAcknowledgement => PacketDirection::ServerBound,
             Self::LossStats => PacketDirection::ServerBound,
             Self::FrameStats => PacketDirection::ServerBound,
-            Self::ControllerRumbleData => PacketDirection::ServerBound,
+            Self::ControllerRumbleData => PacketDirection::ClientBound,
             Self::Termination => PacketDirection::ClientBound,
             Self::HdrMode => PacketDirection::ClientBound,
             Self::InputData => PacketDirection::ServerBound,
             Self::FrameFec => PacketDirection::ServerBound,
-            Self::ControllerRumbleTriggers => PacketDirection::ServerBound,
+            Self::ControllerRumbleTriggers => PacketDirection::ClientBound,
             Self::ControllerSetMotion => PacketDirection::ClientBound,
             Self::ControllerSetLed => PacketDirection::ClientBound,
-            Self::SetAdaptiveTriggers => PacketDirection::ClientBound,
+            Self::ControllerSetAdaptiveTriggers => PacketDirection::ClientBound,
         }
     }
 
@@ -403,7 +403,7 @@ impl ControlPacketType {
             ControlPacketType::ControllerRumbleTriggers => config.rumble_triggers,
             ControlPacketType::ControllerSetMotion => config.set_motion_event,
             ControlPacketType::ControllerSetLed => config.set_rgb_led,
-            ControlPacketType::SetAdaptiveTriggers => config.set_adaptive_triggers,
+            ControlPacketType::ControllerSetAdaptiveTriggers => config.set_adaptive_triggers,
         }
     }
     pub fn deserialize(
@@ -417,6 +417,11 @@ impl ControlPacketType {
                 id if Some(id) == config.server_termination => Some(Self::Termination),
                 id if Some(id) == config.set_motion_event => Some(Self::ControllerSetMotion),
                 id if Some(id) == config.set_rgb_led => Some(Self::ControllerSetLed),
+                id if Some(id) == config.rumble_data => Some(Self::ControllerRumbleData),
+                id if Some(id) == config.rumble_triggers => Some(Self::ControllerRumbleTriggers),
+                id if Some(id) == config.set_adaptive_triggers => {
+                    Some(Self::ControllerSetAdaptiveTriggers)
+                }
                 _ => None,
             },
             PacketDirection::ServerBound => match ty {
@@ -580,6 +585,10 @@ pub const SS_CONTROLLER_BATTERY_MAGIC: u32 = 0x55000007;
 /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L32>
 pub const UTF8_TEXT_EVENT_MAGIC: u32 = 0x00000017;
 
+/// References:
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/82e25148549d249a80aaf4afc68e2abb07072edf/src/Limelight.h#L478>
+pub const DS_EFFECT_PAYLOAD_SIZE: usize = 10;
+
 /// A control packet for the [ControlHost](super::peer::ControlHost).
 #[derive(Debug, PartialEq, Clone)]
 pub enum ControlPacket {
@@ -604,6 +613,8 @@ pub enum ControlPacket {
     /// - gow: <https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html#_rumble_triggers>
     ControllerRumbleTriggers {
         controller_number: u16,
+        left_trigger_motor: u16,
+        right_trigger_motor: u16,
     },
     /// Sunshine Extension
     ///
@@ -626,6 +637,26 @@ pub enum ControlPacket {
         r: u8,
         g: u8,
         b: u8,
+    },
+    ///
+    ///
+    /// ## Arrays of Size DS_EFFECT_PAYLOAD_SIZE
+    /// this is an opaque payload that will be read directly from the joypad and set as is to the client controller
+    /// if you are curious about the actual data, there's some rationale in
+    /// https://gist.github.com/Nielk1/6d54cc2c00d2201ccb8c2720ad7538db
+    ///
+    /// References:
+    /// - definition: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L70-L85
+    /// - packet construction: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L1080-L1089>
+    ControllerSetAdaptiveTriggers {
+        controller_number: u16,
+        /// 0x04 - Right trigger
+        /// 0x08 - Left trigger
+        event_flags: u8,
+        type_left: u8,
+        type_right: u8,
+        left: [u8; DS_EFFECT_PAYLOAD_SIZE],
+        right: [u8; DS_EFFECT_PAYLOAD_SIZE],
     },
     // -- Client Sent Events
     /// Also known as StartA
@@ -889,11 +920,14 @@ pub enum ControlPacket {
         y: f32,
         z: f32,
     },
+    /// Sunshine Extension
+    ///
+    /// Send the battery state and percentage of the controller to the host.
+    ///
     /// References:
     /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/Input.h#L190-L196>
     /// - how to use: <https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1588-L1628>
     ControllerBattery {
-        // TODO: what does this do exactly?
         controller_number: u8,
         battery_state: BatteryState,
         battery_percentage: u8,
@@ -1068,6 +1102,14 @@ impl ControlPacket {
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
                     PacketKind::Reliable,
                 ),
+                ControlPacket::ControllerSetAdaptiveTriggers {
+                    controller_number, ..
+                } => (
+                    // This is a server packet (see above), but it makes more sense to give it it's own channel
+                    EnetChannel::controller(*controller_number as u8)
+                        .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
+                    PacketKind::Reliable,
+                ),
                 ControlPacket::ControllerSetMotion {
                     controller_number, ..
                 } => (
@@ -1155,6 +1197,9 @@ impl ControlPacket {
             Self::ControllerArrival { .. } => ControlPacketType::InputData,
             Self::ControllerMotion { .. } => ControlPacketType::InputData,
             Self::ControllerBattery { .. } => ControlPacketType::InputData,
+            Self::ControllerSetAdaptiveTriggers { .. } => {
+                ControlPacketType::ControllerSetAdaptiveTriggers
+            }
         }
     }
 
@@ -1733,17 +1778,48 @@ impl ControlPacket {
                 Ok(4 + content_len as usize)
             }
             Self::ControllerRumbleData {
-                unused: _,
-                controller_number: _,
-                low_frequency: _,
-                high_frequency: _,
+                unused,
+                controller_number,
+                low_frequency,
+                high_frequency,
             } => {
-                todo!();
+                // Ty
+                let Some(ty) = config.rumble_data else {
+                    return Err(ControlPacketNotSupported);
+                };
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                buffer[2..4].copy_from_slice(&10u16.to_le_bytes());
+
+                // Content
+                buffer[4..8].copy_from_slice(&unused.to_le_bytes());
+                buffer[8..10].copy_from_slice(&controller_number.to_le_bytes());
+                buffer[10..12].copy_from_slice(&low_frequency.to_le_bytes());
+                buffer[12..14].copy_from_slice(&high_frequency.to_le_bytes());
+
+                Ok(14)
             }
             Self::ControllerRumbleTriggers {
-                controller_number: _,
+                controller_number,
+                left_trigger_motor,
+                right_trigger_motor,
             } => {
-                todo!()
+                // Ty
+                let Some(ty) = config.rumble_triggers else {
+                    return Err(ControlPacketNotSupported);
+                };
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                buffer[2..4].copy_from_slice(&6u16.to_le_bytes());
+
+                // Content
+                buffer[4..6].copy_from_slice(&controller_number.to_le_bytes());
+                buffer[6..8].copy_from_slice(&left_trigger_motor.to_le_bytes());
+                buffer[8..10].copy_from_slice(&right_trigger_motor.to_le_bytes());
+
+                Ok(10)
             }
             Self::ControllerSetLed {
                 controller_number,
@@ -1788,6 +1864,33 @@ impl ControlPacket {
                 buffer[8] = *motion_type as u8;
 
                 Ok(4 + content_len as usize)
+            }
+            Self::ControllerSetAdaptiveTriggers {
+                controller_number,
+                event_flags,
+                type_left,
+                type_right,
+                left,
+                right,
+            } => {
+                // Ty
+                let Some(ty) = config.set_adaptive_triggers else {
+                    return Err(ControlPacketNotSupported);
+                };
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                // Length
+                buffer[2..4].copy_from_slice(&25u16.to_le_bytes());
+
+                buffer[4..6].copy_from_slice(&controller_number.to_le_bytes());
+                buffer[6] = *event_flags;
+                buffer[7] = *type_left;
+                buffer[8] = *type_right;
+                buffer[9..(9 + DS_EFFECT_PAYLOAD_SIZE)].copy_from_slice(left);
+                buffer[(9 + DS_EFFECT_PAYLOAD_SIZE)..(9 + DS_EFFECT_PAYLOAD_SIZE * 2)]
+                    .copy_from_slice(right);
+
+                Ok(9 + DS_EFFECT_PAYLOAD_SIZE * 2)
             }
             Self::Touch {
                 event_type,
@@ -1928,7 +2031,7 @@ impl ControlPacket {
         trace!("parsed type: {ty:?}");
 
         if payload.len() < 4 + len as usize - 1 {
-            warn!(packet_ty = ?ty, full_len = payload.len(), got_len = payload.len() - 4, expected_len = len, "Received payload that has incorrect length in its length field");
+            warn!(packet_ty = ?ty, full_len = payload.len(), got_len = payload.len() - 4, expected_len = len, "received payload that has incorrect length in its length field");
             return None;
         }
         let payload = &payload[0..(4 + len as usize)];
@@ -1942,10 +2045,38 @@ impl ControlPacket {
             ControlPacketType::RequestIdr => Some(ControlPacket::RequestIdr),
             ControlPacketType::StartB => Some(ControlPacket::StartB),
             ControlPacketType::ControllerRumbleData => {
-                todo!();
+                if payload.len() < 14 {
+                    warn!("ControllerRumbleData packet too small");
+                    return None;
+                }
+
+                let unused = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+                let controller_number = u16::from_le_bytes([payload[8], payload[9]]);
+                let low_frequency = u16::from_le_bytes([payload[10], payload[11]]);
+                let high_frequency = u16::from_le_bytes([payload[12], payload[13]]);
+
+                Some(ControlPacket::ControllerRumbleData {
+                    unused,
+                    controller_number,
+                    low_frequency,
+                    high_frequency,
+                })
             }
             ControlPacketType::ControllerRumbleTriggers => {
-                todo!()
+                if payload.len() < 10 {
+                    warn!("ControllerRumbleTriggers packet too small");
+                    return None;
+                }
+
+                let controller_number = u16::from_le_bytes([payload[4], payload[5]]);
+                let left_trigger_motor = u16::from_le_bytes([payload[6], payload[7]]);
+                let right_trigger_motor = u16::from_le_bytes([payload[8], payload[9]]);
+
+                Some(ControlPacket::ControllerRumbleTriggers {
+                    controller_number,
+                    left_trigger_motor,
+                    right_trigger_motor,
+                })
             }
             ControlPacketType::ControllerSetMotion => {
                 if payload.len() < 9 {
@@ -2617,8 +2748,31 @@ impl ControlPacket {
                     }
                 }
             }
-            ControlPacketType::SetAdaptiveTriggers => {
-                todo!()
+            ControlPacketType::ControllerSetAdaptiveTriggers => {
+                if payload.len() < 25 {
+                    warn!("ControllerSetAdaptiveTriggers packet too small");
+                    return None;
+                }
+
+                let controller_number = u16::from_le_bytes([payload[4], payload[5]]);
+                let event_flags = payload[6];
+                let type_left = payload[7];
+                let type_right = payload[8];
+
+                let mut left = [0u8; _];
+                left.copy_from_slice(&payload[9..19]);
+
+                let mut right = [0u8; _];
+                right.copy_from_slice(&payload[19..29]);
+
+                Some(ControlPacket::ControllerSetAdaptiveTriggers {
+                    controller_number,
+                    event_flags,
+                    type_left,
+                    type_right,
+                    left,
+                    right,
+                })
             }
         }
     }

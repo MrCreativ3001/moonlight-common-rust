@@ -211,3 +211,13 @@ impl FromStr for ServerVersion {
         Ok(Self::new(major, minor, patch, mini_patch))
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppId(pub u32);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct App {
+    pub id: AppId,
+    pub title: String,
+    pub is_hdr_supported: bool,
+}

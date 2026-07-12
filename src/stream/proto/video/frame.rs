@@ -19,6 +19,10 @@ pub struct VideoFrameMetadata {
     /// The index of the frame
     pub frame_index: FrameIndex,
     /// Type of this frame.
+    ///
+    /// This is received from the server and mostly used for Reference Frame Invalidation.
+    ///
+    /// Prefer [VideoFrame::parsed_frame_type] over this.
     pub frame_type: FrameType,
     /// The timestamp that the server sent.
     /// 90kHz clock time representation.
@@ -39,7 +43,7 @@ pub struct VideoFrame<'a> {
     pub metadata: VideoFrameMetadata,
     /// Parsed type of this frame.
     ///
-    /// The difference to [Self::frame_type] is that this is directly parsed from the bitstream for some codecs.
+    /// The difference to [VideoFrameMetadata::frame_type] is that this is directly parsed from the bitstream for some codecs.
     /// - For H264 and H265 this will be parsed using the nalus from the bitstream.
     /// - For other codecs (Av1) this will be the value from the server
     pub parsed_frame_type: video::FrameType,
