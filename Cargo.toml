@@ -35,7 +35,7 @@ tracing = "0.1.44"
 
 thiserror.workspace = true
 
-uuid = { version = "1.23.4", features = ["v4"] }
+uuid = { version = "1.23.4", features = ["v4", "js"] }
 hex = "0.4.3"
 pem = "3.0.6"
 roxmltree = "0.21.1"
