@@ -1,29 +1,18 @@
 use sans_io_time::Instant as SansInstant;
-use std::{
-    collections::VecDeque,
-    future::pending,
-    io,
-    pin::pin,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{future::pending, io, pin::pin, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    select, spawn,
-    sync::Notify,
+    select,
     time::{Instant, sleep, sleep_until},
     try_join,
 };
-use tracing::{Instrument, Level, debug, info, info_span, instrument, trace, warn};
+use tracing::{Level, debug, info, instrument, warn};
 
 use crate::stream::{
     HostFeatures, MoonlightStreamConfig, MoonlightStreamSettings,
-    audio::{AudioFrame, OpusMultistreamConfig},
+    audio::OpusMultistreamConfig,
     control::EstimatedRttInfo,
     proto::{
         DynCryptoBackend, MoonlightStreamInput, MoonlightStreamProtoError, MoonlightStreamSetup,
@@ -34,7 +23,7 @@ use crate::stream::{
             packet::ControlPacket, peer::ControlError,
         },
         microphone::foundation::{FoundationMicStream, FoundationMicStreamError},
-        video::{VideoStream, VideoStreamError, VideoStreamEvent, frame::OwnedVideoFrame},
+        video::{VideoStream, VideoStreamError, VideoStreamEvent},
     },
     tokio::driver::StreamDriver,
     video::{VideoCapabilities, VideoSetup},

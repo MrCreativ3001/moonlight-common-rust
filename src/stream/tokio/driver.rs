@@ -12,7 +12,6 @@ use tokio::{
     net::UdpSocket,
     time::{Instant, Sleep, sleep_until},
 };
-use tracing::debug;
 
 use crate::stream::{proto::runtime::UdpStream, tokio::MoonlightStreamError};
 
