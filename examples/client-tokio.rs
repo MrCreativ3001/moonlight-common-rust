@@ -253,7 +253,6 @@ async fn main() {
                     }
                     MoonlightStreamEvent::Control(ControlStreamEvent::Disconnect) => {
                         info!("control stream disconnected");
-                        break;
                     }
                     _ => {}
                 }
