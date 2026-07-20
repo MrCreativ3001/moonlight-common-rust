@@ -135,7 +135,6 @@ where
             }
 
             // -- Timeout
-            // Set new timeout if needed
             let deadline = this
                 .driver
                 .inner
@@ -143,6 +142,7 @@ where
                 .map(|x| x.to_std(this.driver.base_time.into_std()).into());
 
             if let Some(deadline) = deadline {
+                // Set new timeout if needed
                 if *this.old_deadline != deadline {
                     *this.old_deadline = deadline;
                     this.sleep.as_mut().reset(deadline);
