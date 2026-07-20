@@ -55,7 +55,7 @@ pub enum VideoStreamError {
 
 #[derive(Debug)]
 pub enum VideoStreamEvent {
-    OnFrame,
+    OnFrame(OwnedVideoFrame),
     SignalIdr,
 }
 
@@ -235,8 +235,13 @@ impl VideoStream {
 
             self.last_frame = now;
 
-            self.current_frame = Some(frame_index);
-            self.events.push_back(VideoStreamEvent::OnFrame);
+            self.current_frame = Some(FrameIndex(frame_index.0 + 1));
+
+            let frame = self
+                .depayloader
+                .take_frame(frame_index)
+                .expect("VideoStream::update, take_frame");
+            self.events.push_back(VideoStreamEvent::OnFrame(frame));
 
             return Ok(());
         }
@@ -244,17 +249,6 @@ impl VideoStream {
         self.do_idr_request()?;
 
         Ok(())
-    }
-
-    pub fn poll_frame(&mut self) -> Option<OwnedVideoFrame> {
-        if let Some(current_frame) = self.current_frame {
-            let frame = self.depayloader.take_frame(current_frame)?;
-            self.current_frame = Some(FrameIndex(*current_frame + 1));
-
-            Some(frame)
-        } else {
-            None
-        }
     }
 
     pub fn request_idr(&mut self) {

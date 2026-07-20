@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use sans_io_time::Instant;
 
 use fec_rs::ReedSolomon;
@@ -61,7 +62,7 @@ pub enum AudioStreamError {
 
 #[derive(Debug)]
 pub enum AudioStreamEvent {
-    OnFrame,
+    OnFrame(AudioFrame<Bytes>),
 }
 
 pub struct AudioStream {
@@ -70,7 +71,6 @@ pub struct AudioStream {
     dropped_frames: bool,
     ping_sender: PingSender,
     depayloader: AudioDepayloader,
-    frames: VecDeque<AudioFrame<Vec<u8>>>,
     events: VecDeque<AudioStreamEvent>,
 }
 
@@ -101,21 +101,17 @@ impl AudioStream {
                 },
                 crypto_backend,
             ),
-            frames: Default::default(),
             events: Default::default(),
         }
     }
 
-    pub fn poll_frame(&mut self) -> Option<AudioFrame<Vec<u8>>> {
-        self.frames.pop_front()
-    }
-
     fn poll_depayloader(&mut self, now: Instant) -> Result<(), AudioStreamError> {
         while let Some(frame) = self.depayloader.poll_frame()? {
-            self.frames.push_back(frame);
-
             self.last_frame = now;
-            self.events.push_back(AudioStreamEvent::OnFrame);
+            self.events.push_back(AudioStreamEvent::OnFrame(AudioFrame {
+                timestamp: frame.timestamp,
+                buffer: frame.buffer.into(),
+            }));
         }
 
         Ok(())

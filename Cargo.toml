@@ -17,7 +17,6 @@ openssl = "0.10.73"
 too_many_arguments = "allow"
 needless_range_loop = "allow"
 todo = "warn"
-unwrap_used = "warn"
 
 [package]
 name = "moonlight-common"
@@ -57,6 +56,7 @@ tokio = { version = "1.52.3", default-features = false, features = [
     "sync",
     "time",
 ], optional = true }
+pin-project-lite = "0.2"
 
 # -- Request clients
 http = { version = "1.4.0", default-features = false, optional = true }

@@ -1,20 +1,21 @@
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
-use uniffi::{Object, Record, custom_type, deps::anyhow::anyhow, export, remote};
+use uniffi::{Enum, Object, Record, custom_type, deps::anyhow::anyhow, export};
 
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     stream::{
         SunshineEncryption,
-        audio::OpusMultistreamConfig as OpusMultistreamConfig2,
+        audio::{AudioFrame as AudioFrame2, OpusMultistreamConfig as OpusMultistreamConfig2},
         proto::{
             Instant,
             audio::{
                 AudioStream as AudioStream2, AudioStreamConfig as AudioStreamConfig2,
-                AudioStreamEvent,
+                AudioStreamEvent as AudioStreamEvent2,
             },
             packet::SunshinePing,
             runtime::UdpStream,
@@ -51,9 +52,35 @@ pub struct AudioStreamConfig {
     pub sunshine_ping: Option<SunshinePing>,
 }
 
-#[remote(Enum)]
+#[derive(Debug, Record)]
+pub struct AudioFrame {
+    pub timestamp: Duration,
+    pub data: Vec<u8>,
+}
+
+impl<Buf> From<AudioFrame2<Buf>> for AudioFrame
+where
+    Buf: Into<Vec<u8>>,
+{
+    fn from(value: AudioFrame2<Buf>) -> Self {
+        Self {
+            timestamp: value.timestamp,
+            data: value.buffer.into(),
+        }
+    }
+}
+
+#[derive(Enum)]
 pub enum AudioStreamEvent {
-    OnFrame,
+    OnFrame(AudioFrame),
+}
+
+impl From<AudioStreamEvent2> for AudioStreamEvent {
+    fn from(value: AudioStreamEvent2) -> Self {
+        match value {
+            AudioStreamEvent2::OnFrame(frame) => Self::OnFrame(frame.into()),
+        }
+    }
 }
 
 #[derive(Debug, Object)]
@@ -91,7 +118,7 @@ impl AudioStream {
 
     pub fn poll_event(&self) -> Option<AudioStreamEvent> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
-        inner.poll_event()
+        inner.poll_event().map(AudioStreamEvent::from)
     }
 
     pub fn poll_timeout(&self) -> Option<Instant> {

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{sync::Arc, time::Duration};
+use std::{pin::pin, sync::Arc, time::Duration};
 
 use clap::Parser;
 use moonlight_common::{
@@ -14,12 +14,20 @@ use moonlight_common::{
         AesIv, AesKey, EncryptionFlags, MoonlightStreamSettings, StreamingConfig,
         audio::{AudioConfig, AudioDecoder},
         control::ActiveGamepads,
-        proto::{MoonlightStreamSetup, control::input_batcher::ClientInputEvent},
-        tokio::MoonlightStream,
+        proto::{
+            MoonlightStreamSetup,
+            audio::AudioStreamEvent,
+            control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
+            video::VideoStreamEvent,
+        },
+        tokio::{MoonlightStream, MoonlightStreamEvent},
         video::{ColorRange, ColorSpace, VideoCapabilities, VideoDecoder, VideoFormats},
     },
 };
-use tokio::{spawn, time::sleep};
+use tokio::{
+    select,
+    time::{interval, sleep},
+};
 use tracing::info;
 
 use crate::common::{
@@ -165,98 +173,94 @@ async fn main() {
         .unwrap();
 
     // Transition from the starting phase into the streaming phase
-    let stream = Arc::new(
-        MoonlightStream::connect(
-            config,
-            settings,
-            Arc::new(crypto_backend),
-            VideoCapabilities::default(),
-        )
-        .await
-        .unwrap(),
-    );
+    let mut stream = MoonlightStream::connect(
+        config,
+        settings,
+        Arc::new(crypto_backend),
+        VideoCapabilities::default(),
+    )
+    .await
+    .unwrap();
 
-    // Setup and start the decoders
+    // Setup the decoders
     // TODO: how to get the audio_config?
     audio_decoder.setup(AudioConfig::STEREO, stream.audio_setup());
+    let mut audio_started = false;
+
     video_decoder.setup(stream.video_setup());
+    let mut video_started = false;
 
-    // Audio
-    spawn({
-        let stream = stream.clone();
-        async move {
-            let mut started = false;
+    // Mouse Testing
+    let mut i = 0;
+    let mut interval = pin!(interval(Duration::from_secs(5) / 100));
 
-            while let Ok(frame) = stream.poll_audio_frame().await {
-                if !started {
-                    started = true;
-                    audio_decoder.start();
-                }
-
-                audio_decoder.decode_and_play_sample(frame.as_ref());
-            }
-
-            audio_decoder.stop();
+    // Wait a few seconds for stop
+    let mut stopped = false;
+    let mut deadline = pin!(sleep(Duration::from_secs(20)));
+    loop {
+        if !stream.is_alive() {
+            break;
         }
-    });
 
-    // Video
-    spawn({
-        let stream = stream.clone();
-        async move {
-            loop {
-                let mut started = false;
+        select! {
+            // Check for deadline
+            _ = &mut deadline, if !stopped => {
+                info!("stream deadline surpassed, stopping stream");
+                stream.disconnect().unwrap();
+                stopped = true;
+            }
+            // Do mouse test
+            _ = interval.tick(), if (0..100).contains(&i) => {
+                // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
+                // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/80
+                // However this is just a simple example so we don't care
+                stream
+                    .send_input(ClientInputEvent::MouseMoveAbsolute {
+                        x: i,
+                        y: 50,
+                        reference_width: 100,
+                        reference_height: 100,
+                    })
+                    .unwrap();
 
-                while let Ok(frame) = stream.poll_video_frame().await {
-                    if !started {
-                        video_decoder.start();
-                        started = true;
+                i += 1;
+            }
+            // Drive stream forward
+            result = stream.drive() => {
+                let event = result.unwrap();
+                match event {
+                    MoonlightStreamEvent::Audio(AudioStreamEvent::OnFrame(frame)) => {
+                        if !audio_started {
+                            audio_started = true;
+                            audio_decoder.start();
+                        }
+
+                        audio_decoder.decode_and_play_sample(frame.as_ref());
                     }
+                    MoonlightStreamEvent::Video(VideoStreamEvent::OnFrame(frame)) => {
+                        if !video_started {
+                            video_started = true;
+                            video_decoder.start();
+                        }
 
-                    video_decoder.submit_decode_unit(frame.as_ref().into_decode_unit());
+                        video_decoder.submit_decode_unit(frame.as_ref().into_decode_unit());
+                    }
+                    MoonlightStreamEvent::Video(VideoStreamEvent::SignalIdr) => {
+                        let _ = stream.send_raw(ControlPacket::RequestIdr);
+                    }
+                    MoonlightStreamEvent::Control(ControlStreamEvent::Packet(packet)) => {
+                        info!(packet = ?packet, "receive control packet");
+                    }
+                    MoonlightStreamEvent::Control(ControlStreamEvent::Disconnect) => {
+                        info!("control stream disconnected");
+                        break;
+                    }
+                    _ => {}
                 }
-
-                video_decoder.stop();
             }
         }
-    });
-
-    // Control
-    spawn({
-        let stream = stream.clone();
-        async move {
-            loop {
-                while let Ok(packet) = stream.poll_packet().await {
-                    info!(packet = ?packet, "receive control packet");
-                }
-            }
-        }
-    });
-
-    // -- Use the stream
-
-    // Move the cursor from the left side to the right side of the screen
-    info!("starting mouse test");
-    for i in 0..100 {
-        // You should prefer to use send_mouse_move over send_mouse_position because it fails in multi monitor setups
-        // See https://github.com/MrCreativ3001/moonlight-web-stream/issues/80
-        // However this is just a simple example so we don't care
-        stream
-            .send_input(ClientInputEvent::MouseMoveAbsolute {
-                x: i,
-                y: 50,
-                reference_width: 100,
-                reference_height: 100,
-            })
-            .unwrap();
-
-        sleep(Duration::from_secs(5) / 100).await;
     }
-    info!("ending mouse test");
 
-    // Wait a few seconds
-    sleep(Duration::from_secs(100)).await;
-
-    // Stop the stream
-    stream.stop();
+    audio_decoder.stop();
+    video_decoder.stop();
 }

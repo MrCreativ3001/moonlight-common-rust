@@ -1202,6 +1202,7 @@ dependencies = [
  "openssl-src",
  "openssl-sys",
  "pem",
+ "pin-project-lite",
  "pkcs8",
  "rand",
  "roxmltree",

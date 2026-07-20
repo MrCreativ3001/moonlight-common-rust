@@ -15,13 +15,14 @@ use moonlight_common::{
             runtime::UdpStream,
             video::{
                 VideoStream as VideoStream2, VideoStreamConfig as VideoStreamConfig2,
-                VideoStreamEvent, depayloader::VideoDepayloaderConfig,
+                VideoStreamEvent as VideoStreamEvent2, depayloader::VideoDepayloaderConfig,
+                frame::OwnedVideoFrame,
             },
         },
         video::{BufferType, ColorSpace, FrameIndex, FrameType, VideoFormat},
     },
 };
-use uniffi::{Object, Record, custom_type, export, remote};
+use uniffi::{Enum, Object, Record, custom_type, export, remote};
 
 use crate::{MoonlightError, UdpTransmit};
 
@@ -79,10 +80,42 @@ pub struct VideoDecodeUnit {
     pub buffers: Vec<VideoFrameBuffer>,
 }
 
-#[remote(Enum)]
+impl From<OwnedVideoFrame> for VideoDecodeUnit {
+    fn from(value: OwnedVideoFrame) -> Self {
+        let frame = value.as_ref();
+
+        Self {
+            frame_number: frame.metadata.frame_index,
+            frame_type: frame.parsed_frame_type,
+            frame_processing_latency: frame.metadata.host_processing_latency,
+            timestamp: frame.metadata.timestamp,
+            // TODO
+            color_space: ColorSpace::Rec709,
+            buffers: frame
+                .buffers
+                .iter()
+                .map(|buffer| VideoFrameBuffer {
+                    buffer_type: buffer.buffer_type,
+                    data: buffer.data.to_vec(),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Enum)]
 pub enum VideoStreamEvent {
-    OnFrame,
+    OnFrame(VideoDecodeUnit),
     SignalIdr,
+}
+
+impl From<VideoStreamEvent2> for VideoStreamEvent {
+    fn from(value: VideoStreamEvent2) -> Self {
+        match value {
+            VideoStreamEvent2::SignalIdr => Self::SignalIdr,
+            VideoStreamEvent2::OnFrame(frame) => Self::OnFrame(frame.into()),
+        }
+    }
 }
 
 #[derive(Debug, Object)]
@@ -122,7 +155,7 @@ impl VideoStream {
 
     pub fn poll_event(&self) -> Option<VideoStreamEvent> {
         let mut inner = self.inner.lock().expect("lock VideoStream");
-        inner.poll_event()
+        inner.poll_event().map(VideoStreamEvent::from)
     }
 
     pub fn poll_timeout(&self) -> Option<Instant> {

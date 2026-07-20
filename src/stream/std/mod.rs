@@ -367,19 +367,17 @@ impl Inner {
                         trace!(event = ?event, "event");
 
                         match event {
-                            AudioStreamEvent::OnFrame => self.streams.audio.stream_mut(|stream| {
+                            AudioStreamEvent::OnFrame(frame) => {
                                 if !started {
                                     audio_decoder.start();
                                     started = true;
                                 }
 
-                                while let Some(frame) = stream.poll_frame() {
-                                    audio_decoder.decode_and_play_sample(AudioFrame {
-                                        timestamp: frame.timestamp,
-                                        buffer: &frame.buffer,
-                                    });
-                                }
-                            }),
+                                audio_decoder.decode_and_play_sample(AudioFrame {
+                                    timestamp: frame.timestamp,
+                                    buffer: &frame.buffer,
+                                });
+                            }
                         }
                     }
                     audio_decoder.stop();
@@ -396,18 +394,13 @@ impl Inner {
                         trace!(event = ?event, "event");
 
                         match event {
-                            VideoStreamEvent::OnFrame => {
+                            VideoStreamEvent::OnFrame(frame) => {
                                 if !started {
                                     video_decoder.start();
                                     started = true;
                                 }
 
-                                self.streams.video.stream_mut(|stream| {
-                                    while let Some(frame) = stream.poll_frame() {
-                                        video_decoder
-                                            .submit_decode_unit(frame.as_ref().into_decode_unit());
-                                    }
-                                });
+                                video_decoder.submit_decode_unit(frame.as_ref().into_decode_unit());
                             }
                             VideoStreamEvent::SignalIdr => {
                                 self.streams.control.stream_mut(|stream| {

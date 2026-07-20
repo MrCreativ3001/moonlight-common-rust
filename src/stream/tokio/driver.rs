@@ -1,265 +1,171 @@
 use std::{
     io,
     pin::Pin,
-    sync::{Arc, Mutex},
-    task::{Context, Poll, Waker},
-    time::Instant as StdInstant,
+    task::{Context, Poll},
+    time::Duration,
 };
 
-use sans_io_time::Instant;
+use pin_project_lite::pin_project;
+use sans_io_time::Instant as SansInstant;
 use tokio::{
     io::ReadBuf,
     net::UdpSocket,
-    spawn,
-    time::{Sleep, sleep_until},
+    time::{Instant, Sleep, sleep_until},
 };
-use tracing::{Instrument, Span, debug, error};
+use tracing::debug;
 
 use crate::stream::{proto::runtime::UdpStream, tokio::MoonlightStreamError};
 
-pub async fn bind_udp_stream<Stream>(
-    stream: Stream,
-    span: Span,
-) -> Result<StreamRef<Stream>, MoonlightStreamError>
-where
-    Stream: TokioStreamExt + 'static,
-    MoonlightStreamError: From<Stream::Error>,
-{
-    let socket = UdpSocket::bind("0.0.0.0:0").await?;
-
-    let stream_ref = StreamRef(Arc::new(StreamInner {
-        state: Mutex::new(State {
-            base_instant: StdInstant::now(),
-            stream,
-            waker: None,
-            timer: None,
-            timer_deadline: None,
-            socket,
-            recv_buffer: vec![0; 4096],
-        }),
-        notify: Stream::Notifier::default(),
-    }));
-
-    let mut driver = StreamDriver(stream_ref.clone());
-    spawn(
-        async move {
-            if let Err(err) = (&mut driver).await {
-                error!(error = %err, "stream driver errored");
-            }
-
-            Stream::on_stop(driver.0.notify());
-
-            debug!("stopped driver");
-        }
-        .instrument(span),
-    );
-
-    Ok(stream_ref)
-}
-
-pub(super) trait TokioStreamExt: UdpStream {
-    type Notifier: Default + Send + Sync + 'static;
-
-    fn on_event(event: Self::Event, notify: &Self::Notifier);
-    fn on_stop(notify: &Self::Notifier);
-}
-
-#[derive(Clone)]
-struct StreamDriver<Stream>(StreamRef<Stream>)
-where
-    Stream: TokioStreamExt;
-
-impl<Stream> Future for StreamDriver<Stream>
-where
-    Stream: TokioStreamExt,
-    MoonlightStreamError: From<Stream::Error>,
-{
-    type Output = Result<(), MoonlightStreamError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut guard = self.0.0.state.lock().expect("StreamDriver::poll");
-
-        if let Err(err) = guard.drive(cx) {
-            return Poll::Ready(Err(err));
-        }
-        guard.forward_events(&self.0.0.notify);
-
-        Poll::Pending
-    }
-}
-
-pub(super) struct StreamRef<Stream>(Arc<StreamInner<Stream>>)
-where
-    Stream: TokioStreamExt;
-
-impl<Stream> Clone for StreamRef<Stream>
-where
-    Stream: TokioStreamExt,
-{
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<Stream> StreamRef<Stream>
-where
-    Stream: TokioStreamExt,
-    MoonlightStreamError: From<Stream::Error>,
-{
-    pub fn stream_mut<T>(&self, f: impl FnOnce(&mut Stream) -> (bool, T)) -> T {
-        let mut guard = self.0.state.lock().expect("use_stream");
-
-        let (should_wake, result) = f(&mut guard.stream);
-        if should_wake {
-            guard.wake();
-        }
-
-        result
-    }
-
-    pub fn notify(&self) -> &Stream::Notifier {
-        &self.0.notify
-    }
-}
-
-struct StreamInner<Stream>
-where
-    Stream: TokioStreamExt,
-{
-    state: Mutex<State<Stream>>,
-    notify: Stream::Notifier,
-}
-
-struct State<Stream> {
-    base_instant: StdInstant,
-    stream: Stream,
-    waker: Option<Waker>,
-    timer: Option<Pin<Box<Sleep>>>,
-    timer_deadline: Option<Instant>,
+pub struct StreamDriver<Stream> {
+    base_time: Instant,
+    inner: Stream,
     socket: UdpSocket,
     recv_buffer: Vec<u8>,
 }
 
-impl<Stream> State<Stream>
+impl<Stream> StreamDriver<Stream>
 where
-    Stream: TokioStreamExt,
+    Stream: UdpStream,
+{
+    pub async fn new(stream: Stream) -> Result<Self, MoonlightStreamError> {
+        let socket = UdpSocket::bind("0.0.0.0:0").await?;
+
+        Ok(Self {
+            base_time: Instant::now(),
+            inner: stream,
+            socket,
+            recv_buffer: vec![0; 4096],
+        })
+    }
+
+    pub fn drive(&mut self) -> DriveFuture<'_, Stream> {
+        let deadline = self
+            .inner
+            .poll_timeout()
+            .map(|x| x.to_std(self.base_time.into_std()).into())
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(1));
+
+        DriveFuture {
+            driver: self,
+            old_deadline: deadline,
+            sleep: sleep_until(deadline),
+        }
+    }
+
+    pub fn stream(&self) -> &Stream {
+        &self.inner
+    }
+    pub fn stream_mut(&mut self) -> &mut Stream {
+        &mut self.inner
+    }
+}
+
+pin_project! {
+    pub struct DriveFuture<'a, Stream> {
+        driver: &'a mut StreamDriver<Stream>,
+        old_deadline: Instant,
+        #[pin]
+        sleep: Sleep,
+    }
+}
+
+impl<'a, Stream> Future for DriveFuture<'a, Stream>
+where
+    Stream: UdpStream,
     MoonlightStreamError: From<Stream::Error>,
 {
-    fn wake(&mut self) {
-        if let Some(waker) = self.waker.take() {
-            waker.wake();
-        }
-    }
+    type Output = Result<Stream::Event, MoonlightStreamError>;
 
-    fn forward_events(&mut self, notify: &Stream::Notifier) {
-        while let Some(event) = self.stream.poll_event() {
-            Stream::on_event(event, notify);
-        }
-    }
-
-    fn drive(&mut self, cx: &mut Context<'_>) -> Result<(), MoonlightStreamError> {
-        self.waker = Some(cx.waker().clone());
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
 
         loop {
-            self.drive_send(cx)?;
+            // -- Write
+            #[allow(clippy::collapsible_if)]
+            if let Some((mut addr, mut buffer)) = this.driver.inner.pending_send() {
+                if this.driver.socket.poll_send_ready(cx).is_ready() {
+                    loop {
+                        // Try to write
+                        match this.driver.socket.try_send_to(buffer, addr) {
+                            Ok(_) => {
+                                // remove packet
+                                this.driver.inner.consume_send();
+                            }
+                            Err(err) if matches!(err.kind(), io::ErrorKind::WouldBlock) => {
+                                // We cannot send anymore
+                                break;
+                            }
+                            Err(err) => return Poll::Ready(Err(err.into())),
+                        }
 
-            if self.drive_recv(cx)? {
+                        if let Some((new_addr, new_buffer)) = this.driver.inner.pending_send() {
+                            // Try to get next packet and write
+                            addr = new_addr;
+                            buffer = new_buffer;
+                        } else {
+                            // No next packet
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // -- Read
+            let mut received = false;
+            loop {
+                let mut recv_buffer = ReadBuf::new(&mut this.driver.recv_buffer);
+
+                match this.driver.socket.poll_recv_from(cx, &mut recv_buffer) {
+                    Poll::Ready(Ok(addr)) => {
+                        received = true;
+
+                        this.driver.inner.handle_receive(
+                            SansInstant::from_std(this.driver.base_time.into_std()),
+                            addr,
+                            recv_buffer.filled(),
+                        )?;
+                        recv_buffer.clear();
+                    }
+                    Poll::Ready(Err(err)) => return Poll::Ready(Err(err.into())),
+                    Poll::Pending => break,
+                }
+            }
+            if received {
+                // If data was received, we might have a new send
                 continue;
             }
-            if self.drive_timer(cx)? {
-                continue;
+
+            // -- Timeout
+            // Set new timeout if needed
+            let deadline = this
+                .driver
+                .inner
+                .poll_timeout()
+                .map(|x| x.to_std(this.driver.base_time.into_std()).into());
+
+            if let Some(deadline) = deadline {
+                if *this.old_deadline != deadline {
+                    *this.old_deadline = deadline;
+                    this.sleep.as_mut().reset(deadline);
+                }
+
+                // Poll Timeout
+                if this.sleep.as_mut().poll(cx).is_ready() {
+                    this.driver
+                        .inner
+                        .handle_timeout(SansInstant::from_std(Instant::now().into_std()))?;
+                    continue;
+                }
             }
 
             break;
         }
 
-        Ok(())
-    }
-
-    fn drive_send(&mut self, cx: &mut Context<'_>) -> Result<(), MoonlightStreamError> {
-        // While we can send
-        while let Some((addr, send)) = self.stream.pending_send() {
-            // See if we can write
-            if self.socket.poll_send_ready(cx).is_pending() {
-                return Ok(());
-            }
-
-            // Try to send the packet
-            match self.socket.try_send_to(send, addr) {
-                Ok(_) => {
-                    self.stream.consume_send();
-                }
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    return Ok(());
-                }
-                Err(err) => return Err(err.into()),
-            }
+        // -- Event
+        if let Some(event) = this.driver.inner.poll_event() {
+            return Poll::Ready(Ok(event));
         }
 
-        Ok(())
-    }
-
-    fn drive_recv(&mut self, cx: &mut Context<'_>) -> Result<bool, MoonlightStreamError> {
-        let mut buffer = ReadBuf::new(&mut self.recv_buffer);
-
-        if let Poll::Ready(result) = self.socket.poll_recv_from(cx, &mut buffer) {
-            let addr = result?;
-
-            self.stream.handle_receive(
-                Instant::from_std(self.base_instant),
-                addr,
-                buffer.filled(),
-            )?;
-
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn drive_timer(&mut self, cx: &mut Context<'_>) -> Result<bool, MoonlightStreamError> {
-        // If we've got a deadline
-        let Some(deadline) = self.stream.poll_timeout() else {
-            self.timer = None;
-            self.timer_deadline = None;
-            return Ok(false);
-        };
-
-        // Adjust or Create timer, if necessary
-        if let Some(timer) = &mut self.timer {
-            // See if timer needs to be changed
-            if self
-                .timer_deadline
-                .expect("timer deadline should exist in this state")
-                != deadline
-            {
-                timer
-                    .as_mut()
-                    .reset(deadline.to_std(self.base_instant).into());
-            }
-        } else {
-            // Create new timer
-            self.timer = Some(Box::pin(sleep_until(
-                deadline.to_std(self.base_instant).into(),
-            )));
-        }
-        self.timer_deadline = Some(deadline);
-
-        let timer = self
-            .timer
-            .as_mut()
-            .expect("timer should exist in this state");
-
-        // See if deadline expired
-        if timer.as_mut().poll(cx).is_ready() {
-            self.timer = None;
-            self.timer_deadline = None;
-
-            self.stream
-                .handle_timeout(Instant::from_std(self.base_instant))?;
-            return Ok(true);
-        }
-
-        Ok(false)
+        Poll::Pending
     }
 }
