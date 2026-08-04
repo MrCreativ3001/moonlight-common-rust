@@ -300,7 +300,7 @@ impl InputBatcher {
                     return Default::default();
                 };
 
-                if self.gamepads.contains(controller) {
+                if !self.gamepads.contains(controller) {
                     warn!(
                         controller_number = controller_number,
                         "received controller disconnect event for a controller that was not connected! dropping the packet."
