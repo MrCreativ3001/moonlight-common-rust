@@ -14,7 +14,7 @@ pub struct WebRTCSessionOffer {
     pub bitrate: u32,
     pub hdr: bool,
     pub local_audio_play_mode: bool,
-    pub preferred_codec: Option<VideoFormats>,
+    pub preferred_codecs: Option<VideoFormats>,
     pub preferred_audio: Option<u32>,
     pub host_id: Option<u32>,
     pub control_enet: bool,
@@ -129,7 +129,7 @@ impl WebRTCSessionOffer {
             bitrate: bitrate.ok_or(WebRTCParseError::MissingAttribute("x-moonlight-bitrate"))?,
             hdr,
             local_audio_play_mode,
-            preferred_codec,
+            preferred_codecs: preferred_codec,
             preferred_audio,
             host_id,
             control_enet,
@@ -155,7 +155,7 @@ impl WebRTCSessionOffer {
             bool_str(self.local_audio_play_mode),
         );
 
-        if let Some(v) = self.preferred_codec {
+        if let Some(v) = self.preferred_codecs {
             push(session, "x-moonlight-preferred-codec", v.bits().to_string());
         }
 
@@ -258,7 +258,7 @@ mod tests {
             bitrate: 50000,
             hdr: true,
             local_audio_play_mode: false,
-            preferred_codec: Some(VideoFormats::H264),
+            preferred_codecs: Some(VideoFormats::H264),
             preferred_audio: Some(2),
             host_id: Some(42),
             control_enet: true,
