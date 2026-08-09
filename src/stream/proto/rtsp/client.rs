@@ -269,7 +269,7 @@ impl RtspClient {
                 ));
                 request
                     .options
-                    .push(("Host".to_string(), self.target.addr.to_string()));
+                    .push(("Host".to_string(), self.target.addr.ip().to_string()));
 
                 // Send data
                 let plaintext = request.to_string();

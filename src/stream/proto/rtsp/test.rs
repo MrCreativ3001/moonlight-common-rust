@@ -294,7 +294,7 @@ fn rtsp_send_receive() {
         .push(("X-GS-ClientVersion".to_string(), "14".to_string()));
     full_request
         .options
-        .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
+        .push(("Host".to_string(), "192.168.178.140".to_string()));
 
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
@@ -368,7 +368,7 @@ fn rtsp_send_no_response_with_receive() {
         .push(("X-GS-ClientVersion".to_string(), "14".to_string()));
     full_request
         .options
-        .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
+        .push(("Host".to_string(), "192.168.178.140".to_string()));
 
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
@@ -430,7 +430,7 @@ fn rtsp_send_no_response_instant_disconnect() {
         .push(("X-GS-ClientVersion".to_string(), "14".to_string()));
     full_request
         .options
-        .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
+        .push(("Host".to_string(), "192.168.178.140".to_string()));
 
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 
@@ -502,19 +502,19 @@ fn send_receive_encrypted(crypto: DynCryptoBackend) {
         .push(("X-GS-ClientVersion".to_string(), "14".to_string()));
     full_request
         .options
-        .push(("Host".to_string(), "192.168.178.140:48010".to_string()));
+        .push(("Host".to_string(), "192.168.178.140".to_string()));
 
     let expected_request = [
-        128, 0, 0, 164, 0, 0, 0, 1, 153, 126, 79, 178, 129, 249, 95, 198, 132, 162, 158, 116, 162,
-        196, 208, 14, 105, 122, 253, 86, 142, 92, 102, 202, 69, 228, 114, 150, 159, 182, 103, 36,
+        128, 0, 0, 158, 0, 0, 0, 1, 101, 128, 52, 145, 154, 231, 208, 255, 254, 97, 191, 250, 52,
+        57, 252, 85, 105, 122, 253, 86, 142, 92, 102, 202, 69, 228, 114, 150, 159, 182, 103, 36,
         30, 12, 218, 145, 2, 200, 226, 206, 236, 66, 15, 174, 69, 66, 43, 57, 141, 108, 150, 35,
         60, 91, 2, 115, 94, 173, 53, 159, 118, 205, 27, 254, 66, 35, 21, 73, 254, 64, 102, 255,
         252, 142, 47, 233, 49, 105, 162, 230, 222, 58, 27, 172, 118, 28, 136, 97, 86, 126, 22, 213,
         138, 180, 73, 4, 253, 194, 236, 127, 144, 58, 6, 203, 248, 115, 44, 192, 146, 206, 244,
         148, 131, 59, 197, 224, 216, 253, 78, 220, 6, 141, 100, 216, 43, 102, 32, 111, 14, 221,
-        255, 67, 221, 74, 16, 252, 209, 67, 106, 120, 6, 119, 48, 79, 243, 219, 61, 97, 155, 173,
-        5, 28, 176, 35, 218, 47, 4, 241, 194, 54, 218, 76, 103, 62, 102, 34, 100, 207, 245, 78,
-        172, 78, 176, 20, 187, 194, 245, 156, 45, 217,
+        255, 67, 221, 74, 16, 252, 209, 67, 106, 120, 49, 73, 75, 16, 172, 159, 85, 5, 172, 239,
+        39, 13, 187, 42, 218, 106, 114, 180, 157, 97, 163, 46, 80, 20, 4, 125, 4, 160, 216, 18,
+        158, 77, 168, 20,
     ];
     let expected_response = [
         128, 0, 0, 32, 0, 0, 0, 1, 49, 179, 68, 222, 41, 86, 228, 162, 223, 172, 80, 0, 174, 26,
