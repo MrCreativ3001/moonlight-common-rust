@@ -23,9 +23,11 @@ bitflags! {
     /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Limelight-internal.h#L87>
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct MoonlightFeatureFlags: u32 {
-        // ML_FF_FEC_STATUS 0x01 // Client sends SS_FRAME_FEC_STATUS for frame losses
+        // ML_FF_FEC_STATUS 0x01
+        // Client sends SS_FRAME_FEC_STATUS for frame losses
         const FEC_STATUS = 0x01;
-        // ML_FF_SESSION_ID_V1 0x02 // Client supports X-SS-Ping-Payload and X-SS-Connect-Data
+        // ML_FF_SESSION_ID_V1 0x02
+        // Client supports X-SS-Ping-Payload and X-SS-Connect-Data
         const SESSION_ID_V1 = 0x02;
     }
 }

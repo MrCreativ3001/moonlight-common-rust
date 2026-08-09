@@ -83,6 +83,8 @@ impl AudioStream {
 impl AudioStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: AudioStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
+        debug!("new audio stream");
+
         Self {
             addr: config.addr,
             last_frame: now,

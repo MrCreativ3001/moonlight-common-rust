@@ -379,7 +379,7 @@ impl MoonlightStreamSetup {
                         State::SetupAudio => {
                             let audio_setup = RtspSetupAudioResponse::try_from_response(&response)?;
                             // IMPORTANT: setup audio now: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/AudioStream.c#L87-L110
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
 
                             // This won't panic because the sdp was created before this
                             #[allow(clippy::unwrap_used)]
@@ -448,7 +448,7 @@ impl MoonlightStreamSetup {
                                 });
                             }
 
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
 
                             // This is allowed because sdp is initialized in states before
                             #[allow(clippy::unwrap_used)]
@@ -516,7 +516,7 @@ impl MoonlightStreamSetup {
                                 });
                             }
 
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
 
                             // This is allowed because sdp is initialized in states before
                             #[allow(clippy::unwrap_used)]
@@ -569,7 +569,7 @@ impl MoonlightStreamSetup {
                                 });
                             }
 
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
                             let addr = SocketAddr::new(
                                 ip,
                                 control_setup.port.unwrap_or(DEFAULT_VIDEO_PORT),
@@ -872,6 +872,13 @@ impl MoonlightStreamSetup {
                 .client_settings
                 .encryption_flags
                 .contains(EncryptionFlags::AUDIO);
+
+            // On that version and higher we assume the server has audio encryption even if it's not advertised
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/SdpGenerator.c#L194-L198
+            // Wolf doesn't advertise it's audio encryption but enables it because it doesn't support unencrypted audio
+            if self.server_version >= ServerVersion::new(7, 1, 431, -1) && client_wants_audio {
+                sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
+            }
 
             // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L291-L300
             // If audio encryption is supported by the host and desired by the client, use it

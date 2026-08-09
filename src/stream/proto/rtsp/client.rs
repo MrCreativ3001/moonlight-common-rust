@@ -88,7 +88,7 @@ pub struct RtspClientConfig {
 
 #[derive(Debug)]
 pub struct RtspClient {
-    addr: SocketAddr,
+    remote_addr: SocketAddr,
     target: RtspAddr,
     client_version: String,
     crypto_backend: DynCryptoBackend,
@@ -126,7 +126,7 @@ impl RtspClient {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(mut config: RtspClientConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
-            addr: config.remote_addr,
+            remote_addr: config.remote_addr,
             target: config.rtsp_target,
             crypto_backend,
             aes_key: config.aes_key.take_if(|_| config.rtsp_target.encrypted),
@@ -138,6 +138,10 @@ impl RtspClient {
             expect_response: false,
             receive: Default::default(),
         }
+    }
+
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.remote_addr
     }
 
     pub fn target_addr(&self) -> RtspAddr {
@@ -247,7 +251,9 @@ impl RtspClient {
                 if self.transmit.is_some() {
                     self.state = State::SendRequest;
 
-                    return Ok(RtspOutput::Connect { addr: self.addr });
+                    return Ok(RtspOutput::Connect {
+                        addr: self.remote_addr,
+                    });
                 }
 
                 // We don't have anything to send
