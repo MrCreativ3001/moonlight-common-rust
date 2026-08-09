@@ -296,7 +296,7 @@ impl ControlStream {
                 Ok(()) => {}
                 Err(ControlError::Enet(EnetError::PeerSendError(PeerSendError::NotConnected)))
                 | Err(ControlError::NotConnected) => {
-                    debug!(
+                    trace!(
                         self = ?self,
                         "not sending periodic ping because the control stream (via enet) is not connected yet."
                     );
