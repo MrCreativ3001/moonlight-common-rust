@@ -27,7 +27,7 @@ pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend) {
     assert_eq!(&plaintext[0..len], expected_plaintext.as_slice());
 }
 
-pub fn test_aes_gcm_roundtrip(backend: &impl CryptoBackend) {
+pub fn test_aes_gcm_roundtrip_nonce_12(backend: &impl CryptoBackend) {
     let key = [0x33u8; 16];
     let iv = [0x44u8; 12];
 
@@ -38,6 +38,35 @@ pub fn test_aes_gcm_roundtrip(backend: &impl CryptoBackend) {
     ];
     let expected_tag = [
         231, 251, 174, 73, 134, 41, 168, 74, 197, 168, 48, 106, 12, 41, 147, 43,
+    ];
+
+    let mut plaintext = vec![0u8; expected_ciphertext.len()];
+    let mut ciphertext = vec![0u8; expected_plaintext.len()];
+    let mut tag = [0u8; 16];
+
+    backend
+        .encrypt_aes_gcm(&key, &iv, expected_plaintext, &mut ciphertext, &mut tag)
+        .expect("encrypt failed");
+    assert_eq!(&ciphertext, expected_ciphertext.as_slice());
+    assert_eq!(tag, expected_tag);
+
+    backend
+        .decrypt_aes_gcm(&key, &iv, &ciphertext, &tag, &mut plaintext)
+        .expect("decrypt failed");
+    assert_eq!(&plaintext, expected_plaintext.as_slice());
+}
+
+pub fn test_aes_gcm_roundtrip_nonce_16(backend: &impl CryptoBackend) {
+    let key = [0x33u8; 16];
+    let iv = [0x44u8; 16];
+
+    let expected_plaintext = b"authenticated encryption test";
+    let expected_ciphertext = [
+        72, 153, 167, 59, 177, 239, 183, 12, 85, 153, 62, 252, 44, 47, 118, 165, 93, 204, 154, 143,
+        28, 6, 52, 55, 40, 141, 212, 76, 200,
+    ];
+    let expected_tag = [
+        55, 172, 243, 4, 205, 78, 242, 191, 165, 205, 22, 18, 235, 236, 177, 26,
     ];
 
     let mut plaintext = vec![0u8; expected_ciphertext.len()];
