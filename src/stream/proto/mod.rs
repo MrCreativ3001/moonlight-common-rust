@@ -27,6 +27,7 @@ use crate::{
                 peer::ControlEncryptionMethod,
             },
             crypto::CryptoBackend,
+            ip_addr::is_private_network_address,
             microphone::foundation::{
                 FOUNDATION_DEFAULT_MIC_PORT, FoundationMicStream, FoundationMicStreamConfig,
                 rtsp::{RtspSetupFoundationMicRequest, RtspSetupFoundationMicResponse},
@@ -77,6 +78,7 @@ pub mod packet;
 
 mod enet;
 pub(crate) mod fec;
+mod ip_addr;
 
 pub(crate) type DynCryptoBackend = Arc<dyn CryptoBackend + 'static>;
 
@@ -233,7 +235,7 @@ impl MoonlightStreamSetup {
     pub fn new(
         now: Instant,
         config: MoonlightStreamConfig,
-        settings: MoonlightStreamSettings,
+        mut settings: MoonlightStreamSettings,
         crypto_backend: DynCryptoBackend,
         video_capabilities: VideoCapabilities,
     ) -> Result<Self, MoonlightStreamProtoError> {
@@ -265,6 +267,27 @@ impl MoonlightStreamSetup {
             }
             Some(ref rtsp_url) => rtsp_url.parse().map_err(RtspClientError::from)?,
         };
+
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/Connection.c#L398-L425
+        if settings.streaming_remotely == StreamingConfig::Auto {
+            if is_private_network_address(rtsp_addr.addr.ip()) {
+                settings.streaming_remotely = StreamingConfig::Local;
+            } else {
+                settings.streaming_remotely = StreamingConfig::Remote;
+
+                if rtsp_addr.addr.ip().is_ipv4() {
+                    // Cap packet size at 1024 for remote IPv4 streaming to avoid fragmentation.
+                    info!("Packet size capped at 1024 bytes for remote IPv4 streaming");
+                    settings.packet_size = 1024;
+                } else {
+                    // IPv6 guarantees a minimum MTU of 1280 before fragmentation, so use a higher
+                    // packet size cap for remote IPv6 streaming (when not using NAT64 which isn't
+                    // end-to-end IPv6 traffic).
+                    info!("Packet size capped at 1184 bytes for remote IPv6 streaming");
+                    settings.packet_size = 1184;
+                }
+            }
+        }
 
         let mut this = Self {
             client_settings: settings,
