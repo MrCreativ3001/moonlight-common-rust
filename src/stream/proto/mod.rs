@@ -11,7 +11,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument, warn};
+use tracing::{Level, debug, info, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -36,10 +36,9 @@ use crate::{
                 client::{RtspClient, RtspClientConfig, RtspClientError, RtspInput, RtspOutput},
                 moonlight::{
                     DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspAnnounceRequest,
-                    RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest,
-                    RtspOptionsResponse, RtspPlayRequest, RtspSetupAudioRequest,
-                    RtspSetupAudioResponse, RtspSetupControlRequest, RtspSetupControlResponse,
-                    RtspSetupVideoRequest, RtspSetupVideoResponse,
+                    RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest, RtspPlayRequest,
+                    RtspSetupAudioRequest, RtspSetupAudioResponse, RtspSetupControlRequest,
+                    RtspSetupControlResponse, RtspSetupVideoRequest, RtspSetupVideoResponse,
                 },
                 raw::{RtspAddr, RtspAddrParseError},
             },
@@ -249,13 +248,14 @@ impl MoonlightStreamSetup {
             7 | _ => 14,
         };
 
+        let ip: IpAddr = config
+            .address
+            .parse()
+            .map_err(RtspAddrParseError::from)
+            .map_err(RtspClientError::from)?;
+
         let rtsp_addr: RtspAddr = match config.rtsp_session_url {
             None => {
-                let ip: IpAddr = config
-                    .address
-                    .parse()
-                    .map_err(RtspAddrParseError::from)
-                    .map_err(RtspClientError::from)?;
                 let addr = SocketAddr::new(ip, DEFAULT_RTSP_PORT);
 
                 debug!(rtsp_addr = %addr, "No rtsp address given, generating using given information");
@@ -296,7 +296,8 @@ impl MoonlightStreamSetup {
             last_now: now,
             rtsp: RtspClient::new(
                 RtspClientConfig {
-                    target: rtsp_addr,
+                    remote_addr: SocketAddr::new(ip, rtsp_addr.addr.port()),
+                    rtsp_target: rtsp_addr,
                     client_version,
                     aes_key: Some(config.encryption.aes_key),
                 },
@@ -310,7 +311,8 @@ impl MoonlightStreamSetup {
             host_features: HostFeatures::default(),
         };
 
-        this.rtsp.send(
+        // For Wolf: Allow no response for an RtspOptions
+        this.rtsp.send_no_response(
             RtspOptionsRequest {
                 target: this.rtsp.target_addr(),
             }
@@ -334,17 +336,7 @@ impl MoonlightStreamSetup {
                     response: Some(response),
                 } => {
                     match &mut self.state {
-                        State::RtspOptionsReceive => {
-                            let _options = RtspOptionsResponse::try_from_response(&response)?;
-
-                            self.rtsp.send(
-                                RtspDescribeRequest {
-                                    target: self.rtsp.target_addr(),
-                                }
-                                .into_request(self.server_version),
-                            )?;
-                            self.state = State::RtspDescribeReceive;
-                        }
+                        // RtspOptionsReceive, see below i no response
                         State::RtspDescribeReceive => {
                             let describe = RtspDescribeResponse::try_from_response(&response)?;
 
@@ -674,6 +666,16 @@ impl MoonlightStreamSetup {
                     continue;
                 }
                 RtspOutput::Response { .. } => match &mut self.state {
+                    State::RtspOptionsReceive => {
+                        self.rtsp.send(
+                            RtspDescribeRequest {
+                                target: self.rtsp.target_addr(),
+                            }
+                            .into_request(self.server_version),
+                        )?;
+                        self.state = State::RtspDescribeReceive;
+                        continue;
+                    }
                     State::RtspPlayReceive => {
                         // move to next state
                         self.state = State::Connected;
@@ -786,6 +788,7 @@ impl MoonlightStreamSetup {
         Ok(MoonlightStreamSetupOutput::Timeout(timeout))
     }
 
+    #[instrument(level = Level::TRACE, skip(self))]
     pub fn handle_input(
         &mut self,
         input: MoonlightStreamInput,
