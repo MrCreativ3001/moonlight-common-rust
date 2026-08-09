@@ -257,9 +257,9 @@ impl PairingCryptoBackend for RustCryptoBackend {
 mod proto {
     use aes::{
         Aes128,
-        cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7},
+        cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7, consts::U16},
     };
-    use aes_gcm::{AeadInPlace, Aes128Gcm, KeyInit};
+    use aes_gcm::{AeadInPlace, Aes128Gcm, AesGcm, KeyInit};
     use cbc::{Decryptor, Encryptor};
 
     use crate::{
@@ -277,17 +277,32 @@ mod proto {
             tag: &mut [u8],
         ) -> Result<(), CryptoError> {
             debug_assert_eq!(key.len(), 16, "AES-128 key must be 16 bytes");
-            debug_assert_eq!(iv.len(), 12, "GCM nonce must be 12 bytes");
+            debug_assert!(
+                matches!(iv.len(), 12 | 16),
+                "GCM nonce must be 12 or 16 bytes"
+            );
             debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
             debug_assert!(output.len() >= input.len(), "output buffer too small");
 
-            let cipher = Aes128Gcm::new(key.into());
+            let new_tag = if iv.len() == 12 {
+                let cipher = Aes128Gcm::new(key.into());
 
-            output[0..input.len()].copy_from_slice(input);
+                output[0..input.len()].copy_from_slice(input);
 
-            let new_tag = cipher
-                .encrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()])
-                .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
+                cipher
+                    .encrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()])
+                    .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?
+            } else if iv.len() == 16 {
+                let cipher = AesGcm::<Aes128, U16>::new(key.into());
+
+                output[0..input.len()].copy_from_slice(input);
+
+                cipher
+                    .encrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()])
+                    .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?
+            } else {
+                unreachable!()
+            };
 
             tag.copy_from_slice(&new_tag);
 
@@ -303,17 +318,40 @@ mod proto {
             output: &mut [u8],
         ) -> Result<(), CryptoError> {
             debug_assert_eq!(key.len(), 16, "AES-128 key must be 16 bytes");
-            debug_assert_eq!(iv.len(), 12, "GCM nonce must be 12 bytes");
+            debug_assert!(
+                matches!(iv.len(), 12 | 16),
+                "GCM nonce must be 12 or 16 bytes"
+            );
             debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
             debug_assert!(output.len() >= input.len(), "output buffer too small");
 
-            let cipher = Aes128Gcm::new(key.into());
+            if iv.len() == 12 {
+                let cipher = Aes128Gcm::new(key.into());
 
-            output[0..input.len()].copy_from_slice(input);
+                output[0..input.len()].copy_from_slice(input);
 
-            cipher
-                .decrypt_in_place_detached(iv.into(), &[], &mut output[0..input.len()], tag.into())
-                .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
+                cipher
+                    .decrypt_in_place_detached(
+                        iv.into(),
+                        &[],
+                        &mut output[0..input.len()],
+                        tag.into(),
+                    )
+                    .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
+            } else if iv.len() == 16 {
+                let cipher = AesGcm::<Aes128, U16>::new(key.into());
+
+                output[0..input.len()].copy_from_slice(input);
+
+                cipher
+                    .decrypt_in_place_detached(
+                        iv.into(),
+                        &[],
+                        &mut output[0..input.len()],
+                        tag.into(),
+                    )
+                    .map_err(|_| CryptoError::from_error(RustCryptoError::AesGcm))?;
+            }
 
             Ok(())
         }
@@ -359,7 +397,10 @@ mod proto {
 
     #[cfg(test)]
     mod test {
-        use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
+        use crate::stream::proto::crypto::test::{
+            test_aes_cbc_roundtrip, test_aes_gcm_roundtrip_nonce_12,
+            test_aes_gcm_roundtrip_nonce_16,
+        };
 
         use super::*;
 
@@ -370,9 +411,15 @@ mod proto {
         }
 
         #[test]
-        fn rustcrypto_gcm() {
+        fn rustcrypto_gcm_nonce_12() {
             let backend = RustCryptoBackend;
-            test_aes_gcm_roundtrip(&backend);
+            test_aes_gcm_roundtrip_nonce_12(&backend);
+        }
+
+        #[test]
+        fn rustcrypto_gcm_nonce_16() {
+            let backend = RustCryptoBackend;
+            test_aes_gcm_roundtrip_nonce_16(&backend);
         }
     }
 }

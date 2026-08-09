@@ -252,7 +252,7 @@ impl FromStr for Sdp {
 
                 sdp.attributes.push(SdpAttribute {
                     key: key.to_string(),
-                    value: value.map(str::to_string),
+                    value: value.map(str::trim).map(str::to_string),
                 });
             } else if let Some(media) = line.strip_prefix("m=") {
                 let mut split = media.split(" ");
@@ -294,8 +294,16 @@ impl FromStr for Sdp {
 
                 sdp.time = Some((t0, t1));
             } else {
-                warn!(line = ?line, "unknown sdp line");
                 // ignore
+
+                // https://github.com/LizardByte/Sunshine/blob/25c06d79b54f3d092d3fedd5f5ba44989f394692/src/rtsp.cpp#L952-L954
+                // The `sprop-parameter-sets` is just send as a string without the `a=` prefix
+                // -> Add this as an attribute key
+                warn!(line = ?line, "incorrect sdp line, adding to sdp as attribute key");
+                sdp.attributes.push(SdpAttribute {
+                    key: line.trim().to_string(),
+                    value: None,
+                });
             }
         }
 
@@ -345,17 +353,18 @@ mod test {
         Sdp, SdpAttribute, SdpMedia, SdpMediaType, SdpNetworkType, SdpOrigin, sdp_attr,
     };
 
-    #[test]
-    fn test_sdp() {
-        let assert_sdp_eq = |sdp: Sdp, text: &str| {
+    fn assert_sdp_eq(sdp: Sdp, text: &str, test_display: bool) {
+        if test_display {
             let test_sdp = format!("{}", sdp);
             assert_eq!(test_sdp.as_str(), text, "Display fail: \n{test_sdp}");
+        }
 
-            let test_sdp = text.parse::<Sdp>().unwrap();
-            assert_eq!(test_sdp, sdp, "Parse fail: \n{test_sdp:#?}");
-        };
+        let test_sdp = text.parse::<Sdp>().unwrap();
+        assert_eq!(test_sdp, sdp, "Parse fail: \n{test_sdp:#?}");
+    }
 
-        // test server sdp
+    #[test]
+    fn test_server_sdp() {
         assert_sdp_eq(
             Sdp {
                 version: None,
@@ -413,8 +422,12 @@ a=fmtp:97 surround-params=85301245367
 a=fmtp:97 surround-params=88001234567
 "#
             .replace("\n", "\r\n"),
+            true,
         );
+    }
 
+    #[test]
+    fn test_client_sdp() {
         // test client sdp
         assert_sdp_eq(
             Sdp {
@@ -516,6 +529,36 @@ t=0 0
 m=video 47998
 "#
             .replace("\n", "\r\n"),
+            true,
+        );
+    }
+
+    #[test]
+    fn test_wolf_sdp() {
+        assert_sdp_eq(
+            Sdp {
+                version: None,
+                origin: None,
+                session: None,
+                attributes: vec![
+                    SdpAttribute {
+                        key: "sprop-parameter-sets=AAAAAU".to_string(),
+                        value: None,
+                    },
+                    sdp_attr("fmtp", "97 surround-params=21101"),
+                    sdp_attr("fmtp", "97 surround-params=642014235"),
+                    sdp_attr("fmtp", "97 surround-params=85301423675"),
+                    sdp_attr("x-ss-general.featureFlags", "3"),
+                ],
+                media: vec![],
+                time: None,
+            },
+            r"sprop-parameter-sets=AAAAAU
+a=fmtp:97 surround-params=21101
+a=fmtp:97 surround-params=642014235
+a=fmtp:97 surround-params=85301423675
+a=x-ss-general.featureFlags: 3",
+            false,
         );
     }
 }

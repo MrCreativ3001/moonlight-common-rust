@@ -36,10 +36,9 @@ use crate::{
                 client::{RtspClient, RtspClientConfig, RtspClientError, RtspInput, RtspOutput},
                 moonlight::{
                     DEFAULT_AUDIO_PORT, ParseMoonlightRtspResponseError, RtspAnnounceRequest,
-                    RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest,
-                    RtspOptionsResponse, RtspPlayRequest, RtspSetupAudioRequest,
-                    RtspSetupAudioResponse, RtspSetupControlRequest, RtspSetupControlResponse,
-                    RtspSetupVideoRequest, RtspSetupVideoResponse,
+                    RtspDescribeRequest, RtspDescribeResponse, RtspOptionsRequest, RtspPlayRequest,
+                    RtspSetupAudioRequest, RtspSetupAudioResponse, RtspSetupControlRequest,
+                    RtspSetupControlResponse, RtspSetupVideoRequest, RtspSetupVideoResponse,
                 },
                 raw::{RtspAddr, RtspAddrParseError},
             },
@@ -249,13 +248,14 @@ impl MoonlightStreamSetup {
             7 | _ => 14,
         };
 
+        let ip: IpAddr = config
+            .address
+            .parse()
+            .map_err(RtspAddrParseError::from)
+            .map_err(RtspClientError::from)?;
+
         let rtsp_addr: RtspAddr = match config.rtsp_session_url {
             None => {
-                let ip: IpAddr = config
-                    .address
-                    .parse()
-                    .map_err(RtspAddrParseError::from)
-                    .map_err(RtspClientError::from)?;
                 let addr = SocketAddr::new(ip, DEFAULT_RTSP_PORT);
 
                 debug!(rtsp_addr = %addr, "No rtsp address given, generating using given information");
@@ -296,7 +296,8 @@ impl MoonlightStreamSetup {
             last_now: now,
             rtsp: RtspClient::new(
                 RtspClientConfig {
-                    target: rtsp_addr,
+                    remote_addr: SocketAddr::new(ip, rtsp_addr.addr.port()),
+                    rtsp_target: rtsp_addr,
                     client_version,
                     aes_key: Some(config.encryption.aes_key),
                 },
@@ -310,7 +311,8 @@ impl MoonlightStreamSetup {
             host_features: HostFeatures::default(),
         };
 
-        this.rtsp.send(
+        // For Wolf: Allow no response for an RtspOptions
+        this.rtsp.send_no_response(
             RtspOptionsRequest {
                 target: this.rtsp.target_addr(),
             }
@@ -334,17 +336,7 @@ impl MoonlightStreamSetup {
                     response: Some(response),
                 } => {
                     match &mut self.state {
-                        State::RtspOptionsReceive => {
-                            let _options = RtspOptionsResponse::try_from_response(&response)?;
-
-                            self.rtsp.send(
-                                RtspDescribeRequest {
-                                    target: self.rtsp.target_addr(),
-                                }
-                                .into_request(self.server_version),
-                            )?;
-                            self.state = State::RtspDescribeReceive;
-                        }
+                        // RtspOptionsReceive, see below i no response
                         State::RtspDescribeReceive => {
                             let describe = RtspDescribeResponse::try_from_response(&response)?;
 
@@ -387,7 +379,7 @@ impl MoonlightStreamSetup {
                         State::SetupAudio => {
                             let audio_setup = RtspSetupAudioResponse::try_from_response(&response)?;
                             // IMPORTANT: setup audio now: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/AudioStream.c#L87-L110
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
 
                             // This won't panic because the sdp was created before this
                             #[allow(clippy::unwrap_used)]
@@ -456,7 +448,7 @@ impl MoonlightStreamSetup {
                                 });
                             }
 
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
 
                             // This is allowed because sdp is initialized in states before
                             #[allow(clippy::unwrap_used)]
@@ -524,7 +516,7 @@ impl MoonlightStreamSetup {
                                 });
                             }
 
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
 
                             // This is allowed because sdp is initialized in states before
                             #[allow(clippy::unwrap_used)]
@@ -577,7 +569,7 @@ impl MoonlightStreamSetup {
                                 });
                             }
 
-                            let ip = self.rtsp.target_addr().addr.ip();
+                            let ip = self.rtsp.remote_addr().ip();
                             let addr = SocketAddr::new(
                                 ip,
                                 control_setup.port.unwrap_or(DEFAULT_VIDEO_PORT),
@@ -674,6 +666,16 @@ impl MoonlightStreamSetup {
                     continue;
                 }
                 RtspOutput::Response { .. } => match &mut self.state {
+                    State::RtspOptionsReceive => {
+                        self.rtsp.send(
+                            RtspDescribeRequest {
+                                target: self.rtsp.target_addr(),
+                            }
+                            .into_request(self.server_version),
+                        )?;
+                        self.state = State::RtspDescribeReceive;
+                        continue;
+                    }
                     State::RtspPlayReceive => {
                         // move to next state
                         self.state = State::Connected;
@@ -786,6 +788,7 @@ impl MoonlightStreamSetup {
         Ok(MoonlightStreamSetupOutput::Timeout(timeout))
     }
 
+    #[instrument(level = Level::TRACE, skip(self))]
     pub fn handle_input(
         &mut self,
         input: MoonlightStreamInput,
@@ -869,6 +872,13 @@ impl MoonlightStreamSetup {
                 .client_settings
                 .encryption_flags
                 .contains(EncryptionFlags::AUDIO);
+
+            // On that version and higher we assume the server has audio encryption even if it's not advertised
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/SdpGenerator.c#L194-L198
+            // Wolf doesn't advertise it's audio encryption but enables it because it doesn't support unencrypted audio
+            if self.server_version >= ServerVersion::new(7, 1, 431, -1) && client_wants_audio {
+                sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
+            }
 
             // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L291-L300
             // If audio encryption is supported by the host and desired by the client, use it

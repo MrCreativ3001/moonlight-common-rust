@@ -76,13 +76,19 @@ pub enum RtspInput<'a> {
 
 #[derive(Debug)]
 pub struct RtspClientConfig {
-    pub target: RtspAddr,
+    /// This address and the [`rtsp_target`] might not match.
+    ///
+    /// - Wolf will create fake ip's returned the in the [`LaunchResponse`] to differentiate client rtsp requests.
+    pub remote_addr: SocketAddr,
+    /// The parsed rtsp_url from the [`LaunchResponse`].
+    pub rtsp_target: RtspAddr,
     pub client_version: usize,
     pub aes_key: Option<AesKey>,
 }
 
 #[derive(Debug)]
 pub struct RtspClient {
+    remote_addr: SocketAddr,
     target: RtspAddr,
     client_version: String,
     crypto_backend: DynCryptoBackend,
@@ -120,9 +126,10 @@ impl RtspClient {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(mut config: RtspClientConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
-            target: config.target,
+            remote_addr: config.remote_addr,
+            target: config.rtsp_target,
             crypto_backend,
-            aes_key: config.aes_key.take_if(|_| config.target.encrypted),
+            aes_key: config.aes_key.take_if(|_| config.rtsp_target.encrypted),
             client_version: config.client_version.to_string(),
             sequence_number: 1,
             state: State::WaitForSendRequest,
@@ -131,6 +138,10 @@ impl RtspClient {
             expect_response: false,
             receive: Default::default(),
         }
+    }
+
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.remote_addr
     }
 
     pub fn target_addr(&self) -> RtspAddr {
@@ -241,7 +252,7 @@ impl RtspClient {
                     self.state = State::SendRequest;
 
                     return Ok(RtspOutput::Connect {
-                        addr: self.target.addr,
+                        addr: self.remote_addr,
                     });
                 }
 
@@ -254,16 +265,17 @@ impl RtspClient {
                 let mut request = self.transmit.take().unwrap();
 
                 // Insert CSeq and Version
+                // IMPORTANT: Wolf requires the CSeq to be the first header
                 request
                     .options
-                    .push(("CSeq".to_string(), self.sequence_number.to_string()));
+                    .insert(0, ("CSeq".to_string(), self.sequence_number.to_string()));
                 request.options.push((
                     "X-GS-ClientVersion".to_string(),
                     self.client_version.to_string(),
                 ));
                 request
                     .options
-                    .push(("Host".to_string(), self.target.addr.to_string()));
+                    .push(("Host".to_string(), self.target.addr.ip().to_string()));
 
                 // Send data
                 let plaintext = request.to_string();
