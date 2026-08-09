@@ -135,11 +135,12 @@ impl Display for RtspRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}\r\n", self.message)?;
 
+        // Write headers
         debug_assert!(
             self.options.iter().any(|(key, _)| key == "CSeq"),
             "a rtsp message must contain a CSeq"
         );
-        for (key, value) in &self.options {
+        for (i, (key, value)) in self.options.iter().enumerate() {
             assert!(
                 !(key.contains("\r") || key.contains("\n")),
                 "rtsp option keys must not contain a \\r or \\n"
@@ -149,11 +150,24 @@ impl Display for RtspRequest {
                 "rtsp option values must not contain a \\r or \\n"
             );
 
+            // Wolf: the first header must be the CSeq
+            // https://github.com/games-on-whales/wolf/blob/7f416ec0f26bb4d95218af806cd1181fe5434598/src/moonlight-protocol/rtsp/parser.hpp#L68
+            if i == 0 {
+                debug_assert_eq!(
+                    key, "CSeq",
+                    "The first header of a RtspRequest should be the CSeq"
+                );
+            }
+
             write!(f, "{}: {}\r\n", key.trim(), value.trim())?;
         }
 
         if let Some(payload) = self.payload.as_ref() {
-            write!(f, "Content-Length: {}\r\n", payload.len())?;
+            // Wolf: The Content Length must be the last header
+            // https://github.com/games-on-whales/wolf/blob/7f416ec0f26bb4d95218af806cd1181fe5434598/src/moonlight-server/rtsp/net.hpp#L167-L181
+
+            // Spelling is important: https://github.com/games-on-whales/wolf/blob/7f416ec0f26bb4d95218af806cd1181fe5434598/src/moonlight-server/rtsp/net.hpp#L170
+            write!(f, "Content-length: {}\r\n", payload.len())?;
 
             write!(f, "\r\n{}", payload)?;
         } else {

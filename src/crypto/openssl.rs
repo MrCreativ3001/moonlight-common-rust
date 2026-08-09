@@ -297,7 +297,10 @@ mod proto {
 
     #[cfg(test)]
     mod test {
-        use crate::stream::proto::crypto::test::{test_aes_cbc_roundtrip, test_aes_gcm_roundtrip};
+        use crate::stream::proto::crypto::test::{
+            test_aes_cbc_roundtrip, test_aes_gcm_roundtrip_nonce_12,
+            test_aes_gcm_roundtrip_nonce_16,
+        };
 
         use super::*;
 
@@ -308,9 +311,14 @@ mod proto {
         }
 
         #[test]
-        fn openssl_gcm() {
+        fn openssl_gcm_nonce_12() {
             let backend = OpenSSLCryptoBackend;
-            test_aes_gcm_roundtrip(&backend);
+            test_aes_gcm_roundtrip_nonce_12(&backend);
+        }
+        #[test]
+        fn openssl_gcm_nonce_16() {
+            let backend = OpenSSLCryptoBackend;
+            test_aes_gcm_roundtrip_nonce_16(&backend);
         }
     }
 }

@@ -88,6 +88,8 @@ pub struct VideoStream {
 impl VideoStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
+        debug!("new video stream");
+
         let depayloader = VideoDepayloader::new(config.queue);
 
         Self {
