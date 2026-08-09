@@ -11,7 +11,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tracing::{Level, debug, info, instrument, trace, warn};
+use tracing::{Level, debug, info, instrument, warn};
 
 use crate::{
     ServerVersion,
