@@ -207,7 +207,7 @@ where
         let https_port = self.https_port()?;
         Ok(Self::build_https_address(&self.address, https_port))
     }
-    pub fn external_port(&self) -> Result<u16, MoonlightClientError> {
+    pub fn external_port(&self) -> Result<Option<u16>, MoonlightClientError> {
         self.server_info(|info| info.external_port)
     }
 

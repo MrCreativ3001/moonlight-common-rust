@@ -105,7 +105,11 @@ pub struct ServerInfoResponse {
     pub gfe_version: String,
     pub unique_id: Uuid,
     pub https_port: u16,
-    pub external_port: u16,
+    /// The external port of the server.
+    ///
+    /// References:
+    /// - Moonshine is empty: <https://github.com/hgaiser/moonshine/blob/91602b5bcfed0a5189d97ed3e8ca6bf6bcae0ca0/moonshine-core/src/webserver/mod.rs#L576>
+    pub external_port: Option<u16>,
     pub max_luma_pixels_hevc: u32,
     pub mac: Option<MacAddress>,
     pub local_ip: Ipv4Addr,
@@ -180,11 +184,13 @@ impl TextResponse for ServerInfoResponse {
         write!(body_writer, "<HttpsPort>{}</HttpsPort>", self.https_port)?;
 
         // <ExternalPort>
-        write!(
-            body_writer,
-            "<ExternalPort>{}</ExternalPort>",
-            self.external_port
-        )?;
+        if let Some(external_port) = self.external_port {
+            write!(
+                body_writer,
+                "<ExternalPort>{}</ExternalPort>",
+                external_port
+            )?;
+        }
 
         // <MaxLumaPixelsHEVC>
         write!(
@@ -294,6 +300,22 @@ impl FromStr for ServerInfoResponse {
             }
         };
 
+        let external_port = match parse_xml_child_text(root, "ExternalPort") {
+            Ok(external_port) => {
+                if external_port.is_empty() {
+                    None
+                } else {
+                    let external_port: u16 = external_port.parse()?;
+
+                    Some(external_port)
+                }
+            }
+            Err(err) => {
+                warn!(error = %err, "failed to get external port from host response");
+                None
+            }
+        };
+
         let mut app_version: ServerVersion = parse_xml_child_text(root, "appversion")?.parse()?;
 
         let apollo_game_uuid = match parse_xml_child_text(root, "currentgameuuid") {
@@ -344,7 +366,7 @@ impl FromStr for ServerInfoResponse {
             foundation_sunshine_version,
             unique_id: parse_xml_child_text(root, "uniqueid")?.parse()?,
             https_port: parse_xml_child_text(root, "HttpsPort")?.parse()?,
-            external_port: parse_xml_child_text(root, "ExternalPort")?.parse()?,
+            external_port,
             max_luma_pixels_hevc: parse_xml_child_text(root, "MaxLumaPixelsHEVC")?.parse()?,
             mac,
             local_ip: parse_xml_child_text(root, "LocalIP")?.parse()?,
@@ -353,6 +375,7 @@ impl FromStr for ServerInfoResponse {
             ),
             paired: parse_xml_child_text(root, "PairStatus")?.parse::<u32>()? != 0,
             current_game: parse_xml_child_text(root, "currentgame")?.parse()?,
+            // TODO: moonshine can be detected like that: https://github.com/hgaiser/moonshine/blob/91602b5bcfed0a5189d97ed3e8ca6bf6bcae0ca0/moonshine-core/src/webserver/mod.rs#L591-L596
             state: ServerState::from_str(&state_string)?,
             apollo_permissions,
             apollo_game_uuid,
