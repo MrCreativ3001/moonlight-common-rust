@@ -213,7 +213,7 @@ where
         let https_port = self.https_port().await?;
         Ok(Self::build_https_address(&self.address, https_port))
     }
-    pub async fn external_port(&self) -> Result<u16, MoonlightClientError> {
+    pub async fn external_port(&self) -> Result<Option<u16>, MoonlightClientError> {
         self.server_info_priv(|info| info.external_port).await
     }
 
