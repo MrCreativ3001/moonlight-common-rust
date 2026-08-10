@@ -311,7 +311,7 @@ fn response_host_info_moonshine() {
             gfe_version: "3.23.0.74".to_string(),
             unique_id: Uuid::from_str("246DEB94-C318-0E04-3984-0C486A8C3450").unwrap(),
             https_port: 47984,
-            external_port: Some(47989),
+            external_port: None,
             max_luma_pixels_hevc: 0,
             mac: Some(MacAddress::from_str("08:00:27:0D:55:DA").unwrap()),
             apollo_permissions: None,
@@ -332,7 +332,6 @@ fn response_host_info_moonshine() {
 <GfeVersion>3.23.0.74</GfeVersion>
 <uniqueid>246DEB94-C318-0E04-3984-0C486A8C3450</uniqueid>
 <HttpsPort>47984</HttpsPort>
-<ExternalPort>47989</ExternalPort>
 <MaxLumaPixelsHEVC>0</MaxLumaPixelsHEVC>
 <mac>08:00:27:0D:55:DA</mac>
 <LocalIP>127.0.0.1</LocalIP>
