@@ -170,7 +170,7 @@ fn response_host_info_sunshine() {
             foundation_sunshine_version: None,
             unique_id: Uuid::from_str("45924F0E-6465-B60F-B517-95DC63714036").unwrap(),
             https_port: 47984,
-            external_port: 47989,
+            external_port: Some(47989),
             max_luma_pixels_hevc: 0,
             mac: Some(MacAddress::from_str("00:B0:D0:63:C2:26").unwrap()),
             apollo_permissions: None,
@@ -215,7 +215,7 @@ fn response_host_info_apollo() {
             foundation_sunshine_version: None,
             unique_id: Uuid::from_str("C6D65CEB-F7EB-8F07-B501-D50ADBAC9117").unwrap(),
             https_port: 47984,
-            external_port: 47989,
+            external_port: Some(47989),
             max_luma_pixels_hevc: 1869449984,
             mac: Some(MacAddress::from_str("00:B0:D0:63:C2:26").unwrap()),
             apollo_permissions: Some(ApolloPermissions::LIST),
@@ -262,7 +262,7 @@ fn response_host_info_foundation() {
             gfe_version: "3.23.0.74".to_string(),
             unique_id: Uuid::from_str("246DEB94-C318-0E04-3984-0C486A8C3450").unwrap(),
             https_port: 47984,
-            external_port: 47989,
+            external_port: Some(47989),
             max_luma_pixels_hevc: 0,
             mac: Some(MacAddress::from_str("08:00:27:0D:55:DA").unwrap()),
             apollo_permissions: None,
@@ -281,6 +281,55 @@ fn response_host_info_foundation() {
 <appversion>7.1.431.-1</appversion>
 <GfeVersion>3.23.0.74</GfeVersion>
 <SunshineVersion>Sunshine v2026.324.103456.杂鱼</SunshineVersion>
+<uniqueid>246DEB94-C318-0E04-3984-0C486A8C3450</uniqueid>
+<HttpsPort>47984</HttpsPort>
+<ExternalPort>47989</ExternalPort>
+<MaxLumaPixelsHEVC>0</MaxLumaPixelsHEVC>
+<mac>08:00:27:0D:55:DA</mac>
+<LocalIP>127.0.0.1</LocalIP>
+<ServerCodecModeSupport>262145</ServerCodecModeSupport>
+<PairStatus>1</PairStatus>
+<currentgame>881448767</currentgame>
+<state>SUNSHINE_SERVER_BUSY</state>
+<appListEtag>1646556252</appListEtag>
+</root>
+"#,
+    );
+}
+
+#[test]
+fn response_host_info_moonshine() {
+    init_test();
+
+    test_response(
+        ServerInfoResponse {
+            host_name: "PCNAME".to_string(),
+            // See https://github.com/hgaiser/moonshine/blob/91602b5bcfed0a5189d97ed3e8ca6bf6bcae0ca0/moonshine-core/src/webserver/mod.rs#L79
+            app_version: ServerVersion::new(7, 1, 431, -1),
+            foundation_sunshine_version: None,
+            // See https://github.com/hgaiser/moonshine/blob/91602b5bcfed0a5189d97ed3e8ca6bf6bcae0ca0/moonshine-core/src/webserver/mod.rs#L80
+            gfe_version: "3.23.0.74".to_string(),
+            unique_id: Uuid::from_str("246DEB94-C318-0E04-3984-0C486A8C3450").unwrap(),
+            https_port: 47984,
+            external_port: Some(47989),
+            max_luma_pixels_hevc: 0,
+            mac: Some(MacAddress::from_str("08:00:27:0D:55:DA").unwrap()),
+            apollo_permissions: None,
+            local_ip: Ipv4Addr::new(127, 0, 0, 1),
+            server_codec_mode_support: ServerCodecModeSupport::from_bits(262145).unwrap(),
+            paired: true,
+            current_game: 881448767,
+            apollo_game_uuid: None,
+            state: ServerState::Busy,
+            foundation_app_list_etag: Some("1646556252".to_owned()),
+        },
+        // TODO: state is MOONSHINE SERVER BUSY on a moonshine server: https://github.com/hgaiser/moonshine/blob/91602b5bcfed0a5189d97ed3e8ca6bf6bcae0ca0/moonshine-core/src/webserver/mod.rs#L591-L596
+        r#"
+<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+<hostname>PCNAME</hostname>
+<appversion>7.1.431.-1</appversion>
+<GfeVersion>3.23.0.74</GfeVersion>
 <uniqueid>246DEB94-C318-0E04-3984-0C486A8C3450</uniqueid>
 <HttpsPort>47984</HttpsPort>
 <ExternalPort>47989</ExternalPort>
