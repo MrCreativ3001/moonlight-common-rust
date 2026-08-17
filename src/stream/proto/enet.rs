@@ -181,6 +181,11 @@ impl EnetHost {
     pub fn handle_timeout(&mut self, now: Instant) {
         self.set_last_now(now);
 
+        self.service();
+    }
+
+    /// Must be called after each modification to update all state
+    pub fn service(&mut self) {
         // The error is infallible and cannot be constructed
         // -> we are allowed to unwrap
         #[allow(clippy::unwrap_used)]

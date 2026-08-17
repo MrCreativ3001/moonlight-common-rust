@@ -188,6 +188,8 @@ impl ControlHost {
         #[allow(clippy::unwrap_used)]
         self.configure_peer(id, config.config).unwrap();
 
+        self.host.service();
+
         Ok(id)
     }
 
@@ -298,6 +300,8 @@ impl ControlHost {
         peer.send(channel_id.0, &Packet::new(buffer, kind))
             .map_err(EnetError::from)?;
 
+        self.host.service();
+
         Ok(())
     }
 
@@ -318,6 +322,7 @@ impl ControlHost {
     pub fn disconnect(&mut self, id: ControlPeerId, data: u32) -> Result<(), ControlError> {
         self.host.disconnect(id.0, data)?;
 
+        self.host.service();
         Ok(())
     }
 
@@ -325,6 +330,7 @@ impl ControlHost {
     pub fn disconnect_now(&mut self, id: ControlPeerId, data: u32) -> Result<(), ControlError> {
         self.host.disconnect_now(id.0, data)?;
 
+        self.host.service();
         Ok(())
     }
 
