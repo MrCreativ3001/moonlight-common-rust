@@ -668,6 +668,11 @@ impl VideoDepayloader {
 
         Ok(())
     }
+
+    /// The [packet_size](VideoDepayloaderConfig::packet_size) of this depayloader.
+    pub fn packet_size(&self) -> usize {
+        self.config.packet_size
+    }
 }
 
 fn rtp_timestamp_to_duration(ts: u32) -> Duration {

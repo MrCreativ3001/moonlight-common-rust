@@ -33,6 +33,9 @@ pub mod std;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 
+#[cfg(any(feature = "std", feature = "tokio"))]
+mod sockets;
+
 // Common implementation details
 
 pub mod audio;

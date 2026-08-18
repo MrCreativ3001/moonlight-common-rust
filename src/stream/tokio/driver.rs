@@ -13,7 +13,9 @@ use tokio::{
     time::{Instant, Sleep, sleep_until},
 };
 
-use crate::stream::{proto::runtime::UdpStream, tokio::MoonlightStreamError};
+use crate::stream::{
+    proto::runtime::UdpStream, sockets::new_udp_socket, tokio::MoonlightStreamError,
+};
 
 pub struct StreamDriver<Stream> {
     base_time: Instant,
@@ -27,7 +29,10 @@ where
     Stream: UdpStream,
 {
     pub async fn new(stream: Stream) -> Result<Self, MoonlightStreamError> {
-        let socket = UdpSocket::bind("0.0.0.0:0").await?;
+        let socket = new_udp_socket(false, stream.recv_buffer_hint())?;
+
+        socket.set_nonblocking(true)?;
+        let socket = UdpSocket::from_std(socket)?;
 
         Ok(Self {
             base_time: Instant::now(),
