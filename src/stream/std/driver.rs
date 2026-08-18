@@ -7,6 +7,7 @@ use std::{io, thread};
 use sans_io_time::Instant;
 use tracing::{Level, Span, debug, instrument, trace};
 
+use crate::stream::sockets::new_udp_socket;
 use crate::stream::{proto::runtime::UdpStream, std::MoonlightStreamError};
 
 const UDP_BUFFER_CAPACITY: usize = 4096;
@@ -25,7 +26,7 @@ where
     MoonlightStreamError: From<Stream::Error>,
 {
     pub fn bind(base_time: StdInstant, stream: Stream) -> Result<Self, io::Error> {
-        let socket = UdpSocket::bind("0.0.0.0:0")?;
+        let socket = new_udp_socket(false, stream.recv_buffer_hint())?;
 
         Ok(Self {
             socket,

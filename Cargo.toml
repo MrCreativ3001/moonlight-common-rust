@@ -50,6 +50,9 @@ rusty_enet = { version = "0.4.0", optional = true }
 # Stream c
 moonlight-common-sys = { workspace = true, optional = true }
 
+# Stream Std / Tokio
+socket2 = { version = "0.6.5", optional = true }
+
 # Stream Tokio
 tokio = { version = "1.52.3", default-features = false, features = [
     "net",
@@ -129,8 +132,8 @@ default = ["ureq", "std", "rustcrypto"]
 serde = ["dep:serde"]
 
 # Different "runtimes"
-std = ["stream-proto"]
-tokio = ["dep:tokio", "stream-proto"]
+std = ["stream-proto", "dep:socket2"]
+tokio = ["dep:tokio", "stream-proto", "dep:socket2"]
 
 # Stream implementations
 stream-proto = ["dep:fec-rs", "dep:rusty_enet"]
