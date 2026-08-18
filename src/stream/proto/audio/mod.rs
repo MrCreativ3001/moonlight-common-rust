@@ -213,4 +213,9 @@ impl UdpStream for AudioStream {
 
         Ok(())
     }
+
+    fn recv_buffer_hint(&self) -> Option<usize> {
+        // See https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/AudioStream.c#L96
+        None
+    }
 }

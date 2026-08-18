@@ -21,7 +21,7 @@ use crate::stream::{
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
             frame::OwnedVideoFrame,
-            packet::FrameType,
+            packet::{FrameType, VIDEO_RECV_BUFFERED_PACKETS},
         },
     },
     video::FrameIndex,
@@ -330,5 +330,10 @@ impl UdpStream for VideoStream {
         self.update(now)?;
 
         Ok(())
+    }
+
+    fn recv_buffer_hint(&self) -> Option<usize> {
+        // See https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L331-L333
+        Some(VIDEO_RECV_BUFFERED_PACKETS * (self.depayloader.packet_size()))
     }
 }

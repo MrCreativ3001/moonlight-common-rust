@@ -1,5 +1,17 @@
 use bitflags::bitflags;
 
+/// This is the desired number of video packets that can be
+/// stored in the socket's receive buffer. 2048 is chosen
+/// because it should be large enough for all reasonable
+/// frame sizes (probably 2 or 3 frames) without using too
+/// much kernel memory with larger packet sizes. It also
+/// can smooth over transient pauses in network traffic
+/// and subsequent packet/frame bursts that follow.
+///
+/// References:
+/// - https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/VideoStream.c#L28-L35
+pub const VIDEO_RECV_BUFFERED_PACKETS: usize = 2048;
+
 /// The maximum amount of shards (data and parity together) that can be in one fec block.
 ///
 /// References:
@@ -276,15 +288,15 @@ impl VideoMultiFecBlocks {
 pub struct VideoFecInfo {
     /// Bits 22..32 (exclusive), 10 Bits
     ///
-    /// The amount of data shards in this frame (see [VideoHeader::frame_index]).
+    /// The amount of data shards in this frame (see [VideoHeader::fec_info]).
     pub data_shards_total: u32,
     /// Bits 12..22 (exclusive), 10 Bits
     ///
-    /// The shard index of this data in the frame (see [VideoHeader::frame_index]).
+    /// The shard index of this data in the frame (see [VideoHeader::fec_info]).
     pub shard_index: u32,
     /// Bits 4..12 (exclusive), 8 Bits
     ///
-    /// The fec percentage of this frame (see [VideoHeader::frame_index]).
+    /// The fec percentage of this frame (see [VideoHeader::fec_info]).
     pub fec_percentage: u32,
     /// Bits 0..4 (exclusive), 4 Bits
     ///
@@ -323,7 +335,8 @@ impl VideoFecInfo {
 /// Returns the fec shards based on data shards and fec percentage
 ///
 /// References:
-/// - https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L705
+/// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L705
+/// - Sunshine: https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L648
 pub fn fec_percentage_to_parity_shards(data_shards: usize, fec_percentage: usize) -> usize {
     (data_shards * fec_percentage).div_ceil(100)
 }

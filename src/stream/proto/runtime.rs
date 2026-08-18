@@ -22,4 +22,9 @@ pub trait UdpStream: Send + Sync {
     ) -> Result<(), Self::Error>;
 
     fn handle_timeout(&mut self, now: Instant) -> Result<(), Self::Error>;
+
+    /// Allows for setting an os hint for the receive buffer size of the udp socket.
+    fn recv_buffer_hint(&self) -> Option<usize> {
+        None
+    }
 }
