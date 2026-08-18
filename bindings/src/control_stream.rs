@@ -143,6 +143,11 @@ impl ControlStream {
         Ok(())
     }
 
+    pub fn can_discard(&self) -> bool {
+        let mut inner = self.inner.lock().expect("lock ControlStream");
+        inner.can_discard()
+    }
+
     // -- Sans IO
 
     pub fn poll_event(&self) -> Option<ControlStreamEvent> {
