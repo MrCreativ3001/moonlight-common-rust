@@ -16,16 +16,19 @@ use moonlight_common::{
                 peer::{
                     ControlConnectConfig as ControlConnectConfig2, ControlError as ControlError2,
                     ControlHost as ControlHost2, ControlHostConfig as ControlHostConfig2,
-                    ControlPeerConfig as ControlPeerConfig2, ControlPeerId, ControlPeerRole,
-                    PacketKind,
+                    ControlHostEvent as ControlHostEvent2, ControlPeerConfig as ControlPeerConfig2,
+                    ControlPeerId, ControlPeerRole, PacketKind,
                 },
             },
+            runtime::UdpStream,
         },
     },
 };
-use uniffi::{Error, Object, Record, custom_type, deps::anyhow::Error, export, remote};
+use uniffi::{Enum, Error, Object, Record, custom_type, deps::anyhow::Error, export, remote};
 
-use crate::{MoonlightError, control_packet::ControlPacket, control_stream::ControlEncryption};
+use crate::{
+    MoonlightError, UdpTransmit, control_packet::ControlPacket, control_stream::ControlEncryption,
+};
 
 #[derive(Debug, thiserror::Error, Error)]
 pub enum ControlError {
@@ -136,6 +139,47 @@ custom_type!(EnetChannel, u8, {
     try_lift: |num| Result::<_, Error>::Ok(EnetChannel(num)),
 });
 
+#[derive(Debug, Enum)]
+pub enum ControlHostEvent {
+    Connected {
+        id: ControlPeerId,
+        /// Sunshine Extension
+        sunshine_connect_data: Option<u32>,
+    },
+    Receive {
+        id: ControlPeerId,
+        channel_id: u8,
+        packet: ControlPacket,
+    },
+    Disconnected {
+        id: ControlPeerId,
+    },
+}
+
+impl From<ControlHostEvent2> for ControlHostEvent {
+    fn from(value: ControlHostEvent2) -> Self {
+        match value {
+            ControlHostEvent2::Connected {
+                id,
+                sunshine_connect_data,
+            } => Self::Connected {
+                id,
+                sunshine_connect_data,
+            },
+            ControlHostEvent2::Receive {
+                id,
+                channel_id,
+                packet,
+            } => Self::Receive {
+                id,
+                channel_id,
+                packet: packet.into(),
+            },
+            ControlHostEvent2::Disconnected { id } => Self::Disconnected { id },
+        }
+    }
+}
+
 #[derive(Object)]
 pub struct ControlHost {
     inner: Mutex<ControlHost2>,
@@ -223,6 +267,48 @@ impl ControlHost {
     pub fn disconnect_now(&self, id: ControlPeerId, data: u32) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().expect("lock ControlHost");
         inner.disconnect_now(id, data)?;
+        Ok(())
+    }
+
+    // -- Sans IO
+
+    pub fn poll_event(&self) -> Option<ControlHostEvent> {
+        let mut inner = self.inner.lock().expect("lock ControlHost");
+        let event = inner.poll_event()?;
+        Some(event.into())
+    }
+
+    pub fn poll_timeout(&self) -> Option<Instant> {
+        let inner = self.inner.lock().expect("lock ControlHost");
+        inner.poll_timeout()
+    }
+
+    pub fn poll_packet(&self) -> Option<UdpTransmit> {
+        let mut inner = self.inner.lock().expect("lock ControlHost");
+
+        let result = inner.pending_send().map(|(addr, contents)| UdpTransmit {
+            addr,
+            contents: contents.to_vec(),
+        });
+        inner.consume_send();
+
+        result
+    }
+
+    pub fn handle_receive(
+        &self,
+        now: Instant,
+        addr: SocketAddr,
+        contents: Vec<u8>,
+    ) -> Result<(), MoonlightError> {
+        let mut inner = self.inner.lock().expect("lock ControlHost");
+        inner.handle_receive(now, addr, &contents)?;
+        Ok(())
+    }
+
+    pub fn handle_timeout(&self, now: Instant) -> Result<(), MoonlightError> {
+        let mut inner = self.inner.lock().expect("lock ControlHost");
+        inner.handle_timeout(now)?;
         Ok(())
     }
 }
