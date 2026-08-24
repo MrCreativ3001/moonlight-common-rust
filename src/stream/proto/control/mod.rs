@@ -77,12 +77,6 @@ pub enum ControlStreamEvent {
 /// It does:
 /// - automatic input batching using [Self::batch_input] and sending in a predefined interval
 /// - regular periodic ping to avoid disconnects
-///
-/// When used in combination with the [MoonlightStreamProto](super::MoonlightStreamProto) and the [VideoStream](super::video::VideoStream) it handles:
-/// - automatic idr requests
-/// - sending a disconnect packet on stop
-///
-/// If it's not used with that it won't do these things, however you can manually do them using the [Self::send_raw] function.
 pub struct ControlStream {
     server_version: ServerVersion,
     apollo_permissions: Option<ApolloPermissions>,

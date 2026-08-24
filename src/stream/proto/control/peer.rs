@@ -1,9 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     net::SocketAddr,
+    time::Duration,
 };
 
-use rusty_enet::{Packet, PacketKind, PeerID, PeerState};
+use rusty_enet::{Packet, PeerID, PeerState};
 use sans_io_time::Instant;
 use thiserror::Error;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -32,6 +33,51 @@ use crate::{
         },
     },
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PacketKind {
+    /// An unreliable, unsequenced packet.
+    ///
+    /// Packets may be lost or delivered out of order.
+    Unreliable,
+
+    /// An unreliable packet with enforced sequencing.
+    ///
+    /// Packets received out of order are discarded.
+    Sequenced,
+
+    /// An unreliable packet that is guaranteed to remain unreliable.
+    ///
+    /// Unlike [`PacketKind::Unreliable`], this packet will never be sent
+    /// reliably, even when it is too large to fit within the MTU.
+    AlwaysUnreliable,
+
+    /// An unreliable packet that is guaranteed to remain unreliable
+    /// and has enforced sequencing.
+    ///
+    /// Packets received out of order are discarded, and the packet will
+    /// never be sent reliably, even when it is too large to fit within
+    /// the MTU.
+    AlwaysSequenced,
+
+    /// A reliable packet with enforced sequencing.
+    ///
+    /// The packet is retransmitted if necessary and delivered reliably
+    /// and in order.
+    Reliable,
+}
+
+impl From<PacketKind> for rusty_enet::PacketKind {
+    fn from(value: PacketKind) -> Self {
+        match value {
+            PacketKind::Unreliable => Self::Unreliable { sequenced: false },
+            PacketKind::Sequenced => Self::Unreliable { sequenced: true },
+            PacketKind::AlwaysUnreliable => Self::AlwaysUnreliable { sequenced: false },
+            PacketKind::AlwaysSequenced => Self::AlwaysUnreliable { sequenced: true },
+            PacketKind::Reliable => Self::Reliable,
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum ControlError {
@@ -116,6 +162,17 @@ pub struct ControlPeerConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ControlPeerId(PeerID);
+
+impl From<usize> for ControlPeerId {
+    fn from(value: usize) -> Self {
+        Self(PeerID(value))
+    }
+}
+impl From<ControlPeerId> for usize {
+    fn from(value: ControlPeerId) -> Self {
+        value.0.0
+    }
+}
 
 #[derive(Debug)]
 pub enum ControlHostEvent {
@@ -297,7 +354,7 @@ impl ControlHost {
             &unencrypted_buffer[0..len]
         };
 
-        peer.send(channel_id.0, &Packet::new(buffer, kind))
+        peer.send(channel_id.0, &Packet::new(buffer, kind.into()))
             .map_err(EnetError::from)?;
 
         self.host.service();
@@ -316,6 +373,34 @@ impl ControlHost {
             rtt: peer.round_trip_time(),
             rtt_variance: peer.round_trip_time_variance(),
         })
+    }
+
+    pub fn set_peer_ping_interval(&mut self, peer: ControlPeerId, ping_interval: Duration) -> bool {
+        let Some(peer) = self.host.peer_mut(peer.0) else {
+            return false;
+        };
+
+        peer.set_ping_interval(ping_interval.as_millis() as u32);
+        true
+    }
+
+    pub fn set_peer_timeout(
+        &mut self,
+        peer: ControlPeerId,
+        limit: Duration,
+        minimum: Duration,
+        maximum: Duration,
+    ) -> bool {
+        let Some(peer) = self.host.peer_mut(peer.0) else {
+            return false;
+        };
+
+        peer.set_timeout(
+            limit.as_millis() as u32,
+            minimum.as_millis() as u32,
+            maximum.as_millis() as u32,
+        );
+        true
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

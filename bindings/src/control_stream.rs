@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use uniffi::{Enum, Error, Object, Record, export, remote};
+use uniffi::{Enum, Object, Record, export, remote};
 
 use moonlight_common::{
     ServerVersion,
@@ -16,8 +16,7 @@ use moonlight_common::{
             Instant,
             control::{
                 ControlStream as ControlStream2, ControlStreamConfig as ControlStreamConfig2,
-                ControlStreamEvent as ControlStreamEvent2,
-                peer::{ControlEncryptionMethod, ControlError as ControlError2},
+                ControlStreamEvent as ControlStreamEvent2, peer::ControlEncryptionMethod,
             },
             runtime::UdpStream,
         },
@@ -25,36 +24,9 @@ use moonlight_common::{
 };
 
 use crate::{
-    MoonlightError, UdpTransmit, control_packet::ControlPacket, input_batcher::ClientInputEvent,
+    MoonlightError, UdpTransmit, control_host::ControlError, control_packet::ControlPacket,
+    input_batcher::ClientInputEvent,
 };
-
-#[derive(Debug, thiserror::Error, Error)]
-pub enum ControlStreamError {
-    #[error("this version of the protocol is not supported: {0}")]
-    VersionNotSupported(ServerVersion),
-    #[error("the control stream hasn't successfully connected yet")]
-    NotConnected,
-    #[error("packet not supported")]
-    PacketNotSupported,
-    #[error("the apollo permissions list doesn't allow this action")]
-    ApolloPermissionDenied,
-    #[error("{0}")]
-    Other(MoonlightError),
-}
-
-impl From<ControlError2> for ControlStreamError {
-    fn from(value: ControlError2) -> Self {
-        match value {
-            ControlError2::VersionNotSupported(server_version) => {
-                Self::VersionNotSupported(server_version)
-            }
-            ControlError2::NotConnected => Self::NotConnected,
-            ControlError2::PacketNotSupported(_) => Self::PacketNotSupported,
-            ControlError2::ApolloPermissionDenied => Self::ApolloPermissionDenied,
-            err => Self::Other(err.into()),
-        }
-    }
-}
 
 #[remote(Enum)]
 pub enum ControlEncryptionMethod {
@@ -99,7 +71,7 @@ pub struct ControlStream {
 #[export]
 impl ControlStream {
     #[uniffi::constructor]
-    pub fn new(now: Instant, config: ControlStreamConfig) -> Result<Arc<Self>, ControlStreamError> {
+    pub fn new(now: Instant, config: ControlStreamConfig) -> Result<Arc<Self>, ControlError> {
         let this = Arc::new(Self {
             inner: Mutex::new(ControlStream2::new(
                 now,
@@ -119,25 +91,25 @@ impl ControlStream {
         Ok(this)
     }
 
-    pub fn estimated_rtt(&self) -> Result<EstimatedRttInfo, ControlStreamError> {
+    pub fn estimated_rtt(&self) -> Result<EstimatedRttInfo, ControlError> {
         let inner = self.inner.lock().expect("lock AudioStream");
         let rtt = inner.estimated_rtt()?;
         Ok(rtt)
     }
 
-    pub fn batch_input(&self, input: ClientInputEvent) -> Result<(), ControlStreamError> {
+    pub fn batch_input(&self, input: ClientInputEvent) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().expect("lock AudioStream");
         inner.batch_input(input.into())?;
         Ok(())
     }
 
-    pub fn send_raw(&self, packet: ControlPacket) -> Result<(), ControlStreamError> {
+    pub fn send_raw(&self, packet: ControlPacket) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
         inner.send_raw(packet.into())?;
         Ok(())
     }
 
-    pub fn disconnect(&self, disconnect_data: u32) -> Result<(), ControlStreamError> {
+    pub fn disconnect(&self, disconnect_data: u32) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().expect("lock ControlStream");
         inner.disconnect(disconnect_data)?;
         Ok(())

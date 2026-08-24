@@ -1,7 +1,11 @@
 use moonlight_common::{
     ServerVersion,
-    stream::proto::control::packet::{
-        ControlPacket as ControlPacket2, ControlPacketConfig, PacketDirection, RawControlPacketType,
+    stream::proto::control::{
+        packet::{
+            ControlPacket as ControlPacket2, ControlPacketConfig, EnetChannel, PacketDirection,
+            RawControlPacketType,
+        },
+        peer::PacketKind,
     },
 };
 use uniffi::{custom_type, export, remote};
@@ -71,4 +75,18 @@ pub fn control_packet_deserialize(
     let packet = ControlPacket2::deserialize(packet_direction, config, &payload)?;
 
     Some(packet.into())
+}
+
+#[export]
+pub fn control_packet_channel(packet: ControlPacket, server_version: ServerVersion) -> EnetChannel {
+    let packet: ControlPacket2 = packet.into();
+    let (channel, _) = packet.channel(server_version);
+    channel
+}
+
+#[export]
+pub fn control_packet_kind(packet: ControlPacket, server_version: ServerVersion) -> PacketKind {
+    let packet: ControlPacket2 = packet.into();
+    let (_, kind) = packet.channel(server_version);
+    kind
 }

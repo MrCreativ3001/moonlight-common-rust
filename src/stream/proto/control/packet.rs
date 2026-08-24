@@ -1,7 +1,6 @@
 use std::{ops::Deref, time::Duration};
 
 use num::FromPrimitive;
-use rusty_enet::PacketKind;
 use thiserror::Error;
 use tracing::{Level, instrument, trace, warn};
 
@@ -13,6 +12,7 @@ use crate::{
             ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
             MouseButtonAction, PenButtons, ToolType, TouchEventType,
         },
+        proto::control::peer::PacketKind,
         video::{Primary, SunshineHdrMetadata},
     },
 };
@@ -1028,10 +1028,9 @@ impl ControlPacket {
                 | ControlPacket::LongTermReferenceFrameAcknowledgement { .. } => {
                     (EnetChannel::CHANNEL_URGENT, PacketKind::Reliable)
                 }
-                ControlPacket::LossStats { .. } | ControlPacket::FrameFec { .. } => (
-                    EnetChannel::CHANNEL_GENERIC,
-                    PacketKind::Unreliable { sequenced: false },
-                ),
+                ControlPacket::LossStats { .. } | ControlPacket::FrameFec { .. } => {
+                    (EnetChannel::CHANNEL_GENERIC, PacketKind::Unreliable)
+                }
                 ControlPacket::PeriodicPing => (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable),
                 ControlPacket::MouseMoveRelative { .. } => {
                     (EnetChannel::CHANNEL_MOUSE, PacketKind::Reliable)
@@ -1075,7 +1074,7 @@ impl ControlPacket {
                         PacketKind::Reliable
                     } else {
                         // moonlight-common-c doesn't set the sequenced flag, however it does make sense to just set it to drop older packets
-                        PacketKind::Unreliable { sequenced: true }
+                        PacketKind::Sequenced
                     },
                 ),
                 ControlPacket::ControllerRumbleData {
@@ -1125,7 +1124,7 @@ impl ControlPacket {
                     // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1072-L1076
                     EnetChannel::controller(*controller_number as u8)
                         .unwrap_or(EnetChannel::CHANNEL_GAMEPAD_BASE),
-                    PacketKind::Unreliable { sequenced: true },
+                    PacketKind::Sequenced,
                 ),
                 ControlPacket::MouseScroll { .. } => {
                     // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L1252-L1253

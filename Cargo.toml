@@ -55,9 +55,11 @@ socket2 = { version = "0.6.5", optional = true }
 
 # Stream Tokio
 tokio = { version = "1.52.3", default-features = false, features = [
+    "io-util",
     "net",
     "sync",
     "time",
+    "macros",
 ], optional = true }
 pin-project-lite = "0.2"
 

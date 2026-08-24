@@ -21,6 +21,7 @@ use moonlight_common::{
 };
 
 pub mod audio_stream;
+pub mod control_host;
 pub mod control_packet;
 pub mod control_serialization;
 pub mod control_stream;
