@@ -35,7 +35,6 @@ mod packet;
 pub mod payloader;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod test;
 
 /// The time window a frame has for all packets to be received

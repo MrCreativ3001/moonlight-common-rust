@@ -1751,21 +1751,20 @@ fn audio_depayloader_encrypted_sunshine(crypto: DynCryptoBackend) {
     assert_eq!(depayloader.poll_frame().unwrap(), None);
 }
 
-// TODO: implement this
-// #[cfg(feature = "openssl")]
-// #[test]
-// fn audio_depayloader_encrypted_sunshine_openssl() {
-//     use crate::crypto::openssl::OpenSSLCryptoBackend;
-//
-//     audio_depayloader_encrypted_sunshine(OpenSSLCryptoBackend);
-// }
-// #[cfg(feature = "rustcrypto")]
-// #[test]
-// fn audio_depayloader_encrypted_sunshine_rustcrypto() {
-//     use crate::crypto::rustcrypto::RustCryptoBackend;
-//
-//     audio_depayloader_encrypted_sunshine(RustCryptoBackend);
-// }
+#[cfg(feature = "openssl")]
+#[test]
+fn audio_depayloader_encrypted_sunshine_openssl() {
+    use crate::crypto::openssl::OpenSSLCryptoBackend;
+
+    audio_depayloader_encrypted_sunshine(Arc::new(OpenSSLCryptoBackend));
+}
+#[cfg(feature = "rustcrypto")]
+#[test]
+fn audio_depayloader_encrypted_sunshine_rustcrypto() {
+    use crate::crypto::rustcrypto::RustCryptoBackend;
+
+    audio_depayloader_encrypted_sunshine(Arc::new(RustCryptoBackend));
+}
 
 const SUNSHINE_PACKET1: &[u8] = &[
     128, 97, 0, 92, 0, 0, 1, 204, 0, 0, 0, 0, 236, 192, 188, 221, 96, 231, 110, 50, 143, 255, 234,

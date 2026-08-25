@@ -35,7 +35,6 @@ pub mod payloader;
 pub mod rtsp;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, unused)]
 mod test;
 
 #[derive(Debug, Error)]

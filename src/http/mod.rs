@@ -61,7 +61,6 @@ pub mod client;
 
 pub(crate) mod helper;
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod test;
 

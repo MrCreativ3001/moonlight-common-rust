@@ -17,6 +17,7 @@ openssl = "0.10.73"
 too_many_arguments = "allow"
 needless_range_loop = "allow"
 todo = "warn"
+unwrap_used = "warn"
 
 [package]
 name = "moonlight-common"

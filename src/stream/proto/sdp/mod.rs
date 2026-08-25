@@ -344,7 +344,6 @@ impl Display for Sdp {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod test {
     use std::net::Ipv4Addr;

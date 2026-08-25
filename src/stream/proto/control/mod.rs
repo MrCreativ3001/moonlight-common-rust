@@ -45,7 +45,6 @@ pub mod input_batcher;
 pub mod peer;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod test;
 
 /// References:

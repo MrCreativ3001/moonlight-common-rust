@@ -7,7 +7,6 @@ use crate::stream::{
     AesKey,
     proto::{
         DynCryptoBackend,
-        crypto::CryptoBackend,
         rtsp::{
             client::{RtspClient, RtspClientConfig, RtspInput, RtspOutput},
             raw::{
