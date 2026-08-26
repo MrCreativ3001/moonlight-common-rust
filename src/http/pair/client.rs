@@ -599,7 +599,6 @@ where
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, unused)]
 mod test {
     use std::{fmt::Debug, str::FromStr};
 

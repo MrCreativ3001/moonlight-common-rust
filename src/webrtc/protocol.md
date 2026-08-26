@@ -97,7 +97,6 @@ a=x-moonlight-hdr:1
 | `a=x-moonlight-preferred-codec` | `u32` | ❌ | Bitmask of preferred video codecs. |
 | `a=x-moonlight-preferred-audio` | `u32` | ❌ | Preferred audio configuration. |
 | `a=x-moonlight-host-id` | `u32` | ❌ | Specify the host machine ID to start the stream on. |
-| `a=x-moonlight-control` | `"enet"` | ❌ | See [Control Stream](#control-stream) |
 
 ### Answer Attributes
 
@@ -107,45 +106,12 @@ a=x-moonlight-hdr:1
 | `a=x-moonlight-microphone` | `0` or `1` | ❌ | See [Microphone](#microphone) |
 
 ## Control Stream
-A client will make a request to the endpoint with a SDP offer.
-Control stream support is negotiated entirely through SDP attributes.
+The data channel with the label `moonlight.control` will be added by the server and is used for reliable and ordered control packet transmission.
 
-The Simple and ENet control streams use identical Moonlight control packet payloads.
-Only the transport semantics differ.
+The client can add other data channels with the wildcard label `moonlight.control.*`.
+This can be used for sending unreliable packets.
+
 All packets that are sent over the control stream are using the unencrypted payloads documented on the [Wolf Docs](https://games-on-whales.github.io/wolf/stable/protocols/control-specs.html).
-
-### Control Stream Negotiation
-
-By default the [simple control stream](#simple-control-stream) is used.
-
-The client indicates support for the enet control stream using sdp attributes:
-```sdp
-a=x-moonlight-control:enet
-```
-
-A server selects one mode and adds the `moonlight.control` data channel like described in the respective control stream sections.
-If multiple modes are offered, `enet` should be preferred when supported.
-
-## Simple Control Stream
-
-When the negotiated control mode is `simple`, the server creates a WebRTC data channel with:
-
-- label: `moonlight.control`
-- ordered: `true`
-- reliable delivery enabled
-
-## ENet Control Stream
-
-When the negotiated control mode is `enet`, the server creates a WebRTC data channel with:
-
-- label: `moonlight.control`
-- unreliable delivery (ordered: false, maxRetransmits: 0)
-- protocol: `enet`
-
-When the Enet control stream is used, Moonlight control packets are transported inside ENet packets over the data channel.
-
-Multiple enet peers are allowed to connect over the single WebRTC data channel.
-If no client peer is connected to the server peer, the server should stop sending video and audio because the stream was unfocused.
 
 ## Microphone
 A client can add a microphone track to it's SDP Offer.

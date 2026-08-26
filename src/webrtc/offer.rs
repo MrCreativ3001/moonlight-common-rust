@@ -47,8 +47,6 @@ impl WebRTCSessionOffer {
         let mut preferred_audio = None;
         let mut host_id = None;
 
-        let mut control_enet = false;
-
         for attr in &session.attributes {
             let Some(value) = &attr.value else {
                 continue;
@@ -113,10 +111,6 @@ impl WebRTCSessionOffer {
                     host_id = Some(parse_u32("x-moonlight-host-id", value)?);
                 }
 
-                "x-moonlight-control" if value == "enet" => {
-                    control_enet = true;
-                }
-
                 _ => {}
             }
         }
@@ -165,10 +159,6 @@ impl WebRTCSessionOffer {
 
         if let Some(v) = self.host_id {
             push(session, "x-moonlight-host-id", v.to_string());
-        }
-
-        if self.control_enet {
-            push(session, "x-moonlight-control", "enet");
         }
     }
 }
@@ -229,8 +219,6 @@ mod tests {
         sdp.attributes.push(attr("x-moonlight-bitrate", "20000"));
 
         sdp.attributes.push(attr("x-moonlight-hdr", "1"));
-
-        sdp.attributes.push(attr("x-moonlight-control", "enet"));
 
         let parsed = WebRTCSessionOffer::from_sdp(&sdp).unwrap();
 
