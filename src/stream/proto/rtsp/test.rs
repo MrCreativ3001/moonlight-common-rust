@@ -456,6 +456,7 @@ fn rtsp_send_no_response_instant_disconnect() {
     assert_eq!(rtsp.poll_output().unwrap(), RtspOutput::Timeout);
 }
 
+#[allow(unused)]
 fn send_receive_encrypted(crypto: DynCryptoBackend) {
     let mut rtsp = RtspClient::new(
         RtspClientConfig {

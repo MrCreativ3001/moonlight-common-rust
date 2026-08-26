@@ -255,6 +255,7 @@ mod test {
         },
     };
 
+    #[allow(unused)]
     fn test_clientbound_message_encryption<Crypto>(
         crypto: &Crypto,
         aes_key: AesKey,
@@ -293,6 +294,7 @@ mod test {
         );
     }
 
+    #[allow(unused)]
     fn test_serverbound_message_encryption<Crypto>(
         crypto: &Crypto,
         aes_key: AesKey,
@@ -331,6 +333,7 @@ mod test {
         );
     }
 
+    #[allow(unused)]
     fn test_crypto<Crypto>(crypto: &Crypto)
     where
         Crypto: CryptoBackend + 'static,

@@ -1,5 +1,6 @@
 use crate::stream::proto::crypto::{CryptoBackend, round_to_pkcs7_safe_len};
 
+#[allow(unused)]
 pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend) {
     let key = [0x11u8; 16];
     let iv = [0x22u8; 16];
@@ -27,6 +28,7 @@ pub fn test_aes_cbc_roundtrip(backend: &impl CryptoBackend) {
     assert_eq!(&plaintext[0..len], expected_plaintext.as_slice());
 }
 
+#[allow(unused)]
 pub fn test_aes_gcm_roundtrip_nonce_12(backend: &impl CryptoBackend) {
     let key = [0x33u8; 16];
     let iv = [0x44u8; 12];
@@ -56,6 +58,7 @@ pub fn test_aes_gcm_roundtrip_nonce_12(backend: &impl CryptoBackend) {
     assert_eq!(&plaintext, expected_plaintext.as_slice());
 }
 
+#[allow(unused)]
 pub fn test_aes_gcm_roundtrip_nonce_16(backend: &impl CryptoBackend) {
     let key = [0x33u8; 16];
     let iv = [0x44u8; 16];

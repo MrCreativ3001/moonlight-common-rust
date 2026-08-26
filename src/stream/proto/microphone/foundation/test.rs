@@ -178,6 +178,7 @@ fn payloader() {
     );
 }
 
+#[allow(unused)]
 fn payloader_encrypted(crypto: DynCryptoBackend) {
     let mut payloader = FoundationMicPayloader::new(
         FoundationMicPayloaderConfig {

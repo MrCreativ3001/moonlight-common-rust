@@ -347,6 +347,7 @@ mod test {
         );
     }
 
+    #[allow(unused)]
     fn test_clientbound_packet<Crypto>(crypto: Crypto)
     where
         Crypto: CryptoBackend,
@@ -417,6 +418,7 @@ mod test {
         test_clientbound_packet(RustCryptoBackend);
     }
 
+    #[allow(unused)]
     fn test_serverbound_packet<Crypto>(crypto: Crypto)
     where
         Crypto: CryptoBackend,

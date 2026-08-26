@@ -71,11 +71,8 @@ pub fn is_private_network_address(addr: IpAddr) -> bool {
 
             // fc00::/7 - unique local address
             let unique_local = [0xfc, 0x00];
-            if is_in_subnet_v6(&addr, &unique_local, 7) {
-                return true;
-            }
 
-            false
+            is_in_subnet_v6(&addr, &unique_local, 7)
         }
     }
 }
