@@ -17,7 +17,6 @@ pub struct WebRTCSessionOffer {
     pub preferred_codecs: Option<VideoFormats>,
     pub preferred_audio: Option<u32>,
     pub host_id: Option<u32>,
-    pub control_enet: bool,
 }
 
 impl FromStr for WebRTCSessionOffer {
@@ -126,7 +125,6 @@ impl WebRTCSessionOffer {
             preferred_codecs: preferred_codec,
             preferred_audio,
             host_id,
-            control_enet,
         })
     }
 
@@ -231,8 +229,6 @@ mod tests {
         assert_eq!(parsed.bitrate, 20000);
 
         assert!(parsed.hdr);
-
-        assert!(parsed.control_enet);
     }
 
     #[test]
@@ -248,7 +244,6 @@ mod tests {
             preferred_codecs: Some(VideoFormats::H264),
             preferred_audio: Some(2),
             host_id: Some(42),
-            control_enet: true,
         };
 
         let mut sdp = session();
