@@ -2,14 +2,14 @@ use crate::{
     ServerVersion, init_test,
     stream::{
         control::{
-            ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
-            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
-            MouseButtonAction, PenButtons, ToolType, TouchEventType,
+            ActiveGamepads, BatteryState, CompactKeyStates, ControllerButtons,
+            ControllerCapabilities, ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers,
+            MotionType, MouseButton, MouseButtonAction, PenButtons, ToolType, TouchEventType,
         },
         proto::control::packet::{
             ControlPacket, ControlPacketConfig, ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH,
             ENCRYPTED_CONTROL_PACKET_TYPE, EncryptedControlHeader, MC_HEADER_B, MC_MID_B,
-            MC_TAIL_A, MC_TAIL_B, PacketDirection, TerminationReason,
+            MC_TAIL_A, MC_TAIL_B, PacketDirection, RawControlPacketType, TerminationReason,
         },
         video::{Primary, SunshineHdrMetadata},
     },
@@ -845,5 +845,39 @@ fn termination_short() {
             reason: TerminationReason::Short(2),
         },
         &[9, 1, 2, 0, 0, 2],
+    );
+}
+
+#[test]
+fn web_state() {
+    let mut config = sunshine_gen_7_enc_config();
+    config.web_state = Some(RawControlPacketType(0x7001));
+
+    let mut key_states = CompactKeyStates::default();
+
+    assert!(
+        key_states
+            .set_pressed(KeyCode::VK_LEFT, KeyAction::Down)
+            .is_some()
+    );
+    assert!(
+        key_states
+            .set_pressed(KeyCode::VK_KEY_W, KeyAction::Down)
+            .is_some()
+    );
+    assert!(
+        key_states
+            .set_pressed(KeyCode(256i16), KeyAction::Down)
+            .is_some()
+    );
+
+    test_packet(
+        PacketDirection::ServerBound,
+        config,
+        ControlPacket::WebState { keys: key_states },
+        &[
+            1, 112, 32, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 128,
+        ],
     );
 }

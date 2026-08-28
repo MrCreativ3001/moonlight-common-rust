@@ -1,9 +1,10 @@
 use moonlight_common::stream::{
     control::{
-        ActiveGamepads as ActiveGamepads2, BatteryState, ControllerButtons as ControllerButtons2,
-        ControllerCapabilities as ControllerCapabilities2, ControllerType, KeyAction, KeyCode,
-        KeyFlags as KeyFlags2, KeyModifiers as KeyModifiers2, MotionType, MouseButton,
-        MouseButtonAction, PenButtons as PenButtons2, ToolType, TouchEventType,
+        ActiveGamepads as ActiveGamepads2, BatteryState, CompactKeyStates,
+        ControllerButtons as ControllerButtons2, ControllerCapabilities as ControllerCapabilities2,
+        ControllerType, KeyAction, KeyCode, KeyFlags as KeyFlags2, KeyModifiers as KeyModifiers2,
+        MotionType, MouseButton, MouseButtonAction, PenButtons as PenButtons2, ToolType,
+        TouchEventType,
     },
     proto::control::packet::{
         ControlPacket as ControlPacket2, DS_EFFECT_PAYLOAD_SIZE, TerminationReason,
@@ -12,7 +13,7 @@ use moonlight_common::stream::{
     video::{Primary, SunshineHdrMetadata as SunshineHdrMetadata2},
 };
 use tracing::warn;
-use uniffi::{Enum, Record, custom_type, remote};
+use uniffi::{Enum, Record, custom_type, deps::anyhow::anyhow, export, remote};
 
 #[remote(Enum)]
 pub enum MotionType {
@@ -174,6 +175,30 @@ impl From<KeyModifiers2> for KeyModifiers {
 
         bools
     }
+}
+
+custom_type!(CompactKeyStates, Vec<u8>, {
+    remote,
+    lower: |key_states| <[u8; 32]>::from(key_states).to_vec(),
+    try_lift: |vec| <[u8; 32]>::try_from(vec).map(CompactKeyStates::from).map_err(|vec| anyhow!("The length of the AesKey must be 16 bytes! (current: {})", vec.len())),
+});
+
+#[export]
+pub fn key_states_can_store(states: CompactKeyStates, key_code: KeyCode) -> bool {
+    states.can_store(key_code)
+}
+#[export]
+pub fn key_states_is_pressed(states: CompactKeyStates, key_code: KeyCode) -> Option<KeyAction> {
+    states.is_pressed(key_code)
+}
+#[export]
+pub fn key_states_set_pressed(
+    mut states: CompactKeyStates,
+    key_code: KeyCode,
+    action: KeyAction,
+) -> CompactKeyStates {
+    states.set_pressed(key_code, action);
+    states
 }
 
 #[remote(Enum)]
@@ -816,6 +841,9 @@ pub enum ControlPacket {
     ServerTermination {
         reason: TerminationReason,
     },
+    WebState {
+        keys: CompactKeyStates,
+    },
 }
 
 impl From<ControlPacket> for ControlPacket2 {
@@ -1156,6 +1184,8 @@ impl From<ControlPacket> for ControlPacket2 {
             },
 
             ControlPacket::ServerTermination { reason } => Self::ServerTermination { reason },
+
+            ControlPacket::WebState { keys } => Self::WebState { keys },
         }
     }
 }
@@ -1476,6 +1506,8 @@ impl From<ControlPacket2> for ControlPacket {
             },
 
             ControlPacket2::ServerTermination { reason } => Self::ServerTermination { reason },
+
+            ControlPacket2::WebState { keys } => Self::WebState { keys },
         }
     }
 }

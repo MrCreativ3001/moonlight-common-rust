@@ -23,7 +23,6 @@ pub struct WebRTCSessionOffer {
     pub preferred_codecs: Option<VideoFormats>,
     pub preferred_audio: Option<u32>,
     pub host_id: Option<u32>,
-    pub control_enet: bool,
 }
 
 impl From<WebRTCSessionOffer> for WebRTCSessionOffer2 {
@@ -39,7 +38,6 @@ impl From<WebRTCSessionOffer> for WebRTCSessionOffer2 {
             preferred_codecs: value.preferred_codecs.map(Into::into),
             preferred_audio: value.preferred_audio,
             host_id: value.host_id,
-            control_enet: value.control_enet,
         }
     }
 }
@@ -56,7 +54,6 @@ impl From<WebRTCSessionOffer2> for WebRTCSessionOffer {
             preferred_codecs: value.preferred_codecs.map(Into::into),
             preferred_audio: value.preferred_audio,
             host_id: value.host_id,
-            control_enet: value.control_enet,
         }
     }
 }

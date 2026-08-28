@@ -37,6 +37,7 @@ pub struct ControlPacketConfig {
     pub set_motion_event: Option<RawControlPacketType>,
     pub set_rgb_led: Option<RawControlPacketType>,
     pub set_adaptive_triggers: Option<RawControlPacketType>,
+    pub web_state: Option<RawControlPacketType>,
 }
 
 #[export]

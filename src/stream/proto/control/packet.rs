@@ -8,9 +8,9 @@ use crate::{
     ServerVersion,
     stream::{
         control::{
-            ActiveGamepads, BatteryState, ControllerButtons, ControllerCapabilities,
-            ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers, MotionType, MouseButton,
-            MouseButtonAction, PenButtons, ToolType, TouchEventType,
+            ActiveGamepads, BatteryState, CompactKeyStates, ControllerButtons,
+            ControllerCapabilities, ControllerType, KeyAction, KeyCode, KeyFlags, KeyModifiers,
+            MotionType, MouseButton, MouseButtonAction, PenButtons, ToolType, TouchEventType,
         },
         proto::control::peer::PacketKind,
         video::{Primary, SunshineHdrMetadata},
@@ -245,6 +245,12 @@ pub struct ControlPacketConfig {
     /// See also:
     /// - [ControlPacket::SetAdaptiveTriggers]
     pub set_adaptive_triggers: Option<RawControlPacketType>,
+    // -- Web
+    /// Web Extension
+    ///
+    /// See also:
+    /// - [ControlPacket::WebState]
+    pub web_state: Option<RawControlPacketType>,
 }
 
 impl ControlPacketConfig {
@@ -277,6 +283,7 @@ impl ControlPacketConfig {
                 set_motion_event: None,
                 set_rgb_led: None,
                 set_adaptive_triggers: None,
+                web_state: None,
             }),
 
             7 if encrypted => Some(Self {
@@ -305,6 +312,7 @@ impl ControlPacketConfig {
                 set_motion_event: Some(RawControlPacketType(0x5501)),
                 set_rgb_led: Some(RawControlPacketType(0x5502)),
                 set_adaptive_triggers: Some(RawControlPacketType(0x5503)),
+                web_state: None,
             }),
             //
             6 | 7 => Some(Self {
@@ -333,6 +341,7 @@ impl ControlPacketConfig {
                 set_motion_event: None,
                 set_rgb_led: None,
                 set_adaptive_triggers: None,
+                web_state: None,
             }),
             _ => None,
         }
@@ -358,6 +367,7 @@ pub enum ControlPacketType {
     ControllerSetMotion,
     ControllerSetLed,
     ControllerSetAdaptiveTriggers,
+    WebState,
 }
 
 impl ControlPacketType {
@@ -379,6 +389,7 @@ impl ControlPacketType {
             Self::ControllerSetMotion => PacketDirection::ClientBound,
             Self::ControllerSetLed => PacketDirection::ClientBound,
             Self::ControllerSetAdaptiveTriggers => PacketDirection::ClientBound,
+            Self::WebState => PacketDirection::ServerBound,
         }
     }
 
@@ -404,6 +415,7 @@ impl ControlPacketType {
             ControlPacketType::ControllerSetMotion => config.set_motion_event,
             ControlPacketType::ControllerSetLed => config.set_rgb_led,
             ControlPacketType::ControllerSetAdaptiveTriggers => config.set_adaptive_triggers,
+            ControlPacketType::WebState => config.web_state,
         }
     }
     pub fn deserialize(
@@ -438,6 +450,7 @@ impl ControlPacketType {
                 id if id == config.loss_stats => Some(Self::LossStats),
                 id if id == config.frame_stats => Some(Self::FrameStats),
                 id if id == config.input_data => Some(Self::InputData),
+                id if Some(id) == config.web_state => Some(Self::WebState),
                 _ => None,
             },
         }
@@ -965,6 +978,12 @@ pub enum ControlPacket {
     ServerTermination {
         reason: TerminationReason,
     },
+    /// Web Extension
+    ///
+    /// Contains all "normal" keyboard keys and mouse buttons the a client can send.
+    WebState {
+        keys: CompactKeyStates,
+    },
 }
 
 impl ControlPacket {
@@ -1154,6 +1173,9 @@ impl ControlPacket {
                     // Server Packet, see above
                     (EnetChannel::CHANNEL_GENERIC, PacketKind::Reliable)
                 }
+                ControlPacket::WebState { .. } => {
+                    (EnetChannel::CHANNEL_KEYBOARD, PacketKind::Unreliable)
+                }
             }
         } else {
             // https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/ControlStream.c#L763-L767
@@ -1199,6 +1221,7 @@ impl ControlPacket {
             Self::ControllerSetAdaptiveTriggers { .. } => {
                 ControlPacketType::ControllerSetAdaptiveTriggers
             }
+            Self::WebState { .. } => ControlPacketType::WebState,
         }
     }
 
@@ -2004,6 +2027,19 @@ impl ControlPacket {
                     }
                 }
             }
+            Self::WebState { keys } => {
+                let ty = config.web_state.ok_or(ControlPacketNotSupported)?;
+
+                buffer[0..2].copy_from_slice(&ty.to_le_bytes());
+
+                let content_len: u16 = 32;
+                buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
+
+                let bits: [u8; 32] = (*keys).into();
+                buffer[4..36].copy_from_slice(&bits);
+
+                Ok(4 + content_len as usize)
+            }
         }
     }
 
@@ -2772,6 +2808,19 @@ impl ControlPacket {
                     left,
                     right,
                 })
+            }
+            ControlPacketType::WebState => {
+                if payload.len() < 36 {
+                    warn!("WebState packet too small");
+                    return None;
+                }
+
+                let key_states: [u8; 32] = payload[4..36]
+                    .try_into()
+                    .expect("couldn't convert key_state bytes for WebState packet");
+                let key_states = CompactKeyStates::from(key_states);
+
+                Some(ControlPacket::WebState { keys: key_states })
             }
         }
     }
