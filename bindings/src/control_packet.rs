@@ -184,6 +184,10 @@ custom_type!(CompactKeyStates, Vec<u8>, {
 });
 
 #[export]
+pub fn key_states_empty() -> CompactKeyStates {
+    CompactKeyStates::default()
+}
+#[export]
 pub fn key_states_can_store(states: CompactKeyStates, key_code: KeyCode) -> bool {
     states.can_store(key_code)
 }
