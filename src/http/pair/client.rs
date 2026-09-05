@@ -599,6 +599,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(unused)]
 mod test {
     use std::{fmt::Debug, str::FromStr};
 
