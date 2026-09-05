@@ -874,10 +874,17 @@ fn web_state() {
     test_packet(
         PacketDirection::ServerBound,
         config,
-        ControlPacket::WebState { keys: key_states },
+        ControlPacket::WebState {
+            sequence_number: 1,
+            keys: key_states,
+        },
         &[
-            1, 112, 32, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 128,
+            1, 112, // ty
+            34, 0, // len
+            0, 1, // sequence number
+            // -- bits
+            0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 128,
         ],
     );
 }

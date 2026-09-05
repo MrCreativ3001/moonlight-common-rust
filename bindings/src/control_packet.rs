@@ -842,6 +842,7 @@ pub enum ControlPacket {
         reason: TerminationReason,
     },
     WebState {
+        sequence_number: u16,
         keys: CompactKeyStates,
     },
 }
@@ -1185,7 +1186,13 @@ impl From<ControlPacket> for ControlPacket2 {
 
             ControlPacket::ServerTermination { reason } => Self::ServerTermination { reason },
 
-            ControlPacket::WebState { keys } => Self::WebState { keys },
+            ControlPacket::WebState {
+                sequence_number,
+                keys,
+            } => Self::WebState {
+                sequence_number,
+                keys,
+            },
         }
     }
 }
@@ -1507,7 +1514,13 @@ impl From<ControlPacket2> for ControlPacket {
 
             ControlPacket2::ServerTermination { reason } => Self::ServerTermination { reason },
 
-            ControlPacket2::WebState { keys } => Self::WebState { keys },
+            ControlPacket2::WebState {
+                sequence_number,
+                keys,
+            } => Self::WebState {
+                sequence_number,
+                keys,
+            },
         }
     }
 }

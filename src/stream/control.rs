@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    ops::{BitAnd, BitOr, Not},
+    time::Duration,
+};
 
 use bitflags::bitflags;
 use num_derive::{FromPrimitive, ToPrimitive};
@@ -366,6 +369,48 @@ impl From<[u8; 32]> for CompactKeyStates {
 impl From<CompactKeyStates> for [u8; 32] {
     fn from(value: CompactKeyStates) -> Self {
         value.pressed
+    }
+}
+
+impl BitAnd for CompactKeyStates {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let mut pressed = [0u8; 32];
+
+        for i in 0..32 {
+            pressed[i] = self.pressed[i] & rhs.pressed[i];
+        }
+
+        Self { pressed }
+    }
+}
+
+impl BitOr for CompactKeyStates {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        let mut pressed = [0u8; 32];
+
+        for i in 0..32 {
+            pressed[i] = self.pressed[i] | rhs.pressed[i];
+        }
+
+        Self { pressed }
+    }
+}
+
+impl Not for CompactKeyStates {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        let mut pressed = [0u8; 32];
+
+        for i in 0..32 {
+            pressed[i] = !self.pressed[i];
+        }
+
+        Self { pressed }
     }
 }
 

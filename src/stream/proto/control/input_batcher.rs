@@ -13,12 +13,6 @@ use crate::stream::{
     proto::control::packet::ControlPacket,
 };
 
-#[derive(Debug, Default)]
-pub struct InputBatcherConfig {
-    /// If the [ControlPacket::WebState] is supported.
-    pub web_state_supported: bool,
-}
-
 #[derive(Debug, Clone)]
 pub enum ClientInputEvent {
     Keyboard {
@@ -94,11 +88,9 @@ pub enum ClientInputEvent {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InputBatcher {
-    web_state_supported: bool,
     // pressed keys
-    keys_dirty: bool,
     key_states: CompactKeyStates,
     key_states_map: HashSet<KeyCode>,
     // mouse move relative
@@ -116,20 +108,7 @@ pub struct InputBatcher {
     gamepads: ActiveGamepads,
 }
 
-impl Default for InputBatcher {
-    fn default() -> Self {
-        Self::new(InputBatcherConfig::default())
-    }
-}
-
 impl InputBatcher {
-    pub fn new(config: InputBatcherConfig) -> Self {
-        Self {
-            web_state_supported: config.web_state_supported,
-            ..Default::default()
-        }
-    }
-
     fn set_key_down(&mut self, key_code: KeyCode, action: KeyAction) -> KeyAction {
         if let Some(old_is_down) = self.key_states.set_pressed(key_code, action) {
             old_is_down
@@ -211,17 +190,13 @@ impl InputBatcher {
                 // wolf hates it when you send multiple key press / key release events because some keys can get stuck
                 // -> only send on changes
                 if is_pressed != was_pressed {
-                    if !(self.web_state_supported && self.key_states.can_store(key_code)) {
-                        packet = Some(ControlPacket::Keyboard {
-                            action: is_pressed,
-                            flags,
-                            key_code,
-                            modifiers,
-                            zero: 0,
-                        });
-                    }
-
-                    self.keys_dirty = true;
+                    packet = Some(ControlPacket::Keyboard {
+                        action: is_pressed,
+                        flags,
+                        key_code,
+                        modifiers,
+                        zero: 0,
+                    });
                 } else {
                     debug!(is_pressed = ?is_pressed, was_pressed = ?was_pressed, key_code = ?key_code, modifiers = ?modifiers, "dropping key packet because the key is already in that state");
                 }
@@ -244,28 +219,7 @@ impl InputBatcher {
                 });
             }
             ClientInputEvent::MouseButton { action, button } => {
-                let key_code = match button {
-                    MouseButton::Left => KeyCode::VK_LBUTTON,
-                    MouseButton::Middle => KeyCode::VK_MBUTTON,
-                    MouseButton::Right => KeyCode::VK_RIGHT,
-                    MouseButton::X1 => KeyCode::VK_XBUTTON1,
-                    MouseButton::X2 => KeyCode::VK_XBUTTON2,
-                };
-
-                if self.web_state_supported && self.key_states.can_store(key_code) {
-                    let action = match action {
-                        MouseButtonAction::Press => KeyAction::Down,
-                        MouseButtonAction::Release => KeyAction::Up,
-                    };
-
-                    let result = self.key_states.set_pressed(key_code, action);
-
-                    debug_assert!(result.is_some());
-                } else {
-                    packet = Some(ControlPacket::MouseButton { action, button });
-                }
-
-                self.keys_dirty = true;
+                packet = Some(ControlPacket::MouseButton { action, button });
             }
             ClientInputEvent::MouseScrollVertical { scroll_y } => {
                 packet = Some(ControlPacket::MouseScroll {
@@ -446,11 +400,6 @@ impl InputBatcher {
     pub fn is_dirty(&self) -> bool {
         let mut is_dirty = false;
 
-        // keyboard / mouse buttons
-        if self.keys_dirty {
-            is_dirty = true;
-        }
-
         // mouse relative
         if self.mouse_delta_x != 0 || self.mouse_delta_y != 0 {
             is_dirty = true;
@@ -469,15 +418,6 @@ impl InputBatcher {
 
     pub fn remove_batched_inputs(&mut self) -> impl Iterator<Item = ControlPacket> + 'static {
         let mut packets = SmallVec::<[ControlPacket; 5]>::new();
-
-        // web keyboard / mouse
-        if self.web_state_supported {
-            packets.push(ControlPacket::WebState {
-                keys: self.key_states,
-            });
-
-            self.keys_dirty = false;
-        }
 
         // mouse relative
         if self.mouse_delta_x != 0 || self.mouse_delta_y != 0 {

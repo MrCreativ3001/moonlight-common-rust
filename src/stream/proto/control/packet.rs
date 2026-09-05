@@ -982,6 +982,8 @@ pub enum ControlPacket {
     ///
     /// Contains all "normal" keyboard keys and mouse buttons the a client can send.
     WebState {
+        /// A wrapping sequence number that can be used to identify the latest key states.
+        sequence_number: u16,
         keys: CompactKeyStates,
     },
 }
@@ -2027,16 +2029,21 @@ impl ControlPacket {
                     }
                 }
             }
-            Self::WebState { keys } => {
+            Self::WebState {
+                sequence_number,
+                keys,
+            } => {
                 let ty = config.web_state.ok_or(ControlPacketNotSupported)?;
 
                 buffer[0..2].copy_from_slice(&ty.to_le_bytes());
 
-                let content_len: u16 = 32;
+                let content_len: u16 = 34;
                 buffer[2..4].copy_from_slice(&content_len.to_le_bytes());
 
+                buffer[4..6].copy_from_slice(&sequence_number.to_be_bytes());
+
                 let bits: [u8; 32] = (*keys).into();
-                buffer[4..36].copy_from_slice(&bits);
+                buffer[6..38].copy_from_slice(&bits);
 
                 Ok(4 + content_len as usize)
             }
@@ -2810,17 +2817,21 @@ impl ControlPacket {
                 })
             }
             ControlPacketType::WebState => {
-                if payload.len() < 36 {
+                if payload.len() < 38 {
                     warn!("WebState packet too small");
                     return None;
                 }
 
-                let key_states: [u8; 32] = payload[4..36]
+                let sequence_number = u16::from_be_bytes([payload[4], payload[5]]);
+                let key_states: [u8; 32] = payload[6..38]
                     .try_into()
                     .expect("couldn't convert key_state bytes for WebState packet");
                 let key_states = CompactKeyStates::from(key_states);
 
-                Some(ControlPacket::WebState { keys: key_states })
+                Some(ControlPacket::WebState {
+                    sequence_number,
+                    keys: key_states,
+                })
             }
         }
     }
