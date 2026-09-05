@@ -309,6 +309,9 @@ pub struct CompactKeyStates {
     pressed: [u8; 32],
 }
 impl CompactKeyStates {
+    const MIN_KEY_CODE: KeyCode = KeyCode(1);
+    const MAX_KEY_CODE: KeyCode = KeyCode(256);
+
     fn key_to_bit(key_code: KeyCode) -> Option<u8> {
         let key = u16::try_from(key_code.0).ok()?;
 
@@ -357,6 +360,12 @@ impl CompactKeyStates {
         } else {
             KeyAction::Up
         })
+    }
+
+    pub fn pressed_iter(&self) -> impl Iterator<Item = KeyCode> + '_ {
+        (Self::MIN_KEY_CODE.0..=Self::MAX_KEY_CODE.0)
+            .filter(|key_code| matches!(self.is_pressed(KeyCode(*key_code)).expect("failed to use the CompactKeyStates::pressed_iter because of an invalid KeyCode range"), KeyAction::Down))
+            .map(KeyCode)
     }
 }
 
