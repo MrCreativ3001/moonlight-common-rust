@@ -121,6 +121,8 @@ impl PingSender {
     }
 
     pub fn set_finished(&mut self) {
+        debug!("ping sender is set to finished");
+
         self.state = PingSenderState::Finished;
     }
 }

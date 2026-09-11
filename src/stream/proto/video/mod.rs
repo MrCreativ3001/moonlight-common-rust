@@ -319,7 +319,7 @@ impl UdpStream for VideoStream {
         }
 
         if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
-            info!(now = ?now, "received first video packet");
+            info!(now = %now, "received first video packet");
 
             self.ping_sender.set_finished();
         }

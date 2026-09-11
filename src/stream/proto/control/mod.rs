@@ -98,6 +98,8 @@ impl ControlStream {
         config: ControlStreamConfig,
         crypto_backend: DynCryptoBackend,
     ) -> Result<Self, ControlError> {
+        debug!("new control stream");
+
         if config.server_version.major < 5 {
             // Servers below v5 use tcp and don't have encryption support
             // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/ControlStream.c#L849-L856

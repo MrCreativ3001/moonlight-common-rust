@@ -184,6 +184,7 @@ impl UdpStream for AudioStream {
         self.depayloader.handle_packet(data)?;
 
         if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+            info!(now = %now, "received first audio packet");
             self.ping_sender.set_finished();
         }
 
