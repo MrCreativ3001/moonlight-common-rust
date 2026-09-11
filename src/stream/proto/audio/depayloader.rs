@@ -24,7 +24,7 @@ use crate::stream::{
     },
 };
 
-use tracing::{Level, info, instrument, warn};
+use tracing::{Level, info, instrument, trace, warn};
 
 #[derive(Debug, Error)]
 pub enum AudioDepayloaderError {
@@ -103,62 +103,72 @@ impl AudioDepayloader {
     pub fn poll_frame(&mut self) -> Result<Option<AudioFrame<Vec<u8>>>, AudioDepayloaderError> {
         let mut output = None;
 
-        let sequence_number = self.current_sequence_number;
+        loop {
+            let sequence_number = self.current_sequence_number;
 
-        if self
-            .data_packets
-            .contains_key(&self.current_sequence_number)
-        {
-            // We've received a packet
-            let packet = &self.data_packets[&self.current_sequence_number];
+            if self
+                .data_packets
+                .contains_key(&self.current_sequence_number)
+            {
+                // We've received a packet
+                let packet = &self.data_packets[&self.current_sequence_number];
 
-            output = Some(packet.to_frame());
-            self.current_sequence_number = self.current_sequence_number.wrapping_add(1);
+                output = Some(packet.to_frame());
+                self.current_sequence_number = self.current_sequence_number.wrapping_add(1);
+            }
+            // All fec reconstruction is done in handle packet
+
+            // Cleanup old data
+            // The minimum sequence number that we need to store for fec reconstruction
+            let minimum_sequence_number = self
+                .current_sequence_number
+                .saturating_sub(RTP_AUDIO_DATA_SHARDS as u16);
+
+            self.data_packets
+                .retain(|sequence_number, _| *sequence_number >= minimum_sequence_number);
+
+            while self
+                .fec_packets
+                .pop_front_if(|packet| packet.header.base_sequence_number < minimum_sequence_number)
+                .is_some()
+            {}
+
+            // -- Decrypt data if necessary
+            if let Some(output) = output.as_mut()
+                && let Some(SunshineEncryption { aes_key, aes_iv }) = self.encryption
+            {
+                // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
+
+                let mut iv = [0u8; 16];
+                iv[0..4]
+                    .copy_from_slice(&aes_iv.wrapping_add(sequence_number as u32).to_be_bytes());
+
+                // Ensure output buffer is big enough
+                self.unencrypt_buffer
+                    .resize(round_to_pkcs7_safe_len(output.buffer.len()), 0);
+
+                // Decrypt
+                let len = match self.crypto_backend.decrypt_aes_cbc(
+                    &aes_key,
+                    &iv,
+                    &output.buffer,
+                    &mut self.unencrypt_buffer,
+                ) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        warn!(error = %err, "failed to decrypt packet");
+                        // Try to decode next packet
+                        continue;
+                    }
+                };
+
+                // Swap buffers
+                self.unencrypt_buffer.truncate(len);
+                swap(&mut output.buffer, &mut self.unencrypt_buffer);
+            }
+
+            break Ok(output);
         }
-        // All fec reconstruction is done in handle packet
-
-        // Cleanup old data
-        // The minimum sequence number that we need to store for fec reconstruction
-        let minimum_sequence_number = self
-            .current_sequence_number
-            .saturating_sub(RTP_AUDIO_DATA_SHARDS as u16);
-
-        self.data_packets
-            .retain(|sequence_number, _| *sequence_number >= minimum_sequence_number);
-
-        while self
-            .fec_packets
-            .pop_front_if(|packet| packet.header.base_sequence_number < minimum_sequence_number)
-            .is_some()
-        {}
-
-        // -- Decrypt data if necessary
-        if let Some(output) = output.as_mut()
-            && let Some(SunshineEncryption { aes_key, aes_iv }) = self.encryption
-        {
-            // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
-
-            let mut iv = [0u8; 16];
-            iv[0..4].copy_from_slice(&aes_iv.wrapping_add(sequence_number as u32).to_be_bytes());
-
-            // Ensure output buffer is big enough
-            self.unencrypt_buffer
-                .resize(round_to_pkcs7_safe_len(output.buffer.len()), 0);
-
-            // Decrypt
-            let len = self.crypto_backend.decrypt_aes_cbc(
-                &aes_key,
-                &iv,
-                &output.buffer,
-                &mut self.unencrypt_buffer,
-            )?;
-
-            // Swap buffers
-            self.unencrypt_buffer.truncate(len);
-            swap(&mut output.buffer, &mut self.unencrypt_buffer);
-        }
-
-        Ok(output)
     }
 
     /// Tries to skip samples until it can find a that can be constructed with the current internal buffers.
@@ -303,6 +313,7 @@ impl AudioDepayloader {
                 .as_array::<{ RtpAudioHeader::SIZE }>()
                 .unwrap(),
         );
+        trace!(rtp_header = ?rtp_header, "audio packet header");
 
         if rtp_header.header != RTP_AUDIO_HEADER {
             warn!("received packet on audio port without standard audio header!");
@@ -375,6 +386,7 @@ impl AudioDepayloader {
                     .as_array::<{ AudioFecHeader::SIZE }>()
                     .unwrap(),
             );
+            trace!(fec_header = ?fec_header, "audio packet fec header");
 
             // https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/RtpAudioQueue.c#L267-L278
             // The FEC blocks must start on a RTPA_DATA_SHARDS boundary for our queuing logic to work. This isn't
