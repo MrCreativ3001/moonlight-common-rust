@@ -109,6 +109,8 @@ impl AudioStream {
     fn poll_depayloader(&mut self, now: Instant) -> Result<(), AudioStreamError> {
         while let Some(frame) = self.depayloader.poll_frame()? {
             self.last_frame = now;
+            self.dropped_frames = false;
+
             self.events.push_back(AudioStreamEvent::OnFrame(AudioFrame {
                 timestamp: frame.timestamp,
                 buffer: frame.buffer.into(),
