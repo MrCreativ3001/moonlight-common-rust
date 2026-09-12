@@ -557,7 +557,7 @@ impl VideoDepayloader {
 
             trace!(
                 data_shards = ?shards[0..total_data_shards].iter().map(|x| x.len.is_some()).collect::<Vec<bool>>(),
-                parity_shards = ?shards[total_data_shards..total_parity_shards].iter().map(|x| x.len.is_some()).collect::<Vec<bool>>(),
+                parity_shards = ?shards[total_data_shards..(total_data_shards + total_parity_shards)].iter().map(|x| x.len.is_some()).collect::<Vec<bool>>(),
                 "recovering data shards"
             );
 
