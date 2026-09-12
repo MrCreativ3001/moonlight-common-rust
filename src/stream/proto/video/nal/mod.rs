@@ -37,6 +37,7 @@ pub fn parse_nalus<'a>(frame_data: &'a [u8], format: VideoFormat) -> ParsedNalus
                 } else {
                     // H264 specific filtering
                     let nal_header = h264::NalHeader::parse([buffer[nalu_start]]);
+                    trace!(header = ?nal_header, "found nalu");
 
                     // See frame type definition for info
                     if matches!(nal_header.nal_unit_type, h264::NalUnitType::CodedSliceIDR) {
@@ -55,6 +56,7 @@ pub fn parse_nalus<'a>(frame_data: &'a [u8], format: VideoFormat) -> ParsedNalus
                     // H265 specific filtering
                     let nal_header =
                         h265::NalHeader::parse([buffer[nalu_start], buffer[nalu_start + 1]]);
+                    trace!(header = ?nal_header, "found nalu");
 
                     // See frame type definition for info
                     if matches!(

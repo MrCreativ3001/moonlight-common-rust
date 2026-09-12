@@ -38,10 +38,10 @@ pub const SERVER_CERTIFICATE_FILE: &str = "server_certificate.pem";
 
 pub fn init() {
     // Init tracing
-    let audio_directive: Directive = "moonlight_common::stream::proto::audio::depayloader=debug"
+    let audio_directive: Directive = "moonlight_common::stream::proto::audio=debug"
         .parse()
         .unwrap();
-    let video_directive: Directive = "moonlight_common::stream::proto::video::depayloader=debug"
+    let video_directive: Directive = "moonlight_common::stream::proto::video=debug"
         .parse()
         .unwrap();
     let control_directive: Directive = "moonlight_common::stream::proto::control=debug"

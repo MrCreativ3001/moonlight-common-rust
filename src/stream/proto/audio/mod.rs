@@ -200,9 +200,10 @@ impl UdpStream for AudioStream {
 
         if self.last_frame + MAXIMUM_SAMPLE_WAIT < now {
             if !self.dropped_frames {
-                debug!(
-                    "Dropping audio frame because it took too long to receive: Last Frame: {:?}, Current Time: {:?}",
-                    self.last_frame, now
+                info!(
+                    last_frame = %self.last_frame,
+                    now = %now,
+                    "dropping audio frame because it took too long to receive",
                 );
             }
 

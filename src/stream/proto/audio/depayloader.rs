@@ -24,7 +24,7 @@ use crate::stream::{
     },
 };
 
-use tracing::{Level, info, instrument, trace, warn};
+use tracing::{Level, debug_span, info, instrument, trace, warn};
 
 #[derive(Debug, Error)]
 pub enum AudioDepayloaderError {
@@ -167,8 +167,14 @@ impl AudioDepayloader {
                 swap(&mut output.buffer, &mut self.unencrypt_buffer);
             }
 
-            break Ok(output);
+            break;
         }
+
+        if let Some(output) = &output {
+            trace!(timestamp = ?output.timestamp, start_bytes = ?output.buffer[0..10], "produced audio frame");
+        }
+
+        Ok(output)
     }
 
     /// Tries to skip samples until it can find a that can be constructed with the current internal buffers.
@@ -264,6 +270,13 @@ impl AudioDepayloader {
             fec_shard2.map(|shard| shard.payload.clone()),
         ];
 
+        trace!(
+            base_sequence_number = %base_sequence_number, data_shards = %data_shards, fec_shards = %fec_shards,
+            data_shards = ?[data_shard1.is_some(), data_shard2.is_some(), data_shard3.is_some(), data_shard4.is_some()],
+            fec_shards = ?[fec_shard1.is_some(), fec_shard2.is_some()],
+            "recovering data shards"
+        );
+
         fec_decoder.reconstruct_data(&mut shards)?;
 
         // The timestamp increment for one audio packet
@@ -306,6 +319,9 @@ impl AudioDepayloader {
         if packet.len() < RtpAudioHeader::SIZE {
             return Err(AudioDepayloaderError::BufferTooSmall);
         }
+
+        let packet_span = debug_span!("audio packet");
+        let _enter = packet_span.enter();
 
         #[allow(clippy::unwrap_used)]
         let rtp_header = RtpAudioHeader::deserialize(

@@ -3,7 +3,7 @@ use std::{array, collections::BTreeMap, ops::Range, time::Duration};
 use bytes::BytesMut;
 use fec_rs::ReedSolomon;
 use thiserror::Error;
-use tracing::{debug, trace, warn};
+use tracing::{debug, debug_span, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
@@ -338,6 +338,7 @@ impl VideoDepayloader {
         (metadata, frame_header_len..full_frame.len())
     }
 
+    #[instrument(level = "trace", name = "reconstruct video block", skip(self))]
     fn try_construct_fec_block(
         &mut self,
         frame_index: FrameIndex,
@@ -508,10 +509,14 @@ impl VideoDepayloader {
             return Ok(false);
         }
 
+        trace!(
+            data_shards = %data_shards, total_data_shards = %total_data_shards,
+            parity_shards = %parity_shards, total_parity_shards = %total_parity_shards,
+            "shards"
+        );
+
         // -- use reed solomon reconstruction if required
         if parity_shards > 0 {
-            trace!(frame_index = ?frame_index, block_index = block_index, data_shards = data_shards, parity_shards = parity_shards, total_data_shards = total_data_shards, total_parity_shards = total_parity_shards, "reconstructing frame with reed solomon");
-
             // make sure the frame buffer is big enough to fit all data shards in this block into it, this is important for fec reconstruction later
             let full_block_len = total_data_shards * payload_len;
             let required_buffer_len = frame.current_block_buffer_offset + full_block_len;
@@ -550,7 +555,11 @@ impl VideoDepayloader {
                 };
             }
 
-            trace!(shards = ?shards[0..(total_data_shards + total_parity_shards)], "data shard");
+            trace!(
+                data_shards = ?shards[0..total_data_shards].iter().map(|x| x.len.is_some()).collect::<Vec<bool>>(),
+                parity_shards = ?shards[total_data_shards..total_parity_shards].iter().map(|x| x.len.is_some()).collect::<Vec<bool>>(),
+                "recovering data shards"
+            );
 
             // reconstruct
             let reed_solomon = create_video_reed_solomon(total_data_shards, total_parity_shards);
@@ -565,10 +574,20 @@ impl VideoDepayloader {
         frame.current_block_total_data_shards = None;
         frame.current_block_buffer_offset += total_data_shards * payload_len;
 
-        // drop all packets related to this frame, if the frame is complete
+        trace!("completed block");
+
+        // if the frame is complete
         if frame.last_block_index > frame.current_block {
+            trace!(frame_index = ?frame_index, "produced frame");
+
+            // drop all packets related to this frame
             self.packets
                 .retain(|_, packet| packet.video_header.frame_index != *frame_index);
+
+            // parse the frame mainly to log information
+            let _ = self
+                .frame(frame_index)
+                .expect("failed to get frame after having successfully produced it");
         }
 
         Ok(true)
@@ -603,6 +622,9 @@ impl VideoDepayloader {
         // } else {
         //     data.to_vec()
         // };
+
+        let packet_span = debug_span!("video packet");
+        let _enter = packet_span.enter();
 
         // TODO: for encrypted packets we should first verify the packet and then do any errors
         if packet.len() != RtpVideoHeader::SIZE + self.config.packet_size {
