@@ -134,7 +134,7 @@ impl AudioDepayloader {
             {}
 
             // -- Decrypt data if necessary
-            if let Some(output) = output.as_mut()
+            if let Some(encrypted_output) = output.as_mut()
                 && let Some(SunshineEncryption { aes_key, aes_iv }) = self.encryption
             {
                 // See https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/AudioStream.c#L178-L201
@@ -145,18 +145,19 @@ impl AudioDepayloader {
 
                 // Ensure output buffer is big enough
                 self.unencrypt_buffer
-                    .resize(round_to_pkcs7_safe_len(output.buffer.len()), 0);
+                    .resize(round_to_pkcs7_safe_len(encrypted_output.buffer.len()), 0);
 
                 // Decrypt
                 let len = match self.crypto_backend.decrypt_aes_cbc(
                     &aes_key,
                     &iv,
-                    &output.buffer,
+                    &encrypted_output.buffer,
                     &mut self.unencrypt_buffer,
                 ) {
                     Ok(value) => value,
                     Err(err) => {
                         warn!(error = %err, "failed to decrypt packet");
+                        output = None;
                         // Try to decode next packet
                         continue;
                     }
@@ -164,7 +165,7 @@ impl AudioDepayloader {
 
                 // Swap buffers
                 self.unencrypt_buffer.truncate(len);
-                swap(&mut output.buffer, &mut self.unencrypt_buffer);
+                swap(&mut encrypted_output.buffer, &mut self.unencrypt_buffer);
             }
 
             break;
