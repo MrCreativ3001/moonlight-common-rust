@@ -156,7 +156,15 @@ impl AudioDepayloader {
                 ) {
                     Ok(value) => value,
                     Err(err) => {
-                        warn!(error = %err, "failed to decrypt packet");
+                        warn!(
+                            error = %err,
+                            sequence_number = %sequence_number,
+                            timestamp = ?encrypted_output.timestamp,
+                            cipher_len = encrypted_output.buffer.len(),
+                            cipher_first = ?&encrypted_output.buffer[..16.min(encrypted_output.buffer.len())],
+                            cipher_last = ?&encrypted_output.buffer[encrypted_output.buffer.len().saturating_sub(16)..],
+                            "failed to decrypt packet"
+                        );
                         output = None;
                         // Try to decode next packet
                         continue;
