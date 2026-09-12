@@ -180,7 +180,7 @@ impl AudioDepayloader {
         }
 
         if let Some(output) = &output {
-            trace!(timestamp = ?output.timestamp, start_bytes = ?output.buffer[0..10], "produced audio frame");
+            trace!(timestamp = ?output.timestamp, start_bytes = ?output.buffer[0..10.min(output.buffer.len())], "produced audio frame");
         }
 
         Ok(output)
