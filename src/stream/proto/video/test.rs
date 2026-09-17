@@ -1693,7 +1693,8 @@ fn depayloader_fec_multiple_blocks() {
     let shard_count = blocks * data_shards_total as usize;
 
     // Build a frame payload that spans exactly 9 full shards (3 blocks x 3 shards).
-    let mut data = vec![0; VideoFrameHeader::SIZE + payload_size * shard_count - VideoFrameHeader::SIZE];
+    let mut data =
+        vec![0; VideoFrameHeader::SIZE + payload_size * shard_count - VideoFrameHeader::SIZE];
     let frame_header = VideoFrameHeader {
         header_type: 0x01,
         frame_type: FrameType::PFrame,
@@ -1717,9 +1718,12 @@ fn depayloader_fec_multiple_blocks() {
     let mut sequence_number = 0;
     for block in 0..=last_block_index {
         for shard_index in 0..data_shards_total {
-            let flags = if block == 0 && shard_index == 0 {
+            let is_first = block == 0 && shard_index == 0;
+            let is_last = block == last_block_index && shard_index == data_shards_total - 1;
+
+            let flags = if is_first {
                 VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE
-            } else if block == last_block_index && shard_index == data_shards_total - 1 {
+            } else if is_last {
                 VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE
             } else {
                 VideoHeaderFlags::CONTAINS_VIDEO_DATA
@@ -1757,6 +1761,11 @@ fn depayloader_fec_multiple_blocks() {
 
             depayloader.handle_packet(&packet).unwrap();
             sequence_number += 1;
+
+            if !is_last {
+                assert!(!depayloader.is_frame_available(FrameIndex(1)));
+            }
+            assert!(depayloader.is_frame_known(FrameIndex(1)));
         }
     }
 
