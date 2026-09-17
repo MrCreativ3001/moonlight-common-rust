@@ -1678,3 +1678,93 @@ fn depayloader_fec_noparse() {
     assert_eq!(depayloader.available_frames().collect::<Vec<_>>(), vec![]);
     assert_eq!(depayloader.frame(FrameIndex(1)), None);
 }
+
+#[test]
+fn depayloader_fec_multiple_blocks() {
+    // Regression test: frames split across multiple FEC blocks (last_block_index >= 2) used to
+    // trigger a panic in the depayloader, because an inverted comparison finished the frame one
+    // block too early ("failed to get frame after having successfully produced it").
+    init_test();
+
+    let payload_size = 16;
+    let data_shards_total = 3u32;
+    let last_block_index = 2u8;
+    let blocks = (last_block_index + 1) as usize;
+    let shard_count = blocks * data_shards_total as usize;
+
+    // Build a frame payload that spans exactly 9 full shards (3 blocks x 3 shards).
+    let mut data = vec![0; VideoFrameHeader::SIZE + payload_size * shard_count - VideoFrameHeader::SIZE];
+    let frame_header = VideoFrameHeader {
+        header_type: 0x01,
+        frame_type: FrameType::PFrame,
+        host_processing_latency: 0,
+        last_payload_len: payload_size as u16,
+        reserved: [0; _],
+    };
+    frame_header.serialize(data[0..VideoFrameHeader::SIZE].as_mut_array().unwrap());
+    for (i, byte) in data[VideoFrameHeader::SIZE..].iter_mut().enumerate() {
+        *byte = (i % u8::MAX as usize) as u8;
+    }
+    let shards = data.chunks(payload_size).collect::<Vec<_>>();
+    assert_eq!(shards.len(), shard_count);
+
+    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+        packet_size: payload_size + VideoHeader::SIZE,
+        format: VideoFormat::Av1Main8,
+        server_version: sunshine_gen_7_431(),
+    });
+
+    let mut sequence_number = 0;
+    for block in 0..=last_block_index {
+        for shard_index in 0..data_shards_total {
+            let flags = if block == 0 && shard_index == 0 {
+                VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::START_OF_FILE
+            } else if block == last_block_index && shard_index == data_shards_total - 1 {
+                VideoHeaderFlags::CONTAINS_VIDEO_DATA | VideoHeaderFlags::END_OF_FILE
+            } else {
+                VideoHeaderFlags::CONTAINS_VIDEO_DATA
+            };
+
+            let packet = construct_packet(
+                RtpVideoHeader {
+                    header: 0x80 | VIDEO_FLAG_EXTENSION,
+                    packet_type: 0,
+                    sequence_number,
+                    timestamp: 0,
+                    ssrc: 0,
+                    reserved: [0; _],
+                },
+                VideoHeader {
+                    stream_packet_index: sequence_number as u32,
+                    frame_index: 1,
+                    flags,
+                    extra_flags: VideoHeaderExtraFlags::empty(),
+                    multi_fec_flags: 0x10,
+                    multi_fec_blocks: VideoMultiFecBlocks {
+                        last_block_index,
+                        current_block: block,
+                        unused: 0,
+                    },
+                    fec_info: VideoFecInfo {
+                        data_shards_total,
+                        shard_index,
+                        fec_percentage: 0,
+                        unused: 0,
+                    },
+                },
+                shards[block as usize * data_shards_total as usize + shard_index as usize],
+            );
+
+            depayloader.handle_packet(&packet).unwrap();
+            sequence_number += 1;
+        }
+    }
+
+    assert!(depayloader.is_frame_known(FrameIndex(1)));
+    assert!(depayloader.is_frame_available(FrameIndex(1)));
+
+    let Some(VideoFrame { metadata, .. }) = depayloader.frame(FrameIndex(1)) else {
+        panic!("expected Frame");
+    };
+    assert_eq!(metadata.frame_index, FrameIndex(1));
+}

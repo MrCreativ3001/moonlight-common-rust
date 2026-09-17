@@ -89,7 +89,7 @@ struct Packet {
 /// For efficiency received data packets will directly be copied into the buffer if the received packet is the same block.
 /// If it's not the same buffer it'll wait until that block is complete because it might still be unknown how big this previous block is.
 ///
-/// The is finished if [Self::last_block_index] > [Self::current_block]
+/// The frame is finished if [Self::current_block] > [Self::last_block_index]
 #[derive(Debug)]
 struct Frame {
     current_block: u8,
@@ -577,7 +577,7 @@ impl VideoDepayloader {
         trace!("completed block");
 
         // if the frame is complete
-        if frame.last_block_index > frame.current_block {
+        if frame.current_block > frame.last_block_index {
             trace!(frame_index = ?frame_index, "produced frame");
 
             // drop all packets related to this frame
