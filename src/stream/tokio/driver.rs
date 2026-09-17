@@ -28,14 +28,14 @@ impl<Stream> StreamDriver<Stream>
 where
     Stream: UdpStream,
 {
-    pub async fn new(stream: Stream) -> Result<Self, MoonlightStreamError> {
+    pub async fn new(base_time: Instant, stream: Stream) -> Result<Self, MoonlightStreamError> {
         let socket = new_udp_socket(false, stream.recv_buffer_hint())?;
 
         socket.set_nonblocking(true)?;
         let socket = UdpSocket::from_std(socket)?;
 
         Ok(Self {
-            base_time: Instant::now(),
+            base_time,
             inner: stream,
             socket,
             recv_buffer: vec![0; 4096],
@@ -157,7 +157,7 @@ where
                 if this.sleep.as_mut().poll(cx).is_ready() {
                     this.driver
                         .inner
-                        .handle_timeout(SansInstant::from_std(Instant::now().into_std()))?;
+                        .handle_timeout(SansInstant::from_std(this.driver.base_time.into_std()))?;
                     continue;
                 }
             }
