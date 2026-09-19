@@ -62,16 +62,40 @@ pub enum ClientInputEvent {
     ControllerDisconnect {
         controller_number: u8,
     },
-    // TODO: batch touch and pen events?
     /// Sunshine Extension
+    ///
+    /// See also:
+    /// - <https://github.com/moonlight-stream/moonlight-android/blob/b48494cb96bff23d8886c4775cc4f39a1075495d/app/src/main/java/com/limelight/Game.java#L1746-L1754>
     Touch {
         event_type: TouchEventType,
+        /// Rotation is in degrees from vertical in Y dimension (parallel to screen, 0..360). If rotation is
+        /// unknown, pass None.
         rotation: Option<u16>,
+        /// Pointer ID is an opaque ID that must uniquely identify each active touch on screen. It must
+        /// remain constant through any down/up/move/cancel events involved in a single touch interaction.
         pointer_id: u32,
+        /// The x and y values are normalized device coordinates stretching top-left corner (0.0, 0.0) to bottom-right corner (1.0, 1.0) of the video area.
         x: f32,
+        /// See [x](ClientInputEvent::Touch::x).
         y: f32,
+        /// Pressure is a 0.0 to 1.0 range value from min to max pressure. Sending a down/move event with
+        /// a pressure of 0.0 indicates the actual pressure is unknown.
+        ///
+        /// For hover events, the pressure value is treated as a 1.0 to 0.0 range of distance from the touch
+        /// surface where 1.0 is the farthest measurable distance and 0.0 is actually touching the display
+        /// (which is invalid for a hover event). Reporting distance 0.0 for a hover event indicates the
+        /// actual distance is unknown.
         pressure_or_distance: f32,
+        /// Contact area is modelled as an ellipse with major and minor axis values in normalized device
+        /// coordinates. If contact area is unknown, report 0.0 for both contact area axis parameters.
+        /// For circular contact areas or if a minor axis value is not available, pass the same value
+        /// for major and minor axes. For APIs or devices, that don't report contact area as an ellipse,
+        /// approximations can be used such as: https://docs.kernel.org/input/multi-touch-protocol.html#event-computation
+        ///
+        /// For hover events, the "contact area" is the size of the hovering finger/tool. If unavailable,
+        /// pass 0.0 for both contact area parameters.
         contact_area_minor: f32,
+        /// See [contact_area_minor](ClientInputEvent::Touch::contact_area_minor)
         contact_area_major: f32,
     },
     Pen {
@@ -471,7 +495,7 @@ mod tests {
     use crate::stream::{
         control::{
             ActiveGamepads, ControllerButtons, ControllerCapabilities, ControllerType, KeyAction,
-            KeyCode, KeyFlags, KeyModifiers,
+            KeyCode, KeyFlags, KeyModifiers, MouseButton, MouseButtonAction,
         },
         proto::control::{
             input_batcher::{ClientInputEvent, InputBatcher},
@@ -600,6 +624,37 @@ mod tests {
         assert!(!batcher.is_dirty());
 
         let mut iter = batcher.remove_batched_inputs();
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn mouse_button_press_and_release() {
+        let mut batcher = InputBatcher::default();
+
+        let mut iter = batcher.batch_input(ClientInputEvent::MouseButton {
+            action: MouseButtonAction::Press,
+            button: MouseButton::Left,
+        });
+        assert_eq!(
+            iter.next(),
+            Some(ControlPacket::MouseButton {
+                action: MouseButtonAction::Press,
+                button: MouseButton::Left
+            })
+        );
+        assert_eq!(iter.next(), None);
+
+        let mut iter = batcher.batch_input(ClientInputEvent::MouseButton {
+            action: MouseButtonAction::Release,
+            button: MouseButton::Left,
+        });
+        assert_eq!(
+            iter.next(),
+            Some(ControlPacket::MouseButton {
+                action: MouseButtonAction::Release,
+                button: MouseButton::Left
+            })
+        );
         assert_eq!(iter.next(), None);
     }
 

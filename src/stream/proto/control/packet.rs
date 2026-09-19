@@ -842,12 +842,55 @@ pub enum ControlPacket {
         event_type: TouchEventType,
         /// This is 0.
         reserved: u8,
+        /// Rotation is in degrees from vertical in Y dimension (parallel to screen, 0..360). If rotation is
+        /// unknown, pass LI_ROT_UNKNOWN.
+        ///
+        /// References:
+        /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62e066388f1a1b133e0bee947b9a374311a3354b/src/Limelight.h#L615-L661>
         rotation: u16,
+        /// Pointer ID is an opaque ID that must uniquely identify each active touch on screen. It must
+        /// remain constant through any down/up/move/cancel events involved in a single touch interaction.
+        ///
+        /// References:
+        /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62e066388f1a1b133e0bee947b9a374311a3354b/src/Limelight.h#L615-L661>
         pointer_id: u32,
+        /// This must be a normalized value between 0 and 1.
+        ///
+        /// References:
+        /// - <https://github.com/moonlight-stream/moonlight-android/blob/b48494cb96bff23d8886c4775cc4f39a1075495d/app/src/main/java/com/limelight/Game.java#L1747-L1753>
         x: f32,
+        /// This must be a normalized value between 0 and 1.
+        ///
+        /// References:
+        /// - <https://github.com/moonlight-stream/moonlight-android/blob/b48494cb96bff23d8886c4775cc4f39a1075495d/app/src/main/java/com/limelight/Game.java#L1747-L1753>
         y: f32,
+        /// Pressure is a 0.0 to 1.0 range value from min to max pressure. Sending a down/move event with
+        /// a pressure of 0.0 indicates the actual pressure is unknown.
+        ///
+        /// For hover events, the pressure value is treated as a 1.0 to 0.0 range of distance from the touch
+        /// surface where 1.0 is the farthest measurable distance and 0.0 is actually touching the display
+        /// (which is invalid for a hover event). Reporting distance 0.0 for a hover event indicates the
+        /// actual distance is unknown.
         pressure_or_distance: f32,
+        /// Contact area is modelled as an ellipse with major and minor axis values in normalized device
+        /// coordinates. If contact area is unknown, report 0.0 for both contact area axis parameters.
+        /// For circular contact areas or if a minor axis value is not available, pass the same value
+        /// for major and minor axes. For APIs or devices, that don't report contact area as an ellipse,
+        /// approximations can be used such as: https://docs.kernel.org/input/multi-touch-protocol.html#event-computation
+        ///
+        /// References:
+        /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62e066388f1a1b133e0bee947b9a374311a3354b/src/Limelight.h#L615-L661>
+        /// - <https://github.com/moonlight-stream/moonlight-android/blob/b48494cb96bff23d8886c4775cc4f39a1075495d/app/src/main/java/com/limelight/Game.java#L1747-L1753>
         contact_area_minor: f32,
+        /// Contact area is modelled as an ellipse with major and minor axis values in normalized device
+        /// coordinates. If contact area is unknown, report 0.0 for both contact area axis parameters.
+        /// For circular contact areas or if a minor axis value is not available, pass the same value
+        /// for major and minor axes. For APIs or devices, that don't report contact area as an ellipse,
+        /// approximations can be used such as: https://docs.kernel.org/input/multi-touch-protocol.html#event-computation
+        ///
+        /// References:
+        /// - <https://github.com/moonlight-stream/moonlight-common-c/blob/62e066388f1a1b133e0bee947b9a374311a3354b/src/Limelight.h#L615-L661>
+        /// - <https://github.com/moonlight-stream/moonlight-android/blob/b48494cb96bff23d8886c4775cc4f39a1075495d/app/src/main/java/com/limelight/Game.java#L1747-L1753>
         contact_area_major: f32,
     },
     /// Sunshine Extension
