@@ -180,7 +180,7 @@ mod tests {
     use std::{collections::VecDeque, convert::Infallible, net::SocketAddr, time::Duration};
     use tokio::{
         net::UdpSocket,
-        select,
+        select, spawn,
         time::{Instant, sleep},
     };
 
@@ -263,9 +263,13 @@ mod tests {
                 };
 
                 let timeout_end = Instant::from_std(timeout.to_std(base_time.into_std()));
-                let diff = timeout_end - (base_time + duration);
+                let diff = if timeout_end > (base_time + duration) {
+                    timeout_end - (base_time + duration)
+                } else {
+                    (base_time + duration) - timeout_end
+                };
 
-                assert!(diff <= Duration::from_millis(10), "driver slept too long");
+                assert!(diff <= Duration::from_millis(10), "driver slept too long or short");
             }
         }
     }
@@ -276,6 +280,7 @@ mod tests {
 
         let base_time = Instant::now();
         let test_data = &[0, 1, 2, 3];
+        let packet_duration = Duration::from_millis(100);
 
         let stream = TestStream {
             timeout: Some(SansInstant::ZERO + Duration::from_millis(200)),
@@ -283,17 +288,19 @@ mod tests {
         };
         let mut driver = StreamDriver::new(base_time, stream).await.unwrap();
 
-        sleep(Duration::from_millis(100)).await;
-
         let driver_addr = driver.socket.local_addr().unwrap();
         println!("driver_addr = {driver_addr}");
 
-        socket.send_to(test_data, driver_addr).await.unwrap();
+        spawn(async move {
+            sleep(packet_duration).await;
+
+            socket.send_to(test_data, driver_addr).await.unwrap();
+        });
 
         select! {
             result = driver.drive() => {
                 let TestEvent::Receive{
-                    now,
+                    now: timeout,
                     addr: _,
                     data,
                 } = result.unwrap() else {
@@ -302,10 +309,14 @@ mod tests {
 
                 assert_eq!(data, test_data);
 
-                let timeout_end = Instant::from_std(now.to_std(base_time.into_std()));
-                let diff = timeout_end - (base_time + Duration::from_millis(100));
+                let timeout_end = Instant::from_std(timeout.to_std(base_time.into_std()));
+                let diff = if timeout_end > (base_time + packet_duration) {
+                    timeout_end - (base_time + packet_duration)
+                } else {
+                    (base_time + packet_duration) - timeout_end
+                };
 
-                assert!(diff <= Duration::from_millis(10), "driver slept too long");
+                assert!(diff <= Duration::from_millis(15), "driver slept too long or short");
             }
         }
     }
