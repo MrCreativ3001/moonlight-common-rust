@@ -1,6 +1,9 @@
-use std::{io, net::UdpSocket};
+use std::{
+    io,
+    net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
+};
 
-use socket2::{Domain, Protocol, Socket, Type};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use tracing::{debug, warn};
 
 const RCV_BUFFER_SIZE_MIN: usize = 32767;
@@ -42,6 +45,18 @@ pub fn new_udp_socket(ipv6: bool, recv_buffer_size: Option<usize>) -> io::Result
                 }
             }
         }
+    }
+
+    if ipv6 {
+        socket.bind(&SockAddr::from(SocketAddr::new(
+            Ipv6Addr::UNSPECIFIED.into(), // equivalent to [::] or "0:0:0:0:0:0:0:0"
+            0,
+        )))?;
+    } else {
+        socket.bind(&SockAddr::from(SocketAddr::new(
+            Ipv4Addr::UNSPECIFIED.into(),
+            0,
+        )))?;
     }
 
     Ok(socket.into())

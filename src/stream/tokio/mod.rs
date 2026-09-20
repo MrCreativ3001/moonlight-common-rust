@@ -1,5 +1,5 @@
 use sans_io_time::Instant as SansInstant;
-use std::{future::pending, io, pin::pin, time::Duration};
+use std::{convert::Infallible, future::pending, io, pin::pin, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -49,6 +49,12 @@ pub enum MoonlightStreamError {
     ConnectionTimeout,
     #[error("the stream was already closed")]
     Closed,
+}
+
+impl From<Infallible> for MoonlightStreamError {
+    fn from(_: Infallible) -> Self {
+        unreachable!()
+    }
 }
 
 #[derive(Debug)]
