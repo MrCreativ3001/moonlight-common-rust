@@ -45,8 +45,7 @@ impl SunshinePingPacket {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod test {
+mod tests {
     use crate::stream::proto::packet::{SunshinePing, SunshinePingPacket};
 
     #[test]
