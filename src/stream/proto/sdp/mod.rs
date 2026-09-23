@@ -337,7 +337,8 @@ impl Display for Sdp {
         }
 
         for media in &self.media {
-            write!(f, "m={} {}\r\n", media.media_type, media.port)?;
+            // two spaces are important, the moonshine parser requires them: https://github.com/moonlight-stream/moonlight-common-c/blob/62e066388f1a1b133e0bee947b9a374311a3354b/src/SdpGenerator.c#L558-L564
+            write!(f, "m={} {}  \r\n", media.media_type, media.port)?;
         }
 
         Ok(())

@@ -49,6 +49,8 @@ pub fn init() {
         .unwrap();
     let std: Directive = "moonlight_common::stream::std=debug".parse().unwrap();
     let tokio: Directive = "moonlight_common::stream::tokio=debug".parse().unwrap();
+    let ureq_proto: Directive = "ureq_proto=debug".parse().unwrap();
+    let ureq: Directive = "ureq=debug".parse().unwrap();
 
     let venator = Venator::default();
 
@@ -64,7 +66,9 @@ pub fn init() {
                 .add_directive(video_directive)
                 .add_directive(control_directive)
                 .add_directive(std)
-                .add_directive(tokio),
+                .add_directive(tokio)
+                .add_directive(ureq_proto)
+                .add_directive(ureq),
         )
         .init();
 }

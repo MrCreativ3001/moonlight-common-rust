@@ -361,7 +361,7 @@ pub struct RtspSetupControlRequest {
 impl RtspSetupControlRequest {
     pub fn into_request(self, server_version: ServerVersion) -> RtspRequest {
         RtspSetupRequest {
-            target: "stream=control/13/0".to_string(),
+            target: "streamid=control/13/0".to_string(),
             session_id: self.session_id,
         }
         .into_request(server_version)

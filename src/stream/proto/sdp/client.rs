@@ -446,6 +446,9 @@ impl ClientSdp {
             sdp.audio_surround_channel_mask = Some(audio_config.channel_mask);
             sdp.audio_surround_enable = Some(audio_config.channel_count > 2);
             sdp.audio_surround_quality = Some(high_quality_audio);
+
+            // Use 5 ms packets by default for lowest latency
+            sdp.audio_packet_duration = Some(Duration::from_millis(5));
         } else {
             // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/SdpGenerator.c#L524-L530
             // 5 ms duration for legacy servers
