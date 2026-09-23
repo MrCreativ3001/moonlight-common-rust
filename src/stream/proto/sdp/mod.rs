@@ -526,7 +526,7 @@ a=x-nv-audio.surround.AudioQuality:0
 a=x-nv-aqos.packetDuration:5
 a=x-nv-video[0].encoderCscMode:5
 t=0 0
-m=video 47998
+m=video 47998  
 "#
             .replace("\n", "\r\n"),
             true,
