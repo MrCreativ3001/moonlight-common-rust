@@ -15,18 +15,12 @@ pub struct PingSenderConfig {
     pub sunshine_ping: Option<SunshinePing>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum PingSenderState {
-    Pinging { next_attempt: u32 },
-    Finished,
-}
-
 #[derive(Debug)]
 pub struct PingSender {
     now: Instant,
     current_ping_send: Instant,
     config: PingSenderConfig,
-    state: PingSenderState,
+    next_attempt: u32,
     current_ping_packet: SmallVec<[u8; SunshinePingPacket::SIZE]>,
 }
 
@@ -37,7 +31,7 @@ impl PingSender {
             now,
             current_ping_send: now,
             config,
-            state: PingSenderState::Pinging { next_attempt: 1 },
+            next_attempt: 1,
             current_ping_packet: smallvec![],
         };
         this.write_packet(0);
@@ -75,32 +69,17 @@ impl PingSender {
     }
 
     fn advance_packet(&mut self) {
-        match self.state {
-            PingSenderState::Pinging {
-                next_attempt: current_attempt,
-            } => {
-                // Advance next ping send
-                self.current_ping_send += PING_RETRY_TIMEOUT;
+        // Advance next ping send
+        self.current_ping_send += PING_RETRY_TIMEOUT;
 
-                // Overwrite current ping buffer with the new packet
-                self.write_packet(current_attempt);
+        // Overwrite current ping buffer with the new packet
+        self.write_packet(self.next_attempt);
 
-                // Advance attempt
-                self.state = PingSenderState::Pinging {
-                    next_attempt: current_attempt.wrapping_add(1),
-                };
-            }
-            PingSenderState::Finished => {
-                // do nothing
-            }
-        }
+        // Advance attempt
+        self.next_attempt += 1;
     }
 
     pub fn poll_timeout(&self) -> Option<Instant> {
-        if matches!(self.state, PingSenderState::Finished) {
-            return None;
-        }
-
         Some(self.current_ping_send)
     }
 
@@ -124,16 +103,6 @@ impl PingSender {
         }
 
         self.advance_packet();
-    }
-
-    pub fn state(&self) -> PingSenderState {
-        self.state
-    }
-
-    pub fn set_finished(&mut self) {
-        debug!("ping sender is set to finished");
-
-        self.state = PingSenderState::Finished;
     }
 }
 
@@ -186,12 +155,6 @@ mod tests {
         sender.consume_send();
         assert_eq!(sender.pending_send(), None);
         assert_eq!(sender.poll_timeout(), Some(time + PING_RETRY_TIMEOUT));
-
-        // set finished
-        sender.set_finished();
-
-        assert_eq!(sender.pending_send(), None);
-        assert_eq!(sender.poll_timeout(), None);
     }
 
     fn sunshine_ping(ping: SunshinePing, sequence_number: u32) -> [u8; SunshinePingPacket::SIZE] {
@@ -255,11 +218,5 @@ mod tests {
         sender.consume_send();
         assert_eq!(sender.pending_send(), None);
         assert_eq!(sender.poll_timeout(), Some(time + PING_RETRY_TIMEOUT));
-
-        // set finished
-        sender.set_finished();
-
-        assert_eq!(sender.pending_send(), None);
-        assert_eq!(sender.poll_timeout(), None);
     }
 }

@@ -16,7 +16,7 @@ use crate::stream::{
         DynCryptoBackend,
         crypto::CryptoError,
         packet::SunshinePing,
-        ping::{PingSender, PingSenderConfig, PingSenderState},
+        ping::{PingSender, PingSenderConfig},
         runtime::UdpStream,
         video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
@@ -76,6 +76,7 @@ pub struct VideoStream {
     last_now: Instant,
     ping_sender: PingSender,
     depayloader: VideoDepayloader,
+    first_packet: Option<Instant>,
     first_frame: Option<Instant>,
     last_frame: Instant,
     current_frame: Option<FrameIndex>,
@@ -102,6 +103,7 @@ impl VideoStream {
                     sunshine_ping: config.sunshine_ping,
                 },
             ),
+            first_packet: None,
             first_frame: None,
             frames_first_seen: Default::default(),
             depayloader,
@@ -231,6 +233,7 @@ impl VideoStream {
         // Look if the next frame is available
         if let Some(frame_index) = frame_to_return {
             if self.first_frame.is_none() {
+                debug!(now = %now, "received first frame");
                 self.first_frame = Some(now);
             }
 
@@ -318,10 +321,10 @@ impl UdpStream for VideoStream {
             return Ok(());
         }
 
-        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+        if self.first_packet.is_none() {
             info!(now = %now, "received first video packet");
 
-            self.ping_sender.set_finished();
+            self.first_packet = Some(now);
         }
 
         self.depayloader.handle_packet(data)?;

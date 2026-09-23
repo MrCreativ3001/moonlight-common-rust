@@ -25,7 +25,7 @@ use crate::{
                 packet::{RTP_AUDIO_DATA_SHARDS, RTP_AUDIO_FEC_SHARDS},
             },
             packet::SunshinePing,
-            ping::{PingSender, PingSenderConfig, PingSenderState},
+            ping::{PingSender, PingSenderConfig},
             runtime::UdpStream,
         },
     },
@@ -66,6 +66,7 @@ pub enum AudioStreamEvent {
 
 pub struct AudioStream {
     addr: SocketAddr,
+    first_packet: Option<Instant>,
     last_frame: Instant,
     dropped_frames: bool,
     ping_sender: PingSender,
@@ -86,6 +87,7 @@ impl AudioStream {
 
         Self {
             addr: config.addr,
+            first_packet: None,
             last_frame: now,
             dropped_frames: true,
             ping_sender: PingSender::new(
@@ -185,9 +187,10 @@ impl UdpStream for AudioStream {
 
         self.depayloader.handle_packet(data)?;
 
-        if !matches!(self.ping_sender.state(), PingSenderState::Finished) {
+        if self.first_packet.is_none() {
             info!(now = %now, "received first audio packet");
-            self.ping_sender.set_finished();
+
+            self.first_packet = Some(now);
         }
 
         self.handle_timeout(now)?;
