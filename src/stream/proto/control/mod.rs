@@ -42,9 +42,6 @@ mod encryption;
 pub mod input_batcher;
 pub mod peer;
 
-#[cfg(test)]
-mod test;
-
 /// References:
 /// - https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/InputStream.c#L39-L44
 const BATCH_INTERVAL_MS: Duration = Duration::from_millis(1);

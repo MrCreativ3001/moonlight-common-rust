@@ -19,6 +19,10 @@ use crate::{
 
 // TODO: foundation sunshine has dynamic stream param change (e.g. resolution, fps, bitrate), this is very interesting especially for ml-web: https://github.com/AlkaidLab/foundation-sunshine/blob/cd5c146256128dac13a7cd0f30ec81d78290b84c/src/stream.cpp#L1296-L1428
 
+#[cfg(test)]
+#[path = "./packet_tests.rs"]
+mod packet_tests;
+
 /// The server must be pinged every few milliseconds
 ///
 /// References:
