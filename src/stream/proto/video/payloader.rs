@@ -19,6 +19,10 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+#[path = "./payloader_tests.rs"]
+mod payloader_tests;
+
 #[derive(Debug)]
 pub struct VideoPayloaderFecConfig {
     pub min_required_fec_packets: usize,
