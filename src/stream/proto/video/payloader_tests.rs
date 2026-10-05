@@ -31,7 +31,7 @@ fn payloader_nofec_empty() {
 
     payloader.push_frame(0, None, FrameType::PFrame, &[]);
 
-    while payloader.poll_packet().unwrap().is_some() {}
+    while payloader.poll_packet().is_some() {}
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn payloader_nofec_frame_length_1() {
 
     payloader.push_frame(0, None, FrameType::PFrame, &[0]);
 
-    while payloader.poll_packet().unwrap().is_some() {}
+    while payloader.poll_packet().is_some() {}
 }
 
 #[test]
@@ -82,8 +82,8 @@ fn payloader_nofec() {
         .unwrap();
 
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -114,11 +114,11 @@ fn payloader_nofec() {
                 &data[0..128]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -149,11 +149,11 @@ fn payloader_nofec() {
                 &data[128..256]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -184,11 +184,11 @@ fn payloader_nofec() {
                 &data[256..384]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -219,11 +219,11 @@ fn payloader_nofec() {
                 &data[384..512]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -254,9 +254,9 @@ fn payloader_nofec() {
                 &data[512..640]
             )
             .as_slice()
-        )),
+        ),
     );
-    assert_eq!(Ok(None), payloader.poll_packet());
+    assert_eq!(payloader.poll_packet(), None);
 }
 
 fn generate_frame_payload(
@@ -326,8 +326,8 @@ fn payloader_fec() {
         .unwrap();
 
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -358,11 +358,11 @@ fn payloader_fec() {
                 &full_payload[0..128]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -393,11 +393,11 @@ fn payloader_fec() {
                 &full_payload[128..256]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -428,11 +428,11 @@ fn payloader_fec() {
                 &full_payload[256..384]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -463,11 +463,11 @@ fn payloader_fec() {
                 &full_payload[384..512]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -498,11 +498,11 @@ fn payloader_fec() {
                 &full_payload[512..640]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -533,11 +533,11 @@ fn payloader_fec() {
                 &fec_data[0]
             )
             .as_slice()
-        )),
+        ),
     );
     assert_eq!(
-        payloader.poll_packet(),
-        Ok(Some(
+        payloader.poll_packet().as_deref(),
+        Some(
             construct_packet(
                 RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -568,9 +568,9 @@ fn payloader_fec() {
                 &fec_data[1]
             )
             .as_slice()
-        )),
+        ),
     );
-    assert_eq!(Ok(None), payloader.poll_packet());
+    assert_eq!(payloader.poll_packet().as_deref(), None);
 }
 
 #[test]
@@ -664,14 +664,14 @@ fn payloader_nofec_packet_size_8() {
     payloader.push_frame(0, None, FrameType::PFrame, &expected_frame);
 
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet1.as_slice())
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet2.as_slice())
     );
-    assert_eq!(payloader.poll_packet().unwrap(), None);
+    assert_eq!(payloader.poll_packet().as_deref(), None);
 }
 
 #[test]
@@ -766,14 +766,14 @@ fn payloader_nofec_packet_size_9() {
     payloader.push_frame(0, None, FrameType::PFrame, &expected_frame);
 
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet1.as_slice())
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet2.as_slice())
     );
-    assert_eq!(payloader.poll_packet().unwrap(), None);
+    assert_eq!(payloader.poll_packet(), None);
 }
 
 #[test]
@@ -869,14 +869,14 @@ fn payloader_nofec_packet_size_10() {
     payloader.push_frame(0, None, FrameType::PFrame, &expected_frame);
 
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet1.as_slice())
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet2.as_slice())
     );
-    assert_eq!(payloader.poll_packet().unwrap(), None);
+    assert_eq!(payloader.poll_packet(), None);
 }
 
 #[test]
@@ -1022,16 +1022,16 @@ fn payloader_fec_packet_size_10() {
     payloader.push_frame(0, None, FrameType::PFrame, &expected_frame);
 
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet1.as_slice())
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet2.as_slice())
     );
     assert_eq!(
-        payloader.poll_packet().unwrap(),
+        payloader.poll_packet().as_deref(),
         Some(expected_packet3.as_slice())
     );
-    assert_eq!(payloader.poll_packet().unwrap(), None);
+    assert_eq!(payloader.poll_packet().as_deref(), None);
 }

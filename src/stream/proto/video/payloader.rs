@@ -4,6 +4,7 @@
 
 use std::{array, collections::VecDeque, time::Duration};
 
+use bytes::{Bytes, BytesMut};
 use thiserror::Error;
 use tracing::{Level, instrument};
 
@@ -57,9 +58,7 @@ pub struct VideoPayloader {
     fec_config: Option<VideoPayloaderFecConfig>,
     sequence_number: u16,
     frame_index: u32,
-    unused: Vec<Vec<u8>>,
-    packet_queue_used_front: bool,
-    packet_queue: VecDeque<Vec<u8>>,
+    packet_queue: VecDeque<Bytes>,
 }
 
 fn header_size() -> usize {
@@ -88,8 +87,6 @@ impl VideoPayloader {
             sequence_number: 0,
             // Frame Index Starts at 1!
             frame_index: 1,
-            packet_queue_used_front: false,
-            unused: Vec::default(),
             packet_queue: VecDeque::default(),
         }
     }
@@ -189,8 +186,7 @@ impl VideoPayloader {
         let mut block_position = 0;
 
         while block_position < block_data.len() + VideoFrameHeader::SIZE {
-            // TODO: how to handle failure?
-            let mut packet = self.dequeue_packet().unwrap();
+            let mut packet = BytesMut::zeroed(packet_size);
 
             // Serialize header
             let rtp_header = RtpVideoHeader {
@@ -273,7 +269,7 @@ impl VideoPayloader {
                 block_position += frame_end - frame_start;
             }
 
-            self.packet_queue.push_back(packet);
+            self.packet_queue.push_back(packet.freeze());
 
             current_sequence_number = current_sequence_number.wrapping_add(1);
             current_packet_count += 1;
@@ -311,8 +307,7 @@ impl VideoPayloader {
 
             // Generate fec packets
             for parity_shard in &parity_shards[0..parity_shards_count] {
-                // TODO: how to handle failure?
-                let mut packet = self.dequeue_packet().unwrap();
+                let mut packet = BytesMut::zeroed(packet_size);
 
                 let rtp_header = RtpVideoHeader {
                     header: 0x80 | VIDEO_FLAG_EXTENSION,
@@ -353,7 +348,7 @@ impl VideoPayloader {
 
                 packet[header_size..].copy_from_slice(parity_shard);
 
-                self.packet_queue.push_back(packet);
+                self.packet_queue.push_back(packet.freeze());
 
                 current_sequence_number = current_sequence_number.wrapping_add(1);
                 current_packet_count += 1;
@@ -363,27 +358,7 @@ impl VideoPayloader {
         Ok(current_packet_count)
     }
 
-    fn dequeue_packet(&mut self) -> Result<Vec<u8>, VideoPayloaderError> {
-        if let Some(vec) = self.unused.pop() {
-            return Ok(vec);
-        }
-
-        Ok(vec![0; self.payload_len + header_size()])
-    }
-
-    pub fn poll_packet(&mut self) -> Result<Option<&[u8]>, VideoPayloaderError> {
-        if self.packet_queue_used_front {
-            let packet = self.packet_queue.pop_front();
-            // Insert packet
-            if let Some(packet) = packet {
-                self.unused.push(packet);
-            }
-        } else {
-            self.packet_queue_used_front = true;
-        }
-
-        let packet = self.packet_queue.front();
-
-        Ok(packet.map(|x| x.as_slice()))
+    pub fn poll_packet(&mut self) -> Option<Bytes> {
+        self.packet_queue.pop_front()
     }
 }

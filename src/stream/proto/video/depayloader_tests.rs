@@ -62,7 +62,7 @@ fn nofec_noparse() {
 
     // assert 1 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -75,7 +75,7 @@ fn nofec_noparse() {
 
     // assert 2 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -88,7 +88,7 @@ fn nofec_noparse() {
 
     // assert 3 packet, receive
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(depayloader.is_frame_available(FrameIndex(1)));
@@ -184,7 +184,7 @@ fn nofec_h264() {
 
     // assert 1 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -197,7 +197,7 @@ fn nofec_h264() {
 
     // assert 2 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -210,7 +210,7 @@ fn nofec_h264() {
 
     // assert 3 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(depayloader.is_frame_available(FrameIndex(1)));
@@ -291,7 +291,7 @@ fn nofec_h265() {
 
     // assert 1 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -304,7 +304,7 @@ fn nofec_h265() {
 
     // assert 2 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -317,7 +317,7 @@ fn nofec_h265() {
 
     // assert 3 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(depayloader.is_frame_available(FrameIndex(1)));
@@ -386,7 +386,7 @@ fn fec_noparse() {
 
     // assert 1 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -399,7 +399,7 @@ fn fec_noparse() {
 
     // assert 2 packet
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
     assert!(depayloader.is_frame_known(FrameIndex(1)));
     assert!(!depayloader.is_frame_available(FrameIndex(1)));
@@ -415,7 +415,7 @@ fn fec_noparse() {
 
     // assert 4 packet, receive
     depayloader
-        .handle_packet(payloader.poll_packet().unwrap().unwrap())
+        .handle_packet(&payloader.poll_packet().unwrap())
         .unwrap();
 
     assert!(depayloader.is_frame_known(FrameIndex(1)));
