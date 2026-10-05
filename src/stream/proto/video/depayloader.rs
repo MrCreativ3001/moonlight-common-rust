@@ -24,6 +24,10 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+#[path = "./depayloader_tests.rs"]
+mod depayloader_tests;
+
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoDepayloaderError {
     #[error("a received video rtp packet doesn't have the configured packet size")]
