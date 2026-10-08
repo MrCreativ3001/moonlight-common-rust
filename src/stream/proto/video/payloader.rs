@@ -13,7 +13,7 @@ use crate::{
     stream::proto::video::{
         depayloader::create_video_reed_solomon,
         packet::{
-            FrameType, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION,
+            MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, ServerFrameType, VIDEO_FLAG_EXTENSION,
             VideoFecInfo, VideoFrameHeader, VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags,
             VideoMultiFecBlocks, fec_percentage_from, fec_percentage_to_parity_shards,
         },
@@ -116,7 +116,7 @@ impl VideoPayloader {
         &mut self,
         timestamp: u32,
         host_processing_latency: Option<Duration>,
-        frame_type: FrameType,
+        frame_type: ServerFrameType,
         frame: &[u8],
     ) -> Result<(), Error> {
         let full_frame_len = VideoFrameHeader::SIZE + frame.len();

@@ -21,7 +21,7 @@ use crate::{
             video::{
                 depayloader::{VideoDepayloader, VideoDepayloaderConfig},
                 frame::OwnedVideoFrame,
-                packet::{FrameType, RtpVideoHeader, VIDEO_RECV_BUFFERED_PACKETS},
+                packet::{RtpVideoHeader, ServerFrameType, VIDEO_RECV_BUFFERED_PACKETS},
             },
         },
         video::FrameIndex,
@@ -211,7 +211,7 @@ impl VideoStream {
                     .frame_metadata(frame_index)
                     .expect("the frame should have metadata at this point");
 
-                if frame.frame_type == FrameType::Idr {
+                if frame.frame_type == ServerFrameType::Idr {
                     debug!(now = ?now, frame_metadata = ?frame, "received idr");
                     self.waiting_for_idr_since = None;
 

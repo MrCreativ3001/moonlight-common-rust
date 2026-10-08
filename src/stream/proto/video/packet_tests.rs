@@ -1,5 +1,5 @@
 use crate::stream::proto::video::packet::{
-    FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
+    ServerFrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
     VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_to_parity_shards,
 };
 
@@ -148,7 +148,7 @@ fn frame_header_serialization() {
         VideoFrameHeader {
             header_type: 1,
             host_processing_latency: 0,
-            frame_type: FrameType::PFrame,
+            frame_type: ServerFrameType::PFrame,
             last_payload_len: 1234,
             reserved: [0, 0],
         },
@@ -159,7 +159,7 @@ fn frame_header_serialization() {
         VideoFrameHeader {
             header_type: 1,
             host_processing_latency: 0x1234,
-            frame_type: FrameType::Idr,
+            frame_type: ServerFrameType::Idr,
             last_payload_len: 4321,
             reserved: [255, 254],
         },

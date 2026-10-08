@@ -8,7 +8,7 @@ use crate::{
     stream::proto::video::{
         depayloader::create_video_reed_solomon,
         packet::{
-            FrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
+            ServerFrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
             VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
             fec_percentage_from,
         },
@@ -45,7 +45,7 @@ fn nofec_empty() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &[])
+        .push_frame(0, None, ServerFrameType::PFrame, &[])
         .unwrap();
 
     while payloader.poll_packet().is_some() {}
@@ -62,7 +62,7 @@ fn nofec_frame_length_1() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &[0])
+        .push_frame(0, None, ServerFrameType::PFrame, &[0])
         .unwrap();
 
     while payloader.poll_packet().is_some() {}
@@ -74,7 +74,7 @@ fn nofec() {
     // Copy the frame header
     let frame_header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         // The last payload should have 8 bytes (VideoFrameHeader::SIZE) because it's always appended at the beginning
         last_payload_len: VideoFrameHeader::SIZE as u16,
@@ -97,7 +97,7 @@ fn nofec() {
         .push_frame(
             0,
             None,
-            FrameType::PFrame,
+            ServerFrameType::PFrame,
             &data[VideoFrameHeader::SIZE..(VideoFrameHeader::SIZE + 512)],
         )
         .unwrap();
@@ -298,7 +298,7 @@ fn generate_frame_payload(
     // Copy the frame header
     let frame_header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency,
         last_payload_len: last_payload_len as u16,
         reserved: [0; _],
@@ -344,7 +344,7 @@ fn fec() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &frame)
+        .push_frame(0, None, ServerFrameType::PFrame, &frame)
         .unwrap();
 
     assert_eq!(
@@ -604,7 +604,7 @@ fn nofec_packet_size_8() {
     let mut expected_header_bytes = [0; 8];
     let header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         last_payload_len: payload_size as u16,
         reserved: [0; _],
@@ -685,7 +685,7 @@ fn nofec_packet_size_8() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &expected_frame)
+        .push_frame(0, None, ServerFrameType::PFrame, &expected_frame)
         .unwrap();
 
     assert_eq!(
@@ -708,7 +708,7 @@ fn nofec_packet_size_9() {
     let mut expected_header_bytes = [0; 9];
     let header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         last_payload_len: payload_size as u16,
         reserved: [0; _],
@@ -790,7 +790,7 @@ fn nofec_packet_size_9() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &expected_frame)
+        .push_frame(0, None, ServerFrameType::PFrame, &expected_frame)
         .unwrap();
 
     assert_eq!(
@@ -813,7 +813,7 @@ fn nofec_packet_size_10() {
     let mut expected_header_bytes = [0; 10];
     let header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         last_payload_len: payload_size as u16,
         reserved: [0; _],
@@ -896,7 +896,7 @@ fn nofec_packet_size_10() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &expected_frame)
+        .push_frame(0, None, ServerFrameType::PFrame, &expected_frame)
         .unwrap();
 
     assert_eq!(
@@ -919,7 +919,7 @@ fn fec_packet_size_10() {
     let mut expected_header_bytes = [0; 10];
     let header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         last_payload_len: payload_size as u16,
         reserved: [0; _],
@@ -1052,7 +1052,7 @@ fn fec_packet_size_10() {
     }));
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &expected_frame)
+        .push_frame(0, None, ServerFrameType::PFrame, &expected_frame)
         .unwrap();
 
     assert_eq!(
@@ -1082,7 +1082,7 @@ fn nofec_multiblock() {
     let mut data = vec![0; payload_size * shard_count];
     let frame_header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         last_payload_len: payload_size as u16,
         reserved: [0; _],
@@ -1103,7 +1103,7 @@ fn nofec_multiblock() {
     });
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &data[VideoFrameHeader::SIZE..])
+        .push_frame(0, None, ServerFrameType::PFrame, &data[VideoFrameHeader::SIZE..])
         .unwrap();
 
     let mut sequence_number = 0;
@@ -1175,7 +1175,7 @@ fn fec_multiblock() {
     let mut data = vec![0; payload_size * shard_count];
     let frame_header = VideoFrameHeader {
         header_type: 0x01,
-        frame_type: FrameType::PFrame,
+        frame_type: ServerFrameType::PFrame,
         host_processing_latency: 0,
         last_payload_len: payload_size as u16,
         reserved: [0; _],
@@ -1210,7 +1210,7 @@ fn fec_multiblock() {
     let fec_percentage = 33;
 
     payloader
-        .push_frame(0, None, FrameType::PFrame, &data[VideoFrameHeader::SIZE..])
+        .push_frame(0, None, ServerFrameType::PFrame, &data[VideoFrameHeader::SIZE..])
         .unwrap();
 
     let mut sequence_number = 0;

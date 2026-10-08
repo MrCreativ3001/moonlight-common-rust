@@ -7,7 +7,7 @@ use crate::{
         proto::video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig},
             frame::{VideoFrame, VideoFrameMetadata},
-            packet::{FrameType, RtpVideoHeader, VideoFrameHeader, VideoHeader},
+            packet::{ServerFrameType, RtpVideoHeader, VideoFrameHeader, VideoHeader},
             payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
         },
         video::{
@@ -41,7 +41,7 @@ fn nofec_noparse() {
         .push_frame(
             0,
             Some(expected_host_processing_latency),
-            FrameType::Idr,
+            ServerFrameType::Idr,
             &expected_frame,
         )
         .unwrap();
@@ -111,7 +111,7 @@ fn nofec_noparse() {
     };
 
     assert_eq!(metadata.frame_index, FrameIndex(1));
-    assert_eq!(metadata.frame_type, FrameType::Idr);
+    assert_eq!(metadata.frame_type, ServerFrameType::Idr);
     assert_eq!(parsed_frame_type, video::FrameType::Idr);
     assert_eq!(metadata.timestamp, Duration::from_millis(0));
     assert_eq!(
@@ -175,7 +175,7 @@ fn nofec_h264() {
         max_data_shards_per_block: 100,
     });
     payloader
-        .push_frame(0, None, FrameType::Idr, &expected_frame)
+        .push_frame(0, None, ServerFrameType::Idr, &expected_frame)
         .unwrap();
 
     // assert empty
@@ -229,7 +229,7 @@ fn nofec_h264() {
         depayloader.frame(FrameIndex(1)),
         Some(VideoFrame {
             metadata: VideoFrameMetadata {
-                frame_type: FrameType::Idr,
+                frame_type: ServerFrameType::Idr,
                 frame_index: FrameIndex(1),
                 timestamp: Duration::from_millis(0),
                 host_processing_latency: None,
@@ -285,7 +285,7 @@ fn nofec_h265() {
         max_data_shards_per_block: 100,
     });
     payloader
-        .push_frame(0, None, FrameType::Idr, &expected_frame)
+        .push_frame(0, None, ServerFrameType::Idr, &expected_frame)
         .unwrap();
 
     // assert empty
@@ -339,7 +339,7 @@ fn nofec_h265() {
         depayloader.frame(FrameIndex(1)),
         Some(VideoFrame {
             metadata: VideoFrameMetadata {
-                frame_type: FrameType::Idr,
+                frame_type: ServerFrameType::Idr,
                 frame_index: FrameIndex(1),
                 timestamp: Duration::from_millis(0),
                 host_processing_latency: None,
@@ -374,7 +374,7 @@ fn fec_noparse() {
         .push_frame(
             0,
             Some(expected_host_processing_latency),
-            FrameType::Idr,
+            ServerFrameType::Idr,
             &expected_frame,
         )
         .unwrap();
@@ -447,7 +447,7 @@ fn fec_noparse() {
     };
 
     assert_eq!(metadata.frame_index, FrameIndex(1));
-    assert_eq!(metadata.frame_type, FrameType::Idr);
+    assert_eq!(metadata.frame_type, ServerFrameType::Idr);
     assert_eq!(parsed_frame_type, video::FrameType::Idr);
     assert_eq!(metadata.timestamp, Duration::from_millis(0));
     assert_eq!(
@@ -481,7 +481,7 @@ fn nofec_multiple_blocks() {
     let blocks = 3;
 
     // Build frame
-    let frame_type = FrameType::Idr;
+    let frame_type = ServerFrameType::Idr;
     let data: Vec<u8> = (0..(payload_size * (shards_per_block * blocks) - VideoFrameHeader::SIZE))
         .map(|x| (x % 255) as u8)
         .collect();
@@ -541,7 +541,7 @@ fn fec_multiple_blocks() {
     let blocks = 3;
 
     // Build frame
-    let frame_type = FrameType::Idr;
+    let frame_type = ServerFrameType::Idr;
     let data: Vec<u8> = (0..(payload_size * (shards_per_block * blocks) - VideoFrameHeader::SIZE))
         .map(|x| (x % 255) as u8)
         .collect();

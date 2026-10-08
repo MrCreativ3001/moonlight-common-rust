@@ -6,7 +6,7 @@ use smallvec::smallvec;
 use crate::stream::{
     proto::video::{
         nal::{ParsedNalus, parse_nalus},
-        packet::FrameType,
+        packet::ServerFrameType,
     },
     video::{
         self, BufferType, ColorSpace, FrameIndex, VideoDecodeUnit, VideoDecodeUnitBuffers,
@@ -23,7 +23,7 @@ pub struct VideoFrameMetadata {
     /// This is received from the server and mostly used for Reference Frame Invalidation.
     ///
     /// Prefer [VideoFrame::parsed_frame_type] over this.
-    pub frame_type: FrameType,
+    pub frame_type: ServerFrameType,
     /// The timestamp that the server sent.
     /// 90kHz clock time representation.
     ///
@@ -115,7 +115,7 @@ pub(super) fn parse_frame<'a>(
         // -- Av1
         VideoFrame {
             parsed_frame_type: match metadata.frame_type {
-                FrameType::Idr => video::FrameType::Idr,
+                ServerFrameType::Idr => video::FrameType::Idr,
                 _ => video::FrameType::PFrame,
             },
             metadata,

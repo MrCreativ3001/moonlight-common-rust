@@ -14,7 +14,7 @@ use crate::{
             video::{
                 frame::{OwnedVideoFrame, VideoFrame, VideoFrameMetadata, parse_frame},
                 packet::{
-                    FrameType, MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    ServerFrameType, MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
                     RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader,
                     VideoHeaderFlags, fec_percentage_to_parity_shards,
                 },
@@ -259,7 +259,7 @@ impl VideoDepayloader {
             return (
                 VideoFrameMetadata {
                     frame_index,
-                    frame_type: FrameType::PFrame,
+                    frame_type: ServerFrameType::PFrame,
                     host_processing_latency: None,
                     timestamp,
                 },

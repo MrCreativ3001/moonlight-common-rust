@@ -389,7 +389,7 @@ pub struct VideoFrameHeader {
     /// APP_VERSION_AT_LEAST(7, 1, 350)
     ///
     /// See [FrameType]
-    pub frame_type: FrameType,
+    pub frame_type: ServerFrameType,
     /// Length of the final packet payload for codecs that cannot handle
     /// zero padding, such as AV1 (Sunshine extension).
     ///
@@ -408,7 +408,7 @@ impl VideoFrameHeader {
     pub fn deserialize(buffer: &[u8; Self::SIZE]) -> VideoFrameHeader {
         let header_type = buffer[0];
         let host_processing_latency = u16::from_le_bytes([buffer[1], buffer[2]]);
-        let frame_type = FrameType::deserialize(buffer[3]);
+        let frame_type = ServerFrameType::deserialize(buffer[3]);
         let last_payload_len = u16::from_le_bytes([buffer[4], buffer[5]]);
         let reserved = [buffer[6], buffer[7]];
 
@@ -440,7 +440,7 @@ impl VideoFrameHeader {
 /// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L22-L27
 /// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L858-L886
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FrameType {
+pub enum ServerFrameType {
     /// Normal P-frame
     ///
     /// Note: 1
@@ -464,24 +464,24 @@ pub enum FrameType {
     Other(u8),
 }
 
-impl FrameType {
+impl ServerFrameType {
     pub fn serialize(&self) -> u8 {
         match self {
-            FrameType::PFrame => 1,
-            FrameType::Idr => 2,
-            FrameType::PFrameIntra => 4,
-            FrameType::PFrameReferenceInvalidation => 5,
-            FrameType::Other(val) => *val, // Return the value of the `Other` variant
+            ServerFrameType::PFrame => 1,
+            ServerFrameType::Idr => 2,
+            ServerFrameType::PFrameIntra => 4,
+            ServerFrameType::PFrameReferenceInvalidation => 5,
+            ServerFrameType::Other(val) => *val, // Return the value of the `Other` variant
         }
     }
 
-    pub fn deserialize(value: u8) -> FrameType {
+    pub fn deserialize(value: u8) -> ServerFrameType {
         match value {
-            1 => FrameType::PFrame,
-            2 => FrameType::Idr,
-            4 => FrameType::PFrameIntra,
-            5 => FrameType::PFrameReferenceInvalidation,
-            other => FrameType::Other(other),
+            1 => ServerFrameType::PFrame,
+            2 => ServerFrameType::Idr,
+            4 => ServerFrameType::PFrameIntra,
+            5 => ServerFrameType::PFrameReferenceInvalidation,
+            other => ServerFrameType::Other(other),
         }
     }
 }
