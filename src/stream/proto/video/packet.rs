@@ -1,5 +1,9 @@
 use bitflags::bitflags;
 
+#[cfg(test)]
+#[path = "./packet_tests.rs"]
+mod packet_tests;
+
 /// This is the desired number of video packets that can be
 /// stored in the socket's receive buffer. 2048 is chosen
 /// because it should be large enough for all reasonable

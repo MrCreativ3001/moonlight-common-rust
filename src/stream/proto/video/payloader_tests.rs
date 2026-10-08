@@ -13,12 +13,25 @@ use crate::{
             fec_percentage_from,
         },
         payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
-        test::construct_packet,
     },
 };
 
 fn sunshine_gen_7_431() -> ServerVersion {
     ServerVersion::new(7, 1, 431, -1)
+}
+
+fn construct_packet(rtp_header: RtpVideoHeader, video_header: VideoHeader, data: &[u8]) -> Vec<u8> {
+    let mut buffer = vec![0; RtpVideoHeader::SIZE + VideoHeader::SIZE + data.len()];
+
+    rtp_header.serialize(buffer[0..RtpVideoHeader::SIZE].as_mut_array().unwrap());
+    video_header.serialize(
+        buffer[RtpVideoHeader::SIZE..(RtpVideoHeader::SIZE + VideoHeader::SIZE)]
+            .as_mut_array()
+            .unwrap(),
+    );
+    buffer[(RtpVideoHeader::SIZE + VideoHeader::SIZE)..].copy_from_slice(data);
+
+    buffer
 }
 
 #[test]

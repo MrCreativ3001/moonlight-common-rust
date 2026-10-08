@@ -35,9 +35,6 @@ mod nal;
 mod packet;
 pub mod payloader;
 
-#[cfg(test)]
-mod test;
-
 /// The time window a frame has for all packets to be received
 const FULL_FRAME_RECEIVE_TIMEOUT: Duration = Duration::from_millis(100);
 /// A final timeout that is used when nothing happened
