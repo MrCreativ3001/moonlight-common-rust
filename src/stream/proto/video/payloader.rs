@@ -5,11 +5,11 @@
 use std::{array, collections::VecDeque, time::Duration};
 
 use bytes::{Bytes, BytesMut};
-use thiserror::Error;
-use tracing::{Level, instrument};
+use tracing::{Level, instrument, trace};
 
 use crate::{
     ServerVersion,
+    error::Error,
     stream::proto::video::{
         depayloader::create_video_reed_solomon,
         packet::{
@@ -23,6 +23,13 @@ use crate::{
 #[cfg(test)]
 #[path = "./payloader_tests.rs"]
 mod payloader_tests;
+
+/// With a fec_percentage of 255, if payload is broken up into more than a 100 data_shards
+/// it will generate greater than DATA_SHARDS_MAX shards and FEC will fail to encode.
+///
+/// References:
+/// - <https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L335-L336>
+pub const MAX_DATA_SHARDS_PER_BLOCK: usize = 100;
 
 #[derive(Debug)]
 pub struct VideoPayloaderFecConfig {
@@ -43,18 +50,23 @@ pub struct VideoPayloaderConfig {
     /// References:
     /// - Games on Whales docs: <https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets>
     pub packet_size: usize,
+    /// The maximum amount of data shards per fec block.
+    /// It's recommended to set this to 90.
+    ///
+    /// If it is lower than 1 or higher than [MAX_DATA_SHARDS_PER_BLOCK] it'll be clamped to those bounds.
+    ///
+    /// See also
+    /// - [MAX_DATA_SHARDS_PER_BLOCK]
+    ///
+    /// References:
+    /// - <https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L335-L336>
+    pub max_data_shards_per_block: usize,
     pub fec: Option<VideoPayloaderFecConfig>,
-}
-
-// TODO: parse host processing latency: https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L1329-L1340
-
-#[derive(Debug, Error, PartialEq)]
-pub enum VideoPayloaderError {
-    // TODO: queue filled up?
 }
 
 pub struct VideoPayloader {
     payload_len: usize,
+    max_data_shards_per_block: usize,
     fec_config: Option<VideoPayloaderFecConfig>,
     sequence_number: u16,
     frame_index: u32,
@@ -68,7 +80,7 @@ fn header_size() -> usize {
 
 impl VideoPayloader {
     #[instrument(level = Level::DEBUG)]
-    pub fn new(config: VideoPayloaderConfig) -> Self {
+    pub fn new(mut config: VideoPayloaderConfig) -> Self {
         // TODO: don't panic, but use errors instead
         assert!(
             config.packet_size > VideoHeader::SIZE,
@@ -81,8 +93,11 @@ impl VideoPayloader {
             "The packet must've at least 8 bytes of payload for the VideoFrameHeader"
         );
 
+        config.max_data_shards_per_block = config.max_data_shards_per_block.clamp(1, 100);
+
         Self {
             payload_len,
+            max_data_shards_per_block: config.max_data_shards_per_block,
             fec_config: config.fec,
             sequence_number: 0,
             // Frame Index Starts at 1!
@@ -96,14 +111,14 @@ impl VideoPayloader {
         self.fec_config = config;
     }
 
-    // TODO: take a VideoFrame as an argument with borrowed values?
+    #[instrument(level = Level::TRACE, skip(self, frame), fields(frame_len = %frame.len()))]
     pub fn push_frame(
         &mut self,
         timestamp: u32,
         host_processing_latency: Option<Duration>,
         frame_type: FrameType,
         frame: &[u8],
-    ) -> Result<(), VideoPayloaderError> {
+    ) -> Result<(), Error> {
         let full_frame_len = VideoFrameHeader::SIZE + frame.len();
         let last_payload_len = if full_frame_len.is_multiple_of(self.payload_len) {
             self.payload_len
@@ -121,28 +136,44 @@ impl VideoPayloader {
             reserved: [0; _],
         };
 
-        // TODO: multi fec blocks?
-        // TODO: look for data_shards max: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L335-L336
+        let data_shards_total = full_frame_len.div_ceil(self.payload_len);
+        let blocks = data_shards_total.div_ceil(self.max_data_shards_per_block);
 
-        let packets = self.generate_fec_block(
-            self.sequence_number,
-            Some(frame_header),
-            VideoMultiFecBlocks {
-                last_block_index: 0,
-                current_block: 0,
-                unused: 0,
-            },
-            timestamp,
-            frame,
-        )?;
+        let mut start = 0;
+        for block in 0..blocks {
+            let end = if block == 0 {
+                start + (self.payload_len * self.max_data_shards_per_block) - VideoFrameHeader::SIZE
+            } else {
+                start + (self.payload_len * self.max_data_shards_per_block)
+            }
+            .min(frame.len());
 
-        self.sequence_number = self.sequence_number.wrapping_add(packets as u16);
+            trace!(%block, %start, %end, "generating fec block");
+
+            let packets = self.generate_fec_block(
+                self.sequence_number,
+                if block == 0 { Some(frame_header) } else { None },
+                VideoMultiFecBlocks {
+                    last_block_index: (blocks - 1) as u8,
+                    current_block: block as u8,
+                    unused: 0,
+                },
+                timestamp,
+                &frame[start..end],
+            );
+
+            start = end;
+
+            self.sequence_number = self.sequence_number.wrapping_add(packets as u16);
+        }
+
         self.frame_index = self.frame_index.wrapping_add(1);
 
         Ok(())
     }
 
     /// Generates a fec block and returns the amount of packets that were produced into self.packet_queue
+    #[instrument(level = Level::TRACE, skip_all)]
     fn generate_fec_block(
         &mut self,
         sequence_number: u16,
@@ -150,16 +181,21 @@ impl VideoPayloader {
         multi_fec_blocks: VideoMultiFecBlocks,
         timestamp: u32,
         block_data: &[u8],
-    ) -> Result<usize, VideoPayloaderError> {
+    ) -> usize {
         let header_size = header_size();
         let packet_size = self.payload_len + header_size;
+
+        let frame_header_opt = if frame_header.is_some() {
+            VideoFrameHeader::SIZE
+        } else {
+            0
+        };
 
         let mut current_sequence_number = sequence_number;
         let mut current_packet_count = 0;
 
         // Create fec info
-        let full_frame_len =
-            block_data.len() + frame_header.map(|_| VideoFrameHeader::SIZE).unwrap_or(0);
+        let full_frame_len = block_data.len() + frame_header_opt;
         let data_shards_count = full_frame_len.div_ceil(self.payload_len);
         let mut parity_shards_count = 0;
 
@@ -185,7 +221,7 @@ impl VideoPayloader {
         // Must substract VideoFrameHeader::SIZE because this includes the frame header
         let mut block_position = 0;
 
-        while block_position < block_data.len() + VideoFrameHeader::SIZE {
+        while block_position < block_data.len() + frame_header_opt {
             let mut packet = BytesMut::zeroed(packet_size);
 
             // Serialize header
@@ -205,7 +241,13 @@ impl VideoPayloader {
             let video_header = VideoHeader {
                 stream_packet_index: (current_sequence_number as u32) << 8,
                 frame_index: self.frame_index,
-                flags: VideoHeaderFlags::from_index(current_packet_count, data_shards_count, true),
+                flags: VideoHeaderFlags::from_index(
+                    current_packet_count,
+                    data_shards_count,
+                    true,
+                    multi_fec_blocks.current_block as usize,
+                    multi_fec_blocks.last_block_index as usize,
+                ),
                 extra_flags: VideoHeaderExtraFlags::empty(),
                 multi_fec_flags: 0x10,
                 multi_fec_blocks,
@@ -224,6 +266,9 @@ impl VideoPayloader {
                     .as_mut_array()
                     .unwrap(),
             );
+
+            #[cfg(debug_assertions)]
+            trace!(?rtp_header, ?video_header, "packet");
 
             // Serialize payload
             if block_position == 0
@@ -250,7 +295,7 @@ impl VideoPayloader {
 
                 block_position += VideoFrameHeader::SIZE + frame_end;
             } else {
-                let frame_start = block_position - VideoFrameHeader::SIZE;
+                let frame_start = block_position - frame_header_opt;
                 let mut frame_end = frame_start + self.payload_len;
                 let mut payload_end = packet_size;
 
@@ -355,7 +400,7 @@ impl VideoPayloader {
             }
         }
 
-        Ok(current_packet_count)
+        current_packet_count
     }
 
     pub fn poll_packet(&mut self) -> Option<Bytes> {

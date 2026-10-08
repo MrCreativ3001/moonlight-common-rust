@@ -65,7 +65,7 @@ pub const VIDEO_FLAG_EXTENSION: u8 = 0x10;
 
 /// References:
 /// - https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RtpVideoHeader {
     /// Must contain [FLAG_EXTENSION].
     /// Sunshine and Wolf also use 0x80 (0x80 | [FLAG_EXTENSION]).
@@ -128,16 +128,22 @@ bitflags! {
 }
 
 impl VideoHeaderFlags {
-    pub fn from_index(index: usize, total_size: usize, contains_video_data: bool) -> Self {
+    pub fn from_index(
+        index: usize,
+        total_size: usize,
+        contains_video_data: bool,
+        current_block: usize,
+        last_block: usize,
+    ) -> Self {
         let mut flags = VideoHeaderFlags::empty();
 
         if contains_video_data {
             flags |= VideoHeaderFlags::CONTAINS_VIDEO_DATA;
         }
-        if index == 0 {
+        if index == 0 && current_block == 0 {
             flags |= VideoHeaderFlags::START_OF_FILE;
         }
-        if index == total_size.saturating_sub(1) {
+        if index == total_size.saturating_sub(1) && current_block == last_block {
             flags |= VideoHeaderFlags::END_OF_FILE;
         }
 
@@ -148,7 +154,7 @@ impl VideoHeaderFlags {
 /// References:
 /// - https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets
 /// - Wolf: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-protocol/moonlight/data-structures.hpp#L41-L49
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct VideoHeader {
     /// This seems to just be `(sequence_number) << 8`
     ///
@@ -284,7 +290,7 @@ impl VideoMultiFecBlocks {
 /// - Moonlight Deconstruct: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpVideoQueue.c#L703-L704
 /// - Sunshine: https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L1481-L1484
 /// - Wolf: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L152
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct VideoFecInfo {
     /// Bits 22..32 (exclusive), 10 Bits
     ///

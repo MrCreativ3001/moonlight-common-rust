@@ -38,13 +38,16 @@ fn nofec_noparse() {
         server_version,
         packet_size: payload_size + VideoHeader::SIZE,
         fec: None,
+        max_data_shards_per_block: 100,
     });
-    payloader.push_frame(
-        0,
-        Some(expected_host_processing_latency),
-        FrameType::Idr,
-        &expected_frame,
-    );
+    payloader
+        .push_frame(
+            0,
+            Some(expected_host_processing_latency),
+            FrameType::Idr,
+            &expected_frame,
+        )
+        .unwrap();
 
     let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
         packet_size: payload_size + VideoHeader::SIZE,
@@ -172,8 +175,11 @@ fn nofec_h264() {
         server_version,
         packet_size: payload_size + VideoHeader::SIZE,
         fec: None,
+        max_data_shards_per_block: 100,
     });
-    payloader.push_frame(0, None, FrameType::Idr, &expected_frame);
+    payloader
+        .push_frame(0, None, FrameType::Idr, &expected_frame)
+        .unwrap();
 
     // assert empty
     assert!(!depayloader.is_frame_known(FrameIndex(1)));
@@ -279,8 +285,11 @@ fn nofec_h265() {
         server_version,
         packet_size: payload_size + VideoHeader::SIZE,
         fec: None,
+        max_data_shards_per_block: 100,
     });
-    payloader.push_frame(0, None, FrameType::Idr, &expected_frame);
+    payloader
+        .push_frame(0, None, FrameType::Idr, &expected_frame)
+        .unwrap();
 
     // assert empty
     assert!(!depayloader.is_frame_known(FrameIndex(1)));
@@ -362,13 +371,16 @@ fn fec_noparse() {
             min_required_fec_packets: 1,
             fec_percentage: 0,
         }),
+        max_data_shards_per_block: 100,
     });
-    payloader.push_frame(
-        0,
-        Some(expected_host_processing_latency),
-        FrameType::Idr,
-        &expected_frame,
-    );
+    payloader
+        .push_frame(
+            0,
+            Some(expected_host_processing_latency),
+            FrameType::Idr,
+            &expected_frame,
+        )
+        .unwrap();
 
     let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
         packet_size: payload_size + VideoHeader::SIZE,
