@@ -1,5 +1,7 @@
 use bitflags::bitflags;
 
+use crate::stream::video::ServerFrameType;
+
 #[cfg(test)]
 #[path = "./packet_tests.rs"]
 mod packet_tests;
@@ -427,61 +429,5 @@ impl VideoFrameHeader {
         buffer[3] = self.frame_type.serialize();
         buffer[4..6].copy_from_slice(&self.last_payload_len.to_le_bytes());
         buffer[6..8].copy_from_slice(&self.reserved);
-    }
-}
-
-/// Currently known values:
-/// - 1 = Normal P-frame
-/// - 2 = IDR-frame
-/// - 4 = P-frame with intra-refresh blocks
-/// - 5 = P-frame after reference frame invalidation
-///
-/// References:
-/// - gow: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L22-L27
-/// - moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L858-L886
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ServerFrameType {
-    /// Normal P-frame
-    ///
-    /// Note: 1
-    PFrame,
-    /// IDR-frame
-    ///
-    /// Note: 2
-    Idr,
-    /// P-frame with intra-refresh blocks
-    ///
-    /// Note: 4
-    PFrameIntra,
-    /// P-frame after reference frame invalidation
-    ///
-    /// Note: 5
-    PFrameReferenceInvalidation,
-    /// This might sunshine hardcoded header
-    ///
-    /// References:
-    /// - Sunshine hardcoded header: https://github.com/moonlight-stream/moonlight-common-c/blob/7b026e77be62175104640e7e722b758df6d3d0d7/src/VideoDepacketizer.c#L880-L881
-    Other(u8),
-}
-
-impl ServerFrameType {
-    pub fn serialize(&self) -> u8 {
-        match self {
-            ServerFrameType::PFrame => 1,
-            ServerFrameType::Idr => 2,
-            ServerFrameType::PFrameIntra => 4,
-            ServerFrameType::PFrameReferenceInvalidation => 5,
-            ServerFrameType::Other(val) => *val, // Return the value of the `Other` variant
-        }
-    }
-
-    pub fn deserialize(value: u8) -> ServerFrameType {
-        match value {
-            1 => ServerFrameType::PFrame,
-            2 => ServerFrameType::Idr,
-            4 => ServerFrameType::PFrameIntra,
-            5 => ServerFrameType::PFrameReferenceInvalidation,
-            other => ServerFrameType::Other(other),
-        }
     }
 }

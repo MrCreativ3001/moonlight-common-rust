@@ -5,14 +5,16 @@ use tracing::info;
 
 use crate::{
     ServerVersion,
-    stream::proto::video::{
-        depayloader::create_video_reed_solomon,
-        packet::{
-            ServerFrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
-            VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
-            fec_percentage_from,
+    stream::{
+        proto::video::{
+            depayloader::create_video_reed_solomon,
+            packet::{
+                RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
+                VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_from,
+            },
+            payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
         },
-        payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
+        video::ServerFrameType,
     },
 };
 
@@ -1103,7 +1105,12 @@ fn nofec_multiblock() {
     });
 
     payloader
-        .push_frame(0, None, ServerFrameType::PFrame, &data[VideoFrameHeader::SIZE..])
+        .push_frame(
+            0,
+            None,
+            ServerFrameType::PFrame,
+            &data[VideoFrameHeader::SIZE..],
+        )
         .unwrap();
 
     let mut sequence_number = 0;
@@ -1210,7 +1217,12 @@ fn fec_multiblock() {
     let fec_percentage = 33;
 
     payloader
-        .push_frame(0, None, ServerFrameType::PFrame, &data[VideoFrameHeader::SIZE..])
+        .push_frame(
+            0,
+            None,
+            ServerFrameType::PFrame,
+            &data[VideoFrameHeader::SIZE..],
+        )
         .unwrap();
 
     let mut sequence_number = 0;

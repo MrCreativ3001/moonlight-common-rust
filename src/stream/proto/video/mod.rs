@@ -21,10 +21,10 @@ use crate::{
             video::{
                 depayloader::{VideoDepayloader, VideoDepayloaderConfig},
                 frame::OwnedVideoFrame,
-                packet::{RtpVideoHeader, ServerFrameType, VIDEO_RECV_BUFFERED_PACKETS},
+                packet::{RtpVideoHeader, VIDEO_RECV_BUFFERED_PACKETS},
             },
         },
-        video::FrameIndex,
+        video::{FrameIndex, ServerFrameType},
     },
 };
 

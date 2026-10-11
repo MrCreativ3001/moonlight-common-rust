@@ -4,13 +4,10 @@ use bytes::Bytes;
 use smallvec::smallvec;
 
 use crate::stream::{
-    proto::video::{
-        nal::{ParsedNalus, parse_nalus},
-        packet::ServerFrameType,
-    },
+    proto::video::nal::{ParsedNalus, parse_nalus},
     video::{
-        self, BufferType, ColorSpace, FrameIndex, VideoDecodeUnit, VideoDecodeUnitBuffers,
-        VideoFormat, VideoFormats, VideoFrameBuffer,
+        self, BufferType, ColorSpace, FrameIndex, ServerFrameType, VideoDecodeUnit,
+        VideoDecodeUnitBuffers, VideoFormat, VideoFormats, VideoFrameBuffer,
     },
 };
 

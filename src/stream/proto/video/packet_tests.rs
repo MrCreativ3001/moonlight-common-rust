@@ -1,6 +1,10 @@
-use crate::stream::proto::video::packet::{
-    ServerFrameType, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
-    VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks, fec_percentage_to_parity_shards,
+use crate::stream::{
+    proto::video::packet::{
+        RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
+        VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
+        fec_percentage_to_parity_shards,
+    },
+    video::ServerFrameType,
 };
 
 // TODO: test encrypted header serialization
