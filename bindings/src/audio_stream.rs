@@ -47,6 +47,7 @@ custom_type!(OpusMultistreamMapping, Vec<u8>, {
 pub struct AudioStreamConfig {
     pub addr: SocketAddr,
     pub opus_config: OpusMultistreamConfig,
+    pub audio_packet_duration: Duration,
     pub fec: bool,
     pub sunshine_encryption: Option<SunshineEncryption>,
     pub sunshine_ping: Option<SunshinePing>,
@@ -105,6 +106,7 @@ impl AudioStream {
                         samples_per_frame: config.opus_config.samples_per_frame,
                         mapping: config.opus_config.mapping.0,
                     },
+                    audio_packet_duration: config.audio_packet_duration,
                     fec: config.fec,
                     sunshine_encryption: config.sunshine_encryption,
                     sunshine_ping: config.sunshine_ping,
