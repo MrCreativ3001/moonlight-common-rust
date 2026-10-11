@@ -36,14 +36,11 @@ pub mod depayloader;
 mod packet;
 pub mod payloader;
 
-// TODO: this needs to be adjustable based on the audio sample length
-/// The maximum time to wait for a sample
-const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(100);
-
 #[derive(Debug)]
 pub struct AudioStreamConfig {
     pub addr: SocketAddr,
     pub opus_config: OpusMultistreamConfig,
+    pub audio_packet_duration: Duration,
     /// See: <https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44>
     pub fec: bool,
     pub sunshine_ping: Option<SunshinePing>,
@@ -64,6 +61,7 @@ pub enum AudioStreamEvent {
 
 pub struct AudioStream {
     addr: SocketAddr,
+    max_sample_wait: Duration,
     first_packet: Option<Instant>,
     last_frame: Instant,
     dropped_frames: bool,
@@ -85,6 +83,10 @@ impl AudioStream {
 
         Self {
             addr: config.addr,
+            // maximum wait for a audio packet to be lost
+            //
+            // References: https://github.com/moonlight-stream/moonlight-common-c/blob/f900dd4767759c7b9d0e93bcea666b55c69ea62f/src/RtpAudioQueue.c#L544-L548
+            max_sample_wait: (config.audio_packet_duration * 4) + Duration::from_millis(10),
             first_packet: None,
             last_frame: now,
             dropped_frames: true,
@@ -159,7 +161,7 @@ impl UdpStream for AudioStream {
         if !self.dropped_frames {
             None
         } else {
-            Some(self.last_frame + MAXIMUM_SAMPLE_WAIT)
+            Some(self.last_frame + self.max_sample_wait)
         }
     }
 
@@ -189,7 +191,7 @@ impl UdpStream for AudioStream {
     fn handle_timeout(&mut self, now: Instant) -> Result<(), Error> {
         self.ping_sender.handle_timeout(now);
 
-        if self.last_frame + MAXIMUM_SAMPLE_WAIT < now {
+        if self.last_frame + self.max_sample_wait < now {
             if !self.dropped_frames {
                 info!(
                     last_frame = %self.last_frame,

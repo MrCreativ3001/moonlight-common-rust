@@ -81,7 +81,6 @@ pub struct AudioDepayloader {
     crypto_backend: DynCryptoBackend,
     encryption: Option<SunshineEncryption>,
     current_sequence_number: u16,
-    // TODO: don't deallocate those Vec's but reuse them
     data_packets: BTreeMap<u16, DataPacket>,
     fec_packets: VecDeque<FecPacket>,
     fec_decoder: Option<ReedSolomon>,

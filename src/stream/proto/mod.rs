@@ -405,6 +405,10 @@ impl MoonlightStreamSetup {
                                 AudioStreamConfig {
                                     addr,
                                     opus_config: opus_config.clone(),
+                                    audio_packet_duration: sdp
+                                        .client_sdp
+                                        .audio_packet_duration
+                                        .expect("audio packet duration not present in client sdp"),
                                     // https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtpAudioQueue.c#L28-L44
                                     // Older versions of GFE violate some invariants that our FEC code requires, so we turn it off for
                                     // anything older than GFE 3.19 just to be safe. GFE seems to have changed to the "modern" behavior
