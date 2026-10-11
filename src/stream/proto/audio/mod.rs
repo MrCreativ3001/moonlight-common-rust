@@ -97,7 +97,6 @@ impl AudioStream {
                 },
             ),
             depayloader: AudioDepayloader::new(
-                // TODO: use opus config for packet size?
                 AudioDepayloaderConfig {
                     fec: config.fec,
                     encryption: config.sunshine_encryption,

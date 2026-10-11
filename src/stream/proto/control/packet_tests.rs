@@ -482,8 +482,6 @@ fn keyboard() {
 
 #[test]
 fn text_utf8() {
-    // TODO: is this correctly implemented?
-
     test_packet(
         PacketDirection::ServerBound,
         sunshine_gen_7_enc_config(),

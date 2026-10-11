@@ -422,22 +422,29 @@ impl ControlHost {
 
                     let mut unencrypted_buffer = [0; ControlPacket::MAX_SIZE];
                     let buffer = if let Some((method, aes_key)) = peer_data.config.encryption {
-                        // TODO: don't error when there's some error in receiving
-                        let unencrypted_len = match peer_data.config.role {
+                        let unencrypted_result = match peer_data.config.role {
                             ControlPeerRole::Client => decrypt_clientbound_control_packet_into(
                                 &self.crypto_backend,
                                 method,
                                 aes_key,
                                 &data,
                                 &mut unencrypted_buffer,
-                            )?,
+                            ),
                             ControlPeerRole::Server => decrypt_serverbound_control_packet_into(
                                 &self.crypto_backend,
                                 method,
                                 aes_key,
                                 &data,
                                 &mut unencrypted_buffer,
-                            )?,
+                            ),
+                        };
+
+                        let unencrypted_len = match unencrypted_result {
+                            Ok(value) => value,
+                            Err(err) => {
+                                warn!(error = %err, "failed to decrypt control packet");
+                                continue;
+                            }
                         };
 
                         &unencrypted_buffer[0..unencrypted_len]
