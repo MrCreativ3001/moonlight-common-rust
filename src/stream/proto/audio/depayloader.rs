@@ -1,9 +1,9 @@
 use std::{
     collections::{BTreeMap, VecDeque},
-    mem::swap,
     time::Duration,
 };
 
+use bytes::{Bytes, BytesMut};
 use fec_rs::ReedSolomon;
 use thiserror::Error;
 
@@ -47,8 +47,6 @@ impl From<AudioDepayloaderError> for Error {
     }
 }
 
-// TODO: make a cap for the amount of fec packets and the amount of packets that can be buffered
-
 #[derive(Debug)]
 pub struct AudioDepayloaderConfig {
     /// See: <https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/RtpAudioQueue.c#L28-L44>
@@ -60,11 +58,11 @@ pub struct AudioDepayloaderConfig {
 #[derive(Debug, Clone)]
 struct DataPacket {
     timestamp: u32,
-    payload: Vec<u8>,
+    payload: Bytes,
 }
 
 impl DataPacket {
-    fn to_frame(&self) -> AudioFrame<Vec<u8>> {
+    fn to_frame(&self) -> AudioFrame<Bytes> {
         AudioFrame {
             timestamp: Duration::from_millis(self.timestamp as u64),
             buffer: self.payload.clone(),
@@ -87,7 +85,6 @@ pub struct AudioDepayloader {
     data_packets: BTreeMap<u16, DataPacket>,
     fec_packets: VecDeque<FecPacket>,
     fec_decoder: Option<ReedSolomon>,
-    unencrypt_buffer: Vec<u8>,
 }
 
 impl AudioDepayloader {
@@ -106,12 +103,11 @@ impl AudioDepayloader {
             data_packets: Default::default(),
             fec_packets: Default::default(),
             fec_decoder: decoder,
-            unencrypt_buffer: Vec::new(),
         }
     }
 
     /// Will try to construct the next sample using the internal buffers
-    pub fn poll_frame(&mut self) -> Result<Option<AudioFrame<Vec<u8>>>, AudioDepayloaderError> {
+    pub fn poll_frame(&mut self) -> Result<Option<AudioFrame<Bytes>>, AudioDepayloaderError> {
         let mut output = None;
 
         loop {
@@ -155,15 +151,15 @@ impl AudioDepayloader {
                     .copy_from_slice(&aes_iv.wrapping_add(sequence_number as u32).to_be_bytes());
 
                 // Ensure output buffer is big enough
-                self.unencrypt_buffer
-                    .resize(round_to_pkcs7_safe_len(encrypted_output.buffer.len()), 0);
+                let mut unencrypted_buffer =
+                    BytesMut::zeroed(round_to_pkcs7_safe_len(encrypted_output.buffer.len()));
 
                 // Decrypt
                 let len = match self.crypto_backend.decrypt_aes_cbc(
                     &aes_key,
                     &iv,
                     &encrypted_output.buffer,
-                    &mut self.unencrypt_buffer,
+                    &mut unencrypted_buffer,
                 ) {
                     Ok(value) => value,
                     Err(err) => {
@@ -183,8 +179,8 @@ impl AudioDepayloader {
                 };
 
                 // Swap buffers
-                self.unencrypt_buffer.truncate(len);
-                swap(&mut encrypted_output.buffer, &mut self.unencrypt_buffer);
+                unencrypted_buffer.truncate(len);
+                encrypted_output.buffer = unencrypted_buffer.freeze();
             }
 
             break;
@@ -282,12 +278,12 @@ impl AudioDepayloader {
 
         // TODO: make this more efficient without cloning
         let mut shards = [
-            data_shard1.map(|shard| shard.payload.clone()),
-            data_shard2.map(|shard| shard.payload.clone()),
-            data_shard3.map(|shard| shard.payload.clone()),
-            data_shard4.map(|shard| shard.payload.clone()),
-            fec_shard1.map(|shard| shard.payload.clone()),
-            fec_shard2.map(|shard| shard.payload.clone()),
+            data_shard1.map(|shard| shard.payload.to_vec()),
+            data_shard2.map(|shard| shard.payload.to_vec()),
+            data_shard3.map(|shard| shard.payload.to_vec()),
+            data_shard4.map(|shard| shard.payload.to_vec()),
+            fec_shard1.map(|shard| shard.payload.to_vec()),
+            fec_shard2.map(|shard| shard.payload.to_vec()),
         ];
 
         trace!(
@@ -327,7 +323,7 @@ impl AudioDepayloader {
                     // We just reconstructed all data shards
                     // -> this won't panic
                     #[allow(clippy::unwrap_used)]
-                    payload: data_shard.take().unwrap(),
+                    payload: Bytes::from(data_shard.take().unwrap()),
                 });
         }
 
@@ -389,7 +385,7 @@ impl AudioDepayloader {
 
             let packet = DataPacket {
                 timestamp: rtp_header.timestamp,
-                payload: payload.to_vec(),
+                payload: Bytes::copy_from_slice(payload),
             };
 
             // Insert it into the queue

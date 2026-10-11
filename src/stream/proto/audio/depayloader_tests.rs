@@ -1,5 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
+use bytes::Bytes;
+
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::{
@@ -58,7 +60,7 @@ fn nofec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(0),
-            buffer: first_data.to_vec(),
+            buffer: Bytes::copy_from_slice(first_data),
         })
     );
 
@@ -69,7 +71,7 @@ fn nofec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(5),
-            buffer: second_data.to_vec(),
+            buffer: Bytes::copy_from_slice(second_data),
         })
     );
 
@@ -80,7 +82,7 @@ fn nofec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(10),
-            buffer: third_data.to_vec(),
+            buffer: Bytes::copy_from_slice(third_data),
         })
     );
 
@@ -91,7 +93,7 @@ fn nofec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(15),
-            buffer: fourth_data.to_vec(),
+            buffer: Bytes::copy_from_slice(fourth_data),
         })
     );
 }
@@ -151,14 +153,14 @@ fn nofec_reorder() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(0),
-            buffer: first_data.to_vec(),
+            buffer: Bytes::copy_from_slice(first_data),
         })
     );
     assert_eq!(
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(5),
-            buffer: second_data.to_vec(),
+            buffer: Bytes::copy_from_slice(second_data),
         })
     );
     assert_eq!(depayloader.poll_frame().unwrap(), None);
@@ -168,14 +170,14 @@ fn nofec_reorder() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(10),
-            buffer: third_data.to_vec(),
+            buffer: Bytes::copy_from_slice(third_data),
         })
     );
     assert_eq!(
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(15),
-            buffer: fourth_data.to_vec(),
+            buffer: Bytes::copy_from_slice(fourth_data),
         })
     );
     assert_eq!(depayloader.poll_frame().unwrap(), None);
@@ -240,14 +242,14 @@ fn nofec_loss_norecover() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(0),
-            buffer: first_data.to_vec(),
+            buffer: Bytes::copy_from_slice(first_data),
         })
     );
     assert_eq!(
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(5),
-            buffer: second_data.to_vec(),
+            buffer: Bytes::copy_from_slice(second_data),
         })
     );
     assert_eq!(depayloader.poll_frame().unwrap(), None);
@@ -259,7 +261,7 @@ fn nofec_loss_norecover() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(15),
-            buffer: fourth_data.to_vec(),
+            buffer: Bytes::copy_from_slice(fourth_data),
         })
     );
     assert_eq!(depayloader.poll_frame().unwrap(), None);
@@ -269,7 +271,7 @@ fn nofec_loss_norecover() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(20),
-            buffer: fifth_data.to_vec(),
+            buffer: Bytes::copy_from_slice(fifth_data),
         })
     );
     assert_eq!(depayloader.poll_frame().unwrap(), None);
@@ -321,7 +323,7 @@ fn fec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(0),
-            buffer: first_data.to_vec(),
+            buffer: Bytes::copy_from_slice(first_data),
         })
     );
 
@@ -332,7 +334,7 @@ fn fec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(5),
-            buffer: second_data.to_vec(),
+            buffer: Bytes::copy_from_slice(second_data),
         })
     );
 
@@ -343,7 +345,7 @@ fn fec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(10),
-            buffer: third_data.to_vec(),
+            buffer: Bytes::copy_from_slice(third_data),
         })
     );
 
@@ -354,7 +356,7 @@ fn fec() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(15),
-            buffer: fourth_data.to_vec(),
+            buffer: Bytes::copy_from_slice(fourth_data),
         })
     );
 
@@ -415,7 +417,7 @@ fn fec_loss_recover() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(0),
-            buffer: first_data.to_vec(),
+            buffer: Bytes::copy_from_slice(first_data),
         })
     );
 
@@ -443,21 +445,21 @@ fn fec_loss_recover() {
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(5),
-            buffer: second_data.to_vec(),
+            buffer: Bytes::copy_from_slice(second_data),
         })
     );
     assert_eq!(
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(10),
-            buffer: third_data.to_vec(),
+            buffer: Bytes::copy_from_slice(third_data),
         })
     );
     assert_eq!(
         depayloader.poll_frame().unwrap(),
         Some(AudioFrame {
             timestamp: Duration::from_millis(15),
-            buffer: fourth_data.to_vec(),
+            buffer: Bytes::copy_from_slice(fourth_data),
         })
     );
     assert_eq!(depayloader.poll_frame().unwrap(), None);

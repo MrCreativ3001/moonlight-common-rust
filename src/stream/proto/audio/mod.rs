@@ -111,10 +111,7 @@ impl AudioStream {
             self.last_frame = now;
             self.dropped_frames = false;
 
-            self.events.push_back(AudioStreamEvent::OnFrame(AudioFrame {
-                timestamp: frame.timestamp,
-                buffer: frame.buffer.into(),
-            }));
+            self.events.push_back(AudioStreamEvent::OnFrame(frame));
         }
 
         Ok(())
