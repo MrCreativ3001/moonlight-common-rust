@@ -29,6 +29,10 @@ use crate::{
 
 use tracing::{Level, debug_span, info, instrument, trace, warn};
 
+#[cfg(test)]
+#[path = "./depayloader_tests.rs"]
+mod depayloader_tests;
+
 #[derive(Debug, Error)]
 pub enum AudioDepayloaderError {
     #[error("buffer too small")]

@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "./packet_tests.rs"]
+mod packet_tests;
+
 // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/AudioStream.c#L22
 pub const INVALID_OPUS_HEADER: u8 = 0;
 

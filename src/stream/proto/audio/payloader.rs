@@ -1,14 +1,15 @@
 use std::{array, collections::VecDeque};
 
+use bytes::{Bytes, BytesMut};
 use fec_rs::ReedSolomon;
 use thiserror::Error;
 
 use crate::{
-    crypto::disabled::DisabledCryptoBackend,
     error::Error,
     stream::{
         AesIv, AesKey,
         proto::{
+            DynCryptoBackend,
             audio::{
                 create_audio_reed_solomon,
                 packet::{
@@ -20,6 +21,10 @@ use crate::{
         },
     },
 };
+
+#[cfg(test)]
+#[path = "./payloader_tests.rs"]
+mod payloader_tests;
 
 pub struct AudioPayloaderConfig {
     pub fec: bool,
@@ -41,10 +46,10 @@ impl From<AudioPayloaderError> for Error {
     }
 }
 
-pub struct AudioPayloader<Crypto> {
+pub struct AudioPayloader {
     // config options
     #[allow(unused)]
-    crypto_backend: Crypto,
+    crypto_backend: DynCryptoBackend,
     reed_solomon: Option<ReedSolomon>,
     frame_len: usize,
     encryption: Option<(AesKey, AesIv)>,
@@ -52,27 +57,11 @@ pub struct AudioPayloader<Crypto> {
     base_timestamp: u32,
     sequence_number: u16,
     data_shards: [Vec<u8>; 4],
-    packet_queue_used_front: bool,
-    packet_queue: VecDeque<Vec<u8>>,
-    unused: Vec<Vec<u8>>,
+    packet_queue: VecDeque<Bytes>,
 }
 
-impl AudioPayloader<DisabledCryptoBackend> {
-    pub fn new_unencrypted(config: AudioPayloaderConfig) -> Self {
-        assert_eq!(
-            config.encryption, None,
-            "Cannot have unencrypted audio payloader with aes key and iv"
-        );
-
-        Self::new(config, DisabledCryptoBackend)
-    }
-}
-
-impl<Crypto> AudioPayloader<Crypto>
-where
-    Crypto: CryptoBackend,
-{
-    pub fn new(config: AudioPayloaderConfig, crypto_backend: Crypto) -> Self {
+impl AudioPayloader {
+    pub fn new(config: AudioPayloaderConfig, crypto_backend: DynCryptoBackend) -> Self {
         debug_assert!(config.frame_len > 0);
 
         Self {
@@ -84,8 +73,6 @@ where
             sequence_number: 0,
             base_timestamp: 0,
             packet_queue: Default::default(),
-            packet_queue_used_front: Default::default(),
-            unused: Vec::new(),
         }
     }
 
@@ -95,7 +82,8 @@ where
             return Err(AudioPayloaderError::InvalidFrameSize.into());
         }
 
-        let mut packet = self.dequeue_packet()?;
+        let safe_packet_size = self.safe_packet_size();
+        let mut packet = BytesMut::zeroed(safe_packet_size);
 
         let rtp_header = RtpAudioHeader {
             header: RTP_AUDIO_HEADER,
@@ -140,21 +128,16 @@ where
         self.data_shards[shard_index].resize(payload_len, 0);
         self.data_shards[shard_index].copy_from_slice(&payload[0..payload_len]);
 
-        // This is an edge case
-        if self.packet_queue.is_empty() {
-            self.packet_queue_used_front = false;
-        }
-
         // Insert packet into queue, truncate before
         packet.truncate(RtpAudioHeader::SIZE + payload_len);
-        self.packet_queue.push_back(packet);
+        self.packet_queue.push_back(packet.freeze());
 
         // Generate fec packets if necessary
-        if self.reed_solomon.is_some() && shard_index == 3 {
-            let mut fec_packet1 = self.dequeue_packet()?;
-            let mut fec_packet2 = self.dequeue_packet()?;
-
-            let reed_solomon = self.reed_solomon.as_ref().expect("reed solomon encoder");
+        if shard_index == 3
+            && let Some(reed_solomon) = self.reed_solomon.as_ref()
+        {
+            let mut fec_packet1 = BytesMut::zeroed(safe_packet_size);
+            let mut fec_packet2 = BytesMut::zeroed(safe_packet_size);
 
             // Generate Audio Headers
             let rtp_header1 = RtpAudioHeader {
@@ -224,27 +207,15 @@ where
                 .expect("encode audio fec packets using reed solomon");
 
             // Insert fec packets into queue
-            self.packet_queue.push_back(fec_packet1);
-            self.packet_queue.push_back(fec_packet2);
+            self.packet_queue.push_back(fec_packet1.freeze());
+            self.packet_queue.push_back(fec_packet2.freeze());
         }
 
         Ok(())
     }
 
-    pub fn poll_packet(&mut self) -> Result<Option<&[u8]>, AudioPayloaderError> {
-        if self.packet_queue_used_front {
-            let packet = self.packet_queue.pop_front();
-            // Insert packet
-            if let Some(packet) = packet {
-                self.unused.push(packet);
-            }
-        } else {
-            self.packet_queue_used_front = true;
-        }
-
-        let packet = self.packet_queue.front();
-
-        Ok(packet.map(|x| x.as_slice()))
+    pub fn poll_packet(&mut self) -> Option<Bytes> {
+        self.packet_queue.pop_front()
     }
 
     fn safe_packet_size(&self) -> usize {
@@ -255,15 +226,6 @@ where
         };
 
         RtpAudioHeader::SIZE + AudioFecHeader::SIZE + payload_len
-    }
-
-    fn dequeue_packet(&mut self) -> Result<Vec<u8>, Error> {
-        if let Some(mut vec) = self.unused.pop() {
-            vec.resize(self.safe_packet_size(), 0);
-            return Ok(vec);
-        }
-
-        Ok(vec![0; self.safe_packet_size()])
     }
 
     #[cfg(test)]

@@ -36,9 +36,6 @@ pub mod depayloader;
 mod packet;
 pub mod payloader;
 
-#[cfg(test)]
-mod test;
-
 // TODO: this needs to be adjustable based on the audio sample length
 /// The maximum time to wait for a sample
 const MAXIMUM_SAMPLE_WAIT: Duration = Duration::from_millis(100);
