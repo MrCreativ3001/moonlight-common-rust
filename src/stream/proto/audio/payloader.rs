@@ -1,4 +1,4 @@
-use std::{array, collections::VecDeque};
+use std::{array, collections::VecDeque, time::Duration};
 
 use bytes::{Bytes, BytesMut};
 use fec_rs::ReedSolomon;
@@ -77,7 +77,9 @@ impl AudioPayloader {
     }
 
     /// Pushes one opus frame to the payloader.
-    pub fn push_frame(&mut self, timestamp: u32, frame: &[u8]) -> Result<(), Error> {
+    pub fn push_frame(&mut self, timestamp: Duration, frame: &[u8]) -> Result<(), Error> {
+        let timestamp = timestamp.as_millis() as u32;
+
         if frame.len() != self.frame_len {
             return Err(AudioPayloaderError::InvalidFrameSize.into());
         }
@@ -229,7 +231,7 @@ impl AudioPayloader {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_sequence_number(&mut self, sequence_number: u16) {
+    fn set_sequence_number(&mut self, sequence_number: u16) {
         self.sequence_number = sequence_number;
     }
 }

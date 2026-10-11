@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     crypto::disabled::DisabledCryptoBackend,
@@ -68,7 +68,9 @@ pub fn nofec() {
         Arc::new(DisabledCryptoBackend),
     );
 
-    payloader.push_frame(0, first_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -87,7 +89,9 @@ pub fn nofec() {
     );
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(5, second_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -106,7 +110,9 @@ pub fn nofec() {
     );
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(10, third_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -125,7 +131,9 @@ pub fn nofec() {
     );
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -165,7 +173,9 @@ pub fn fec() {
     );
 
     println!("First frame");
-    payloader.push_frame(0, first_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -185,7 +195,9 @@ pub fn fec() {
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
     println!("Second frame");
-    payloader.push_frame(5, second_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -205,7 +217,9 @@ pub fn fec() {
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
     println!("Third frame");
-    payloader.push_frame(10, third_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -225,7 +239,9 @@ pub fn fec() {
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
     println!("Fourth frame");
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(
@@ -309,19 +325,27 @@ pub fn nofec_sunshine() {
 
     payloader.set_sequence_number(92);
 
-    payloader.push_frame(460, frame1).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(460), frame1)
+        .unwrap();
     assert_eq!(payloader.poll_packet().as_deref(), Some(SUNSHINE_PACKET1));
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(465, frame2).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(465), frame2)
+        .unwrap();
     assert_eq!(payloader.poll_packet().as_deref(), Some(SUNSHINE_PACKET2));
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(470, frame3).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(470), frame3)
+        .unwrap();
     assert_eq!(payloader.poll_packet().as_deref(), Some(SUNSHINE_PACKET3));
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(475, frame4).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(475), frame4)
+        .unwrap();
     assert_eq!(payloader.poll_packet().as_deref(), Some(SUNSHINE_PACKET4));
     assert_eq!(payloader.poll_packet().as_deref(), Some(SUNSHINE_PACKET5));
     assert_eq!(payloader.poll_packet().as_deref(), Some(SUNSHINE_PACKET6));
@@ -339,28 +363,36 @@ fn nofec_sunshine_encrypted(crypto: DynCryptoBackend) {
         crypto,
     );
 
-    payloader.push_frame(0, SUNSHINE_ENC_EXPECTED1).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), SUNSHINE_ENC_EXPECTED1)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(SUNSHINE_ENC_PACKET1)
     );
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(5, SUNSHINE_ENC_EXPECTED2).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), SUNSHINE_ENC_EXPECTED2)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(SUNSHINE_ENC_PACKET2)
     );
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(10, SUNSHINE_ENC_EXPECTED3).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), SUNSHINE_ENC_EXPECTED3)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(SUNSHINE_ENC_PACKET3)
     );
     assert_eq!(payloader.poll_packet().as_deref(), None);
 
-    payloader.push_frame(15, SUNSHINE_ENC_EXPECTED4).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), SUNSHINE_ENC_EXPECTED4)
+        .unwrap();
     assert_eq!(
         payloader.poll_packet().as_deref(),
         Some(SUNSHINE_ENC_PACKET4)

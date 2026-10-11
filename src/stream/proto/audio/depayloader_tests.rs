@@ -27,10 +27,18 @@ fn nofec() {
         },
         Arc::new(DisabledCryptoBackend),
     );
-    payloader.push_frame(0, first_data).unwrap();
-    payloader.push_frame(5, second_data).unwrap();
-    payloader.push_frame(10, third_data).unwrap();
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
 
     // -- Test Depayloader
     // Create Depayloader
@@ -104,13 +112,21 @@ fn nofec_reorder() {
         },
         Arc::new(DisabledCryptoBackend),
     );
-    payloader.push_frame(0, first_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
     let first_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(5, second_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
     let second_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(10, third_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
     let third_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
     let fourth_packet = payloader.poll_packet().unwrap();
 
     // -- Test Depayloader
@@ -182,15 +198,25 @@ fn nofec_loss_norecover() {
         },
         Arc::new(DisabledCryptoBackend),
     );
-    payloader.push_frame(0, first_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
     let first_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(5, second_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
     let second_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(10, third_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
     let _third_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
     let fourth_packet = payloader.poll_packet().unwrap();
-    payloader.push_frame(20, fifth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(20), fifth_data)
+        .unwrap();
     let fifth_packet = payloader.poll_packet().unwrap();
 
     // -- Test Depayloader
@@ -265,10 +291,18 @@ fn fec() {
         },
         Arc::new(DisabledCryptoBackend),
     );
-    payloader.push_frame(0, first_data).unwrap();
-    payloader.push_frame(5, second_data).unwrap();
-    payloader.push_frame(10, third_data).unwrap();
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
 
     // -- Test Depayloader
     // Create Depayloader
@@ -351,10 +385,18 @@ fn fec_loss_recover() {
         },
         Arc::new(DisabledCryptoBackend),
     );
-    payloader.push_frame(0, first_data).unwrap();
-    payloader.push_frame(5, second_data).unwrap();
-    payloader.push_frame(10, third_data).unwrap();
-    payloader.push_frame(15, fourth_data).unwrap();
+    payloader
+        .push_frame(Duration::from_millis(0), first_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(5), second_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(10), third_data)
+        .unwrap();
+    payloader
+        .push_frame(Duration::from_millis(15), fourth_data)
+        .unwrap();
 
     // -- Test Depayloader
     // Create Depayloader
