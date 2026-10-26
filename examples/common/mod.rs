@@ -23,7 +23,7 @@ pub mod gstreamer_video;
 #[command(version)]
 pub struct Args {
     /// The address of the host
-    pub address: IpAddr,
+    pub address: String,
     /// The http port of the host
     #[arg(short, long, default_value_t = DEFAULT_HTTP_PORT)]
     pub port: u16,

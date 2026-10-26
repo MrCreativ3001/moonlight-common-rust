@@ -1,8 +1,8 @@
 use sans_io_time::Instant as SansInstant;
-use std::{future::pending, pin::pin, time::Duration};
+use std::{future::pending, io, pin::pin, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{TcpStream, lookup_host},
     select,
     time::{Instant, sleep, sleep_until},
     try_join,
@@ -16,7 +16,7 @@ use crate::{
         audio::OpusMultistreamConfig,
         control::EstimatedRttInfo,
         proto::{
-            DynCryptoBackend, MoonlightStreamInput, MoonlightStreamSetup,
+            DEFAULT_RTSP_PORT, DynCryptoBackend, MoonlightStreamInput, MoonlightStreamSetup,
             MoonlightStreamSetupOutput,
             audio::{AudioStream, AudioStreamEvent},
             control::{
@@ -73,12 +73,26 @@ pub struct MoonlightStream {
 impl MoonlightStream {
     #[instrument(level = Level::DEBUG, skip_all, name = "stream")]
     pub async fn connect(
-        config: MoonlightStreamConfig,
+        mut config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         crypto_backend: DynCryptoBackend,
         video_capabilities: VideoCapabilities,
     ) -> Result<Self, Error> {
         debug!(config = ?config, settings = ?settings, video_capabilities = ?video_capabilities, "stream connect");
+
+        debug!(hostname = config.address, "resolving hostname");
+        let Some(dns_lookup) = lookup_host(format!("{}:{}", config.address, DEFAULT_RTSP_PORT))
+            .await?
+            .next()
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No IP addresses found for hostname '{}'", config.address),
+            )
+            .into());
+        };
+        debug!(hostname = ?dns_lookup, "resolved hostname");
+        config.address = dns_lookup.ip().to_string();
 
         let base_time = Instant::now();
 

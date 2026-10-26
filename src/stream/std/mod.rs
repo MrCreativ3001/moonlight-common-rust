@@ -2,7 +2,7 @@ use sans_io_time::Instant as SInstant;
 use std::{
     any::Any,
     io::{self, Read, Write},
-    net::TcpStream,
+    net::{TcpStream, ToSocketAddrs},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -22,8 +22,8 @@ use crate::{
         connection::ConnectionListener,
         control::EstimatedRttInfo,
         proto::{
-            DynCryptoBackend, MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT, MoonlightStreamInput,
-            MoonlightStreamSetup, MoonlightStreamSetupOutput,
+            DEFAULT_RTSP_PORT, DynCryptoBackend, MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT,
+            MoonlightStreamInput, MoonlightStreamSetup, MoonlightStreamSetupOutput,
             audio::{AudioStream, AudioStreamEvent},
             control::{
                 ControlStream, ControlStreamEvent,
@@ -54,13 +54,27 @@ impl MoonlightStream {
     }
 
     pub fn connect(
-        config: MoonlightStreamConfig,
+        mut config: MoonlightStreamConfig,
         settings: MoonlightStreamSettings,
         mut video_decoder: impl VideoDecoder + Send + 'static,
         mut audio_decoder: impl AudioDecoder + Send + 'static,
         connection_listener: impl ConnectionListener + Send + 'static,
         crypto_backend: DynCryptoBackend,
     ) -> Result<Self, Error> {
+        debug!(hostname = config.address, "resolving hostname");
+        let Some(dns_lookup) = format!("{}:{}", config.address, DEFAULT_RTSP_PORT)
+            .to_socket_addrs()?
+            .next()
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("No IP addresses found for hostname '{}'", config.address),
+            )
+            .into());
+        };
+        debug!(hostname = ?dns_lookup, "resolved hostname");
+        config.address = dns_lookup.ip().to_string();
+
         let base_time = Instant::now();
 
         let span = info_span!("stream");

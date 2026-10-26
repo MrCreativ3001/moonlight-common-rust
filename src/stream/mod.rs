@@ -144,7 +144,10 @@ pub struct SunshineEncryption {
 /// - Moonlight common c: <https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/Limelight.h#L524-L539>
 #[derive(Debug)]
 pub struct MoonlightStreamConfig {
-    /// The address of the server
+    /// The server's IP address or hostname.
+    ///
+    /// When passed to a Rust implementation, this must contain a resolved IP address
+    /// rather than a hostname. Do not include the port.
     pub address: String,
     /// The `appversion` of the server from the `/serverinfo` response
     ///
