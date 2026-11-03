@@ -75,7 +75,7 @@ fn encrypted_packets(fec: Option<VideoPayloaderFecConfig>) -> Vec<Bytes> {
     let mut payloader = VideoPayloader::new_encrypted(payloader_config(100, fec), KEY, backend());
     payloader
         .push_frame(0, None, ServerFrameType::Idr, &frame_data())
-        .unwrap();
+        .expect("test frame should be packetized");
     drain(&mut payloader)
 }
 
@@ -96,7 +96,13 @@ fn assert_untouched(depayloader: &VideoDepayloader) {
     assert_eq!(depayloader.known_frames().count(), 0);
     assert_eq!(depayloader.available_frames().count(), 0);
     assert!(depayloader.packets.is_empty());
-    assert_eq!(depayloader.decryption_stats().unwrap().authenticated, 0);
+    assert_eq!(
+        depayloader
+            .decryption_stats()
+            .expect("encrypted depayloader")
+            .authenticated,
+        0
+    );
 }
 
 // -- Wire format
@@ -157,7 +163,13 @@ fn c_vector_decrypts_into_a_frame() {
 
     depayloader.handle_packet(&c_vector::DATAGRAM).unwrap();
 
-    assert_eq!(depayloader.decryption_stats().unwrap().authenticated, 1);
+    assert_eq!(
+        depayloader
+            .decryption_stats()
+            .expect("encrypted depayloader")
+            .authenticated,
+        1
+    );
     let frame = depayloader.frame(FrameIndex(5)).unwrap();
     assert_eq!(frame.metadata.frame_type, ServerFrameType::Idr);
     assert_frame(
@@ -262,7 +274,7 @@ fn roundtrip_multiple_fec_blocks_in_reverse_order() {
     );
     payloader
         .push_frame(0, None, ServerFrameType::Idr, &frame_data())
-        .unwrap();
+        .expect("test frame should be packetized");
 
     let mut depayloader = depayloader(KEY);
     for packet in drain(&mut payloader).iter().rev() {
@@ -384,7 +396,7 @@ fn plaintext_is_never_accepted() {
     let mut plain_payloader = VideoPayloader::new(payloader_config(100, None));
     plain_payloader
         .push_frame(0, None, ServerFrameType::Idr, &frame_data())
-        .unwrap();
+        .expect("test frame should be packetized");
     let packets = drain(&mut plain_payloader);
 
     let mut depayloader = depayloader(KEY);

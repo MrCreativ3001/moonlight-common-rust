@@ -82,7 +82,7 @@ fn frames(key: AesKey, count: usize) -> Vec<Vec<Bytes>> {
             };
             payloader
                 .push_frame(0, None, frame_type, &[7; 100])
-                .unwrap();
+                .expect("test frame should be packetized");
 
             std::iter::from_fn(|| payloader.poll_packet()).collect()
         })
