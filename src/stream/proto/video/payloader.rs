@@ -5,18 +5,23 @@
 use std::{array, collections::VecDeque, time::Duration};
 
 use bytes::{Bytes, BytesMut};
-use tracing::{Level, instrument, trace};
+use tracing::{Level, error, instrument, trace};
 
 use crate::{
     ServerVersion,
     error::Error,
     stream::{
-        proto::video::{
-            depayloader::create_video_reed_solomon,
-            packet::{
-                MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo,
-                VideoFrameHeader, VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags,
-                VideoMultiFecBlocks, fec_percentage_from, fec_percentage_to_parity_shards,
+        AesKey,
+        proto::{
+            DynCryptoBackend,
+            video::{
+                depayloader::create_video_reed_solomon,
+                packet::{
+                    EncryptedVideoHeader, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
+                    VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
+                    VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
+                    fec_percentage_from, fec_percentage_to_parity_shards,
+                },
             },
         },
         video::ServerFrameType,
@@ -67,17 +72,75 @@ pub struct VideoPayloaderConfig {
     pub fec: Option<VideoPayloaderFecConfig>,
 }
 
+#[derive(Debug)]
+struct VideoEncryption {
+    aes_key: AesKey,
+    crypto_backend: DynCryptoBackend,
+    iv_counter: u64,
+}
+
+impl VideoEncryption {
+    /// We use the same iv construction as Sunshine, which follows NIST SP 800-38D section 8.2.1:
+    /// a little endian invocation counter and 'V' as the fixed field for the video stream.
+    ///
+    /// References:
+    /// - Sunshine: `video_packet_enc_prefix_t` usage in <https://github.com/LizardByte/Sunshine/blob/master/src/stream.cpp>
+    fn next_iv(&mut self) -> [u8; 12] {
+        let mut iv = [0; 12];
+        iv[0..8].copy_from_slice(&self.iv_counter.to_le_bytes());
+        iv[11] = b'V';
+
+        self.iv_counter += 1;
+
+        iv
+    }
+
+    fn encrypt(&mut self, packet: &[u8]) -> Result<Bytes, Error> {
+        let iv = self.next_iv();
+
+        // This cannot panic because all packets are created by the payloader
+        #[allow(clippy::unwrap_used)]
+        let frame_number = VideoHeader::deserialize(
+            packet[RtpVideoHeader::SIZE..(RtpVideoHeader::SIZE + VideoHeader::SIZE)]
+                .as_array()
+                .unwrap(),
+        )
+        .frame_index;
+
+        let mut datagram = BytesMut::zeroed(EncryptedVideoHeader::SIZE + packet.len());
+        let (header, ciphertext) = datagram.split_at_mut(EncryptedVideoHeader::SIZE);
+
+        let mut tag = [0; 16];
+        self.crypto_backend
+            .encrypt_aes_gcm(&self.aes_key, &iv, packet, ciphertext, &mut tag)?;
+
+        // This cannot panic because of the split above
+        #[allow(clippy::unwrap_used)]
+        EncryptedVideoHeader {
+            iv,
+            frame_number,
+            tag,
+        }
+        .serialize(header.try_into().unwrap());
+
+        Ok(datagram.freeze())
+    }
+}
+
 pub struct VideoPayloader {
     payload_len: usize,
     max_data_shards_per_block: usize,
     fec_config: Option<VideoPayloaderFecConfig>,
     sequence_number: u16,
     frame_index: u32,
+    /// These are always plaintext because the parity shards are generated from them.
     packet_queue: VecDeque<Bytes>,
+    encryption: Option<VideoEncryption>,
 }
 
+/// The plaintext headers. An encrypted packet is prefixed by an additional [EncryptedVideoHeader],
+/// which isn't part of the FEC shards.
 fn header_size() -> usize {
-    // TODO: does this also need the encryption header if present?
     RtpVideoHeader::SIZE + VideoHeader::SIZE
 }
 
@@ -106,6 +169,23 @@ impl VideoPayloader {
             // Frame Index Starts at 1!
             frame_index: 1,
             packet_queue: VecDeque::default(),
+            encryption: None,
+        }
+    }
+
+    /// Creates a VideoPayloader where every packet returned from [Self::poll_packet] is encrypted.
+    pub fn new_encrypted(
+        config: VideoPayloaderConfig,
+        aes_key: AesKey,
+        crypto_backend: DynCryptoBackend,
+    ) -> Self {
+        Self {
+            encryption: Some(VideoEncryption {
+                aes_key,
+                crypto_backend,
+                iv_counter: 0,
+            }),
+            ..Self::new(config)
         }
     }
 
@@ -406,7 +486,19 @@ impl VideoPayloader {
         current_packet_count
     }
 
+    /// If encryption is used and it fails the packet will be dropped, never sent in plaintext.
     pub fn poll_packet(&mut self) -> Option<Bytes> {
-        self.packet_queue.pop_front()
+        while let Some(packet) = self.packet_queue.pop_front() {
+            let Some(encryption) = self.encryption.as_mut() else {
+                return Some(packet);
+            };
+
+            match encryption.encrypt(&packet) {
+                Ok(datagram) => return Some(datagram),
+                Err(err) => error!(%err, "failed to encrypt video packet, dropping it"),
+            }
+        }
+
+        None
     }
 }

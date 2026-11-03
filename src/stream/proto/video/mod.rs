@@ -19,9 +19,9 @@ use crate::{
             ping::{PingSender, PingSenderConfig},
             runtime::{Receive, Transmit, UdpStream},
             video::{
-                depayloader::{VideoDepayloader, VideoDepayloaderConfig},
+                depayloader::{VideoDepayloader, VideoDepayloaderConfig, VideoDepayloaderError},
                 frame::OwnedVideoFrame,
-                packet::{RtpVideoHeader, VIDEO_RECV_BUFFERED_PACKETS},
+                packet::{EncryptedVideoHeader, RtpVideoHeader, VIDEO_RECV_BUFFERED_PACKETS},
             },
         },
         video::{FrameIndex, ServerFrameType},
@@ -32,8 +32,12 @@ pub mod depayloader;
 pub mod frame;
 #[allow(unused)]
 mod nal;
-mod packet;
+pub(crate) mod packet;
 pub mod payloader;
+
+#[cfg(all(test, feature = "rustcrypto"))]
+#[path = "./stream_tests.rs"]
+mod stream_tests;
 
 /// The time window a frame has for all packets to be received
 const FULL_FRAME_RECEIVE_TIMEOUT: Duration = Duration::from_millis(100);
@@ -41,6 +45,9 @@ const FULL_FRAME_RECEIVE_TIMEOUT: Duration = Duration::from_millis(100);
 const STALL_TIMEOUT: Duration = Duration::from_millis(2000);
 /// The time between each idr request
 const IDR_REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
+/// The time packets may be received without one of them passing authentication.
+/// This is the same as FIRST_FRAME_TIMEOUT_SEC in moonlight-common-c.
+const NO_AUTHENTICATED_PACKET_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub enum VideoStreamEvent {
@@ -54,14 +61,11 @@ pub struct VideoStreamConfig {
     pub queue: VideoDepayloaderConfig,
     pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
+    /// If [Some] the video stream is encrypted and every packet must pass authentication.
     pub sunshine_encryption: Option<AesKey>,
 }
 
 pub struct VideoStream {
-    #[allow(unused)]
-    crypto_backend: DynCryptoBackend,
-    #[allow(unused)]
-    aes_key: Option<AesKey>,
     addr: SocketAddr,
     last_now: Instant,
     ping_sender: PingSender,
@@ -78,13 +82,17 @@ pub struct VideoStream {
 impl VideoStream {
     #[instrument(level = Level::DEBUG, skip(crypto_backend))]
     pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
-        debug!("new video stream");
+        info!(
+            encrypted = config.sunshine_encryption.is_some(),
+            "new video stream"
+        );
 
-        let depayloader = VideoDepayloader::new(config.queue);
+        let depayloader = match config.sunshine_encryption {
+            Some(aes_key) => VideoDepayloader::new_encrypted(config.queue, aes_key, crypto_backend),
+            None => VideoDepayloader::new(config.queue),
+        };
 
         Self {
-            crypto_backend,
-            aes_key: config.sunshine_encryption,
             addr: config.addr,
             last_now: now,
             ping_sender: PingSender::new(
@@ -168,6 +176,15 @@ impl VideoStream {
     fn update(&mut self, now: Instant) -> Result<(), Error> {
         let mut frame_to_return = None;
 
+        // Packets are arriving but none is authentic: never show that as a frozen stream
+        if let Some(stats) = self.depayloader.decryption_stats()
+            && stats.authenticated == 0
+            && let Some(first_packet) = self.first_packet
+            && now - first_packet >= NO_AUTHENTICATED_PACKET_TIMEOUT
+        {
+            return Err(VideoDepayloaderError::NoAuthenticatedPackets.into());
+        }
+
         // Add the first seen numbers
         for frame_index in self.depayloader.known_frames() {
             self.frames_first_seen.entry(frame_index).or_insert(now);
@@ -230,6 +247,8 @@ impl VideoStream {
             self.last_frame = now;
 
             self.current_frame = Some(FrameIndex(frame_index.0 + 1));
+            self.depayloader
+                .set_min_frame(FrameIndex(frame_index.0 + 1));
 
             let frame = self
                 .depayloader
@@ -261,7 +280,7 @@ impl Debug for VideoStream {
 
 impl Drop for VideoStream {
     fn drop(&mut self) {
-        info!("terminated video stream");
+        info!(decryption_stats = ?self.depayloader.decryption_stats(), "terminated video stream");
     }
 }
 
@@ -321,6 +340,14 @@ impl UdpStream for VideoStream {
 
     fn recv_buffer_hint(&self) -> Option<usize> {
         // See https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L331-L333
-        Some(VIDEO_RECV_BUFFERED_PACKETS * (RtpVideoHeader::SIZE + self.depayloader.packet_size()))
+        let encryption_size = match self.depayloader.decryption_stats() {
+            Some(_) => EncryptedVideoHeader::SIZE,
+            None => 0,
+        };
+
+        Some(
+            VIDEO_RECV_BUFFERED_PACKETS
+                * (encryption_size + RtpVideoHeader::SIZE + self.depayloader.packet_size()),
+        )
     }
 }

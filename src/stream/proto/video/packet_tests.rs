@@ -1,13 +1,34 @@
 use crate::stream::{
     proto::video::packet::{
-        RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader, VideoHeader,
-        VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
+        EncryptedVideoHeader, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
+        VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
         fec_percentage_to_parity_shards,
     },
     video::ServerFrameType,
 };
 
-// TODO: test encrypted header serialization
+#[test]
+fn encrypted_header_serialization() {
+    let header = EncryptedVideoHeader {
+        iv: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, b'V'],
+        frame_number: 0x0403_0201,
+        tag: [
+            0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD,
+            0xAE, 0xAF,
+        ],
+    };
+    // iv, then the little endian frame number, then the tag
+    let serialized = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, b'V', 0x01, 0x02, 0x03, 0x04, 0xA0, 0xA1, 0xA2, 0xA3,
+        0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+    ];
+
+    let mut buffer = [0; EncryptedVideoHeader::SIZE];
+    header.serialize(&mut buffer);
+
+    assert_eq!(buffer, serialized);
+    assert_eq!(EncryptedVideoHeader::deserialize(&serialized), header);
+}
 
 #[test]
 fn rtp_header_serialization() {

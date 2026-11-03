@@ -1,4 +1,4 @@
-use std::{array, collections::BTreeMap, ops::Range, time::Duration};
+use std::{array, collections::BTreeMap, mem, ops::Range, time::Duration};
 
 use bytes::BytesMut;
 use fec_rs::ReedSolomon;
@@ -9,14 +9,16 @@ use crate::{
     ServerVersion,
     error::Error,
     stream::{
+        AesKey,
         proto::{
+            DynCryptoBackend,
             fec::ArrayShard,
             video::{
                 frame::{OwnedVideoFrame, VideoFrame, VideoFrameMetadata, parse_frame},
                 packet::{
-                    MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
-                    VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
-                    fec_percentage_to_parity_shards,
+                    EncryptedVideoHeader, MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader,
+                    VideoHeaderFlags, fec_percentage_to_parity_shards,
                 },
             },
         },
@@ -28,12 +30,20 @@ use crate::{
 #[path = "./depayloader_tests.rs"]
 mod depayloader_tests;
 
+#[cfg(all(test, feature = "rustcrypto"))]
+#[path = "./depayloader_encryption_tests.rs"]
+mod depayloader_encryption_tests;
+
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoDepayloaderError {
     #[error("a received video rtp packet doesn't have the configured packet size")]
     PacketInvalidSize,
     #[error("reed solomon: {0}")]
     ReedSolomon(#[from] fec_rs::Error),
+    /// Video encryption was negotiated, but nothing received from the host could be authenticated.
+    /// The usual cause is a wrong key. This fails the stream instead of showing a frozen video.
+    #[error("video encryption is enabled, but no received video packet could be authenticated")]
+    NoAuthenticatedPackets,
 }
 
 impl From<VideoDepayloaderError> for Error {
@@ -56,6 +66,90 @@ pub struct VideoDepayloaderConfig {
     pub format: VideoFormat,
     /// The version of the server.
     pub server_version: ServerVersion,
+}
+
+/// What happened to the datagrams received by an encrypted [VideoDepayloader].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VideoDecryptionStats {
+    /// Packets that passed the AES-GCM tag verification.
+    pub authenticated: u64,
+    /// Dropped before decryption: the datagram cannot be a packet of the negotiated size.
+    pub dropped_invalid_size: u64,
+    /// Dropped because the tag verification failed.
+    pub dropped_unauthenticated: u64,
+    /// Dropped because they belong to a frame older than the current one.
+    /// These are late FEC shards or replays.
+    pub dropped_stale: u64,
+}
+
+#[derive(Debug)]
+struct VideoDecryption {
+    aes_key: AesKey,
+    crypto_backend: DynCryptoBackend,
+    /// Reused for every packet. Only readable after the tag of the current packet was verified.
+    plaintext: Vec<u8>,
+    stats: VideoDecryptionStats,
+}
+
+impl VideoDecryption {
+    /// Decrypts the datagram into [Self::plaintext] and returns if it's safe to use it.
+    /// Everything in `datagram` is untrusted, so this must not change any state besides the stats.
+    ///
+    /// References:
+    /// - Moonlight: <https://github.com/moonlight-stream/moonlight-common-c/blob/f900dd4767759c7b9d0e93bcea666b55c69ea62f/src/VideoStream.c#L184-L222>
+    fn decrypt(&mut self, datagram: &[u8], plaintext_len: usize, min_frame: FrameIndex) -> bool {
+        if datagram.len() != EncryptedVideoHeader::SIZE + plaintext_len {
+            self.stats.dropped_invalid_size += 1;
+            if self.stats.dropped_invalid_size.is_power_of_two() {
+                warn!(
+                    got_len = datagram.len(),
+                    expected_len = EncryptedVideoHeader::SIZE + plaintext_len,
+                    dropped = self.stats.dropped_invalid_size,
+                    "dropping encrypted video packet with invalid size"
+                );
+            }
+            return false;
+        }
+
+        let (header, ciphertext) = datagram.split_at(EncryptedVideoHeader::SIZE);
+        #[allow(clippy::unwrap_used)]
+        let header = EncryptedVideoHeader::deserialize(header.try_into().unwrap());
+
+        // This saves decrypting the remaining FEC shards of a frame that was already reassembled.
+        // A forged value can only get this packet dropped, which anyone able to forge it could do
+        // anyway. Zero means that the host didn't fill in the hint.
+        if header.frame_number != 0 && FrameIndex(header.frame_number) < min_frame {
+            self.stats.dropped_stale += 1;
+            return false;
+        }
+
+        self.plaintext.resize(plaintext_len, 0);
+
+        if self
+            .crypto_backend
+            .decrypt_aes_gcm(
+                &self.aes_key,
+                &header.iv,
+                ciphertext,
+                &header.tag,
+                &mut self.plaintext,
+            )
+            .is_err()
+        {
+            self.stats.dropped_unauthenticated += 1;
+            if self.stats.dropped_unauthenticated.is_power_of_two() {
+                warn!(
+                    dropped = self.stats.dropped_unauthenticated,
+                    "dropping video packet that failed authentication"
+                );
+            }
+            return false;
+        }
+
+        self.stats.authenticated += 1;
+
+        true
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +213,10 @@ pub struct VideoDepayloader {
     config: VideoDepayloaderConfig,
     packets: BTreeMap<u16, Packet>,
     frames: BTreeMap<FrameIndex, Frame>,
+    /// Packets of older frames won't be accepted, see [Self::set_min_frame].
+    min_frame: FrameIndex,
+    /// If [Some] only authenticated packets are accepted, there is no fallback to plaintext.
+    decryption: Option<VideoDecryption>,
 }
 
 pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize) -> ReedSolomon {
@@ -138,7 +236,41 @@ impl VideoDepayloader {
             config,
             packets: Default::default(),
             frames: Default::default(),
+            min_frame: FrameIndex(0),
+            decryption: None,
         }
+    }
+
+    /// Creates a new VideoDepayloader for a stream with negotiated video encryption.
+    ///
+    /// [handle_packet](Self::handle_packet) never fails because of an invalid datagram: it could
+    /// have been spoofed, and failing would allow anyone to end the stream with a single packet.
+    /// Those datagrams are dropped and counted in [Self::decryption_stats].
+    pub fn new_encrypted(
+        config: VideoDepayloaderConfig,
+        aes_key: AesKey,
+        crypto_backend: DynCryptoBackend,
+    ) -> Self {
+        Self {
+            decryption: Some(VideoDecryption {
+                aes_key,
+                crypto_backend,
+                plaintext: Vec::new(),
+                stats: Default::default(),
+            }),
+            ..Self::new(config)
+        }
+    }
+
+    /// [Some] if this depayloader only accepts encrypted packets.
+    pub fn decryption_stats(&self) -> Option<VideoDecryptionStats> {
+        self.decryption.as_ref().map(|decryption| decryption.stats)
+    }
+
+    /// From now on packets of frames older than `frame_index` are dropped.
+    /// The value can only increase.
+    pub fn set_min_frame(&mut self, frame_index: FrameIndex) {
+        self.min_frame = self.min_frame.max(frame_index);
     }
 
     fn payload_len(&self) -> usize {
@@ -607,37 +739,13 @@ impl VideoDepayloader {
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoDepayloaderError> {
         // Wolf impl: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L234-L268
 
-        // TODO: encryption support?
-        // let data = if let Some(aes_key) = self.aes_key.as_ref() {
-        //     // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
-
-        //     let encryption_header = EncryptedVideoHeader::deserialize(
-        //         data[0..EncryptedVideoHeader::SIZE]
-        //             .as_array::<{ EncryptedVideoHeader::SIZE }>()
-        //             .unwrap(),
-        //     );
-
-        //     let mut decrypted = vec![0; data.len() - EncryptedVideoHeader::SIZE];
-
-        //     let size = self.crypto_backend.decrypt(
-        //         CipherAlgorithm::Aes128Gcm,
-        //         &aes_key,
-        //         &encryption_header.iv,
-        //         Some(&encryption_header.tag),
-        //         &data[32..],
-        //         &mut decrypted,
-        //     )?;
-        //     decrypted.resize(size, 0);
-
-        //     decrypted
-        // } else {
-        //     data.to_vec()
-        // };
-
         let packet_span = debug_span!("video packet");
         let _enter = packet_span.enter();
 
-        // TODO: for encrypted packets we should first verify the packet and then do any errors
+        if self.decryption.is_some() {
+            return self.handle_encrypted_packet(packet);
+        }
+
         if packet.len() != RtpVideoHeader::SIZE + self.config.packet_size {
             debug!(
                 got_len = packet.len(),
@@ -647,6 +755,34 @@ impl VideoDepayloader {
             return Err(VideoDepayloaderError::PacketInvalidSize);
         }
 
+        self.handle_plaintext_packet(packet)
+    }
+
+    /// Every shard is encrypted on its own after the host generated the FEC shards, so
+    /// from here on data and parity shards are handled just like in an unencrypted stream.
+    fn handle_encrypted_packet(&mut self, datagram: &[u8]) -> Result<(), VideoDepayloaderError> {
+        let plaintext_len = RtpVideoHeader::SIZE + self.config.packet_size;
+        let min_frame = self.min_frame;
+
+        let Some(decryption) = self.decryption.as_mut() else {
+            return Ok(());
+        };
+        if !decryption.decrypt(datagram, plaintext_len, min_frame) {
+            return Ok(());
+        }
+        let plaintext = mem::take(&mut decryption.plaintext);
+
+        let result = self.handle_plaintext_packet(&plaintext);
+
+        if let Some(decryption) = self.decryption.as_mut() {
+            decryption.plaintext = plaintext;
+        }
+
+        result
+    }
+
+    /// `packet` must have the size [RtpVideoHeader::SIZE] + [VideoDepayloaderConfig::packet_size].
+    fn handle_plaintext_packet(&mut self, packet: &[u8]) -> Result<(), VideoDepayloaderError> {
         #[allow(clippy::unwrap_used)]
         let rtp_header = RtpVideoHeader::deserialize(
             packet[0..RtpVideoHeader::SIZE]
@@ -660,6 +796,15 @@ impl VideoDepayloader {
                 .as_array::<{ VideoHeader::SIZE }>()
                 .unwrap(),
         );
+
+        // This also rejects replays: an authentic packet stays authentic when it's sent again.
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/f900dd4767759c7b9d0e93bcea666b55c69ea62f/src/RtpVideoQueue.c#L581-L586
+        if FrameIndex(video_header.frame_index) < self.min_frame {
+            if let Some(decryption) = self.decryption.as_mut() {
+                decryption.stats.dropped_stale += 1;
+            }
+            return Ok(());
+        }
 
         // TODO: auto drop packets that have a higher frame index that we have
 

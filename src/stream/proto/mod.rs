@@ -47,7 +47,11 @@ use crate::{
                 client::{ClientSdp, MoonlightFeatureFlags, SunshineEncryptionFlags},
                 server::ServerSdp,
             },
-            video::{VideoStream, VideoStreamConfig, depayloader::VideoDepayloaderConfig},
+            video::{
+                VideoStream, VideoStreamConfig,
+                depayloader::VideoDepayloaderConfig,
+                packet::{EncryptedVideoHeader, VideoFrameHeader, VideoHeader},
+            },
         },
         video::{
             DEFAULT_VIDEO_PORT, ServerCodecModeSupport, VideoCapabilities, VideoFormat,
@@ -87,13 +91,15 @@ pub use sans_io_time::Instant;
 // TODO: move all defaults ports to some better location
 pub const DEFAULT_RTSP_PORT: u16 = 48010;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum MoonlightStreamSetupError {
     #[error("sunshine returned the wrong session id: \"{session}\"")]
     WrongSessionId {
         expected_session: String,
         session: String,
     },
+    #[error("the configured video packet size {packet_size} is too small")]
+    VideoPacketSizeTooSmall { packet_size: u32 },
 }
 
 impl From<MoonlightStreamSetupError> for Error {
@@ -469,6 +475,14 @@ impl MoonlightStreamSetup {
                             // Update sdp video port
                             sdp.client_sdp.video_port = Some(video_port);
 
+                            // The host encrypts video because of what we've sent in our sdp,
+                            // so this must be derived from it, there's no plaintext fallback.
+                            let encrypted = sdp
+                                .client_sdp
+                                .sunshine_encryption
+                                .unwrap_or(SunshineEncryptionFlags::empty())
+                                .contains(SunshineEncryptionFlags::VIDEO);
+
                             let video_stream = VideoStream::new(
                                 self.last_now,
                                 VideoStreamConfig {
@@ -482,7 +496,8 @@ impl MoonlightStreamSetup {
                                     },
                                     fps: self.client_settings.fps,
                                     sunshine_ping: video_setup.sunshine_ping.clone(),
-                                    sunshine_encryption: None, // TODO <--
+                                    sunshine_encryption: encrypted
+                                        .then_some(self.client_config.encryption.aes_key),
                                 },
                                 self.crypto_backend.clone(),
                             );
@@ -844,84 +859,21 @@ impl MoonlightStreamSetup {
             .sunshine_encryption_supported
             .unwrap_or(SunshineEncryptionFlags::empty());
 
-        let mut sunshine_encryption = SunshineEncryptionFlags::empty();
-
-        if self.server_version.is_sunshine_like() {
-            // New-style control stream encryption is low overhead, so we enable it any time it is supported
-            if server_encryption_supported.contains(SunshineEncryptionFlags::CONTROL_V2) {
-                sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
-            }
-
-            let client_wants_video = self
-                .client_settings
-                .encryption_flags
-                .contains(EncryptionFlags::VIDEO);
-
-            // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L280-L289
-            // If video encryption is supported by the host and desired by the client, use it
-            if server_encryption_supported.contains(SunshineEncryptionFlags::VIDEO)
-                && client_wants_video
-            {
-                sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
-            }
-            // If video encryption is explicitly requested by the host but *not* by the client,
-            // we'll encrypt anyway (since we are capable of doing so) and print a warning.
-            if server_encryption_requested.contains(SunshineEncryptionFlags::VIDEO)
-                && !client_wants_video
-            {
-                sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
-                warn!(
-                    "Server requested video encryption; enabling it even though the client disabled it"
-                );
-            }
-
-            let client_wants_audio = self
-                .client_settings
-                .encryption_flags
-                .contains(EncryptionFlags::AUDIO);
-
-            // On that version and higher we assume the server has audio encryption even if it's not advertised
-            // https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/SdpGenerator.c#L194-L198
-            // Wolf doesn't advertise it's audio encryption but enables it because it doesn't support unencrypted audio
-            if self.server_version >= ServerVersion::new(7, 1, 431, -1) && client_wants_audio {
-                sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
-            }
-
-            // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L291-L300
-            // If audio encryption is supported by the host and desired by the client, use it
-            if server_encryption_supported.contains(SunshineEncryptionFlags::AUDIO)
-                && client_wants_audio
-            {
-                sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
-            }
-            // If audio encryption is explicitly requested by the host but *not* by the client,
-            // we'll encrypt anyway (since we are capable of doing so) and print a warning.
-            if server_encryption_requested.contains(SunshineEncryptionFlags::AUDIO)
-                && !client_wants_audio
-            {
-                sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
-                warn!(
-                    "Server requested audio encryption; enabling it even though the client disabled it"
-                );
-            }
-
-            if self.server_version.is_foundation() {
-                // See
-                // https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/SdpGenerator.c#L302-L309
-                // If microphone encryption is supported by the host and audio encryption is enable, enable it
-                // Microphone encryption follows audio encryption - if audio is encrypted, mic should be too
-                if server_encryption_supported.contains(SunshineEncryptionFlags::FOUNDATION_MIC)
-                    && sunshine_encryption.contains(SunshineEncryptionFlags::AUDIO)
-                {
-                    sunshine_encryption |= SunshineEncryptionFlags::FOUNDATION_MIC;
-                }
-
-                // Enable mic encryption if the host explicitly requests it
-                if server_encryption_requested.contains(SunshineEncryptionFlags::FOUNDATION_MIC) {
-                    sunshine_encryption |= SunshineEncryptionFlags::FOUNDATION_MIC;
-                }
-            }
-        }
+        let sunshine_encryption = negotiate_sunshine_encryption(
+            self.server_version,
+            self.client_settings.encryption_flags,
+            server_encryption_requested,
+            server_encryption_supported,
+        );
+        info!(
+            requested = server_encryption_requested.bits(),
+            supported = server_encryption_supported.bits(),
+            enabled = sunshine_encryption.bits(),
+            video = sunshine_encryption.contains(SunshineEncryptionFlags::VIDEO),
+            audio = sunshine_encryption.contains(SunshineEncryptionFlags::AUDIO),
+            control = sunshine_encryption.contains(SunshineEncryptionFlags::CONTROL_V2),
+            "negotiated sunshine encryption"
+        );
 
         // -- Select Audio
         // https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/RtspConnection.c#L733-L834
@@ -1089,7 +1041,7 @@ impl MoonlightStreamSetup {
             self.client_settings.height,
             self.client_settings.fps,
             self.client_settings.fps_x100,
-            self.client_settings.packet_size,
+            negotiated_video_packet_size(self.client_settings.packet_size, sunshine_encryption)?,
             self.client_settings.bitrate,
             "0.0.0.0".to_string(),
             self.rtsp.target_addr().addr.port(),
@@ -1107,6 +1059,114 @@ impl MoonlightStreamSetup {
     }
 }
 
+/// Selects what gets encrypted, this is what's sent to the host in `x-ss-general.encryptionEnabled`.
+fn negotiate_sunshine_encryption(
+    server_version: ServerVersion,
+    client_encryption_flags: EncryptionFlags,
+    requested: SunshineEncryptionFlags,
+    supported: SunshineEncryptionFlags,
+) -> SunshineEncryptionFlags {
+    let mut sunshine_encryption = SunshineEncryptionFlags::empty();
+
+    if server_version.is_sunshine_like() {
+        // New-style control stream encryption is low overhead, so we enable it any time it is supported
+        if supported.contains(SunshineEncryptionFlags::CONTROL_V2) {
+            sunshine_encryption |= SunshineEncryptionFlags::CONTROL_V2;
+        }
+
+        let client_wants_video = client_encryption_flags.contains(EncryptionFlags::VIDEO);
+
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L280-L289
+        // If video encryption is supported by the host and desired by the client, use it
+        if supported.contains(SunshineEncryptionFlags::VIDEO) && client_wants_video {
+            sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
+        }
+        // The host decides this during the handshake, so at least make it visible
+        if !supported.contains(SunshineEncryptionFlags::VIDEO) && client_wants_video {
+            warn!(
+                "Client wants video encryption, but the host doesn't support it: video is NOT encrypted"
+            );
+        }
+        // If video encryption is explicitly requested by the host but *not* by the client,
+        // we'll encrypt anyway (since we are capable of doing so) and print a warning.
+        if requested.contains(SunshineEncryptionFlags::VIDEO) && !client_wants_video {
+            sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
+            warn!(
+                "Server requested video encryption; enabling it even though the client disabled it"
+            );
+        }
+
+        let client_wants_audio = client_encryption_flags.contains(EncryptionFlags::AUDIO);
+
+        // On that version and higher we assume the server has audio encryption even if it's not advertised
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/e41355ea01670fd4c830b384009d31dd0339a705/src/SdpGenerator.c#L194-L198
+        // Wolf doesn't advertise it's audio encryption but enables it because it doesn't support unencrypted audio
+        if server_version >= ServerVersion::new(7, 1, 431, -1) && client_wants_audio {
+            sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
+        }
+
+        // https://github.com/moonlight-stream/moonlight-common-c/blob/3a377e7d7be7776d68a57828ae22283144285f90/src/SdpGenerator.c#L291-L300
+        // If audio encryption is supported by the host and desired by the client, use it
+        if supported.contains(SunshineEncryptionFlags::AUDIO) && client_wants_audio {
+            sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
+        }
+        // If audio encryption is explicitly requested by the host but *not* by the client,
+        // we'll encrypt anyway (since we are capable of doing so) and print a warning.
+        if requested.contains(SunshineEncryptionFlags::AUDIO) && !client_wants_audio {
+            sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
+            warn!(
+                "Server requested audio encryption; enabling it even though the client disabled it"
+            );
+        }
+
+        if server_version.is_foundation() {
+            // See
+            // https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/SdpGenerator.c#L302-L309
+            // If microphone encryption is supported by the host and audio encryption is enable, enable it
+            // Microphone encryption follows audio encryption - if audio is encrypted, mic should be too
+            if supported.contains(SunshineEncryptionFlags::FOUNDATION_MIC)
+                && sunshine_encryption.contains(SunshineEncryptionFlags::AUDIO)
+            {
+                sunshine_encryption |= SunshineEncryptionFlags::FOUNDATION_MIC;
+            }
+
+            // Enable mic encryption if the host explicitly requests it
+            if requested.contains(SunshineEncryptionFlags::FOUNDATION_MIC) {
+                sunshine_encryption |= SunshineEncryptionFlags::FOUNDATION_MIC;
+            }
+        }
+    }
+
+    sunshine_encryption
+}
+
+/// The value of `x-nv-video[0].packetSize` for the configured packet size.
+///
+/// FEC only works in 16 byte chunks and the encryption header takes up space in each datagram.
+/// The host adds that header on top of this size, so the datagrams keep the configured size.
+///
+/// References:
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/f900dd4767759c7b9d0e93bcea666b55c69ea62f/src/Connection.c#L293-L295>
+/// - <https://github.com/moonlight-stream/moonlight-common-c/blob/f900dd4767759c7b9d0e93bcea666b55c69ea62f/src/SdpGenerator.c#L323-L328>
+fn negotiated_video_packet_size(
+    packet_size: u32,
+    sunshine_encryption: SunshineEncryptionFlags,
+) -> Result<u32, MoonlightStreamSetupError> {
+    // The video header and the frame header need to fit in one packet
+    const MIN_PACKET_SIZE: u32 = (VideoHeader::SIZE + VideoFrameHeader::SIZE) as u32;
+
+    let encryption_size = if sunshine_encryption.contains(SunshineEncryptionFlags::VIDEO) {
+        EncryptedVideoHeader::SIZE as u32
+    } else {
+        0
+    };
+
+    (packet_size - packet_size % 16)
+        .checked_sub(encryption_size)
+        .filter(|packet_size| *packet_size >= MIN_PACKET_SIZE)
+        .ok_or(MoonlightStreamSetupError::VideoPacketSizeTooSmall { packet_size })
+}
+
 // Other notes:
 // Dimensions over 4096 are only supported with HEVC on NVENC: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/RtspConnection.c#L1118C13-L1121C14
 
@@ -1121,3 +1181,7 @@ fn soonest(a: impl Into<Option<Instant>>, b: impl Into<Option<Instant>>) -> Opti
         (None, None) => None,
     }
 }
+
+#[cfg(test)]
+#[path = "./encryption_negotiation_tests.rs"]
+mod encryption_negotiation_tests;
