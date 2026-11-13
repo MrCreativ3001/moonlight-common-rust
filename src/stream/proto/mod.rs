@@ -50,7 +50,7 @@ use crate::{
             video::{
                 VideoStream, VideoStreamConfig,
                 depayloader::VideoDepayloaderConfig,
-                packet::{EncryptedVideoHeader, RtpVideoHeader, video_header_size},
+                packet::{EncryptedVideoHeader, RtpVideoHeader},
             },
         },
         video::{
@@ -496,6 +496,8 @@ impl MoonlightStreamSetup {
                                         server_version: self.server_version,
                                         packet_size,
                                         format: sdp.video_format,
+                                        encryption: encrypted
+                                            .then_some(self.client_config.encryption),
                                     },
                                     fps: self.client_settings.fps,
                                     sunshine_ping: video_setup.sunshine_ping.clone(),

@@ -31,8 +31,8 @@ use crate::{
 };
 
 #[cfg(test)]
-#[path = "./payloader_tests.rs"]
-mod payloader_tests;
+#[path = "payloader_tests.rs"]
+mod tests;
 
 #[cfg(all(test, feature = "rustcrypto"))]
 #[path = "payloader_tests_encrypted.rs"]
@@ -308,7 +308,7 @@ impl VideoPayloader {
                     .min(block_data.len())
                     .saturating_sub(VideoFrameHeader::SIZE);
 
-                self.tmp_buffer[(VideoFrameHeader::SIZE)..(VideoFrameHeader::SIZE + frame_end)]
+                self.tmp_buffer[VideoFrameHeader::SIZE..(VideoFrameHeader::SIZE + frame_end)]
                     .copy_from_slice(&block_data[0..frame_end]);
 
                 block_position += VideoFrameHeader::SIZE + frame_end;
@@ -352,6 +352,7 @@ impl VideoPayloader {
                     continue;
                 }
             };
+            debug_assert_eq!(packet.len(), self.packet_size());
             self.packet_queue.push_back(packet);
 
             current_sequence_number = current_sequence_number.wrapping_add(1);
@@ -429,6 +430,7 @@ impl VideoPayloader {
                         continue;
                     }
                 };
+                debug_assert_eq!(packet.len(), self.packet_size());
                 self.packet_queue.push_back(packet);
 
                 current_sequence_number = current_sequence_number.wrapping_add(1);
@@ -441,6 +443,10 @@ impl VideoPayloader {
 
     pub fn poll_packet(&mut self) -> Option<Bytes> {
         self.packet_queue.pop_front()
+    }
+
+    pub fn packet_size(&self) -> usize {
+        self.payload_len + video_header_size(self.encryption.is_some())
     }
 }
 

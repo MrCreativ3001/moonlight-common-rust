@@ -1,4 +1,4 @@
-use std::{array, collections::BTreeMap, ops::Range, time::Duration};
+use std::{array, collections::BTreeMap, ops::Range, sync::Arc, time::Duration};
 
 use bytes::BytesMut;
 use fec_rs::ReedSolomon;
@@ -7,16 +7,19 @@ use tracing::{debug, debug_span, instrument, trace, warn};
 
 use crate::{
     ServerVersion,
+    crypto::disabled::DisabledCryptoBackend,
     error::Error,
     stream::{
+        SunshineEncryption,
         proto::{
+            DynCryptoBackend,
             fec::ArrayShard,
             video::{
                 frame::{OwnedVideoFrame, VideoFrame, VideoFrameMetadata, parse_frame},
                 packet::{
-                    MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
-                    VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
-                    fec_percentage_to_parity_shards, video_header_size,
+                    EncryptedVideoHeader, MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK,
+                    RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader,
+                    VideoHeaderFlags, fec_percentage_to_parity_shards, video_header_size,
                 },
             },
         },
@@ -25,8 +28,12 @@ use crate::{
 };
 
 #[cfg(test)]
-#[path = "./depayloader_tests.rs"]
-mod depayloader_tests;
+#[path = "depayloader_tests.rs"]
+mod tests;
+
+#[cfg(all(test, feature = "rustcrypto"))]
+#[path = "depayloader_tests_encrypted.rs"]
+mod tests_encrypted;
 
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoDepayloaderError {
@@ -47,6 +54,7 @@ pub struct VideoDepayloaderConfig {
     pub format: VideoFormat,
     /// The version of the server.
     pub server_version: ServerVersion,
+    pub encryption: Option<SunshineEncryption>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,9 +115,11 @@ struct Frame {
 
 #[derive(Debug)]
 pub struct VideoDepayloader {
+    crypto_backend: DynCryptoBackend,
     config: VideoDepayloaderConfig,
     packets: BTreeMap<u16, Packet>,
     frames: BTreeMap<FrameIndex, Frame>,
+    decrypt_buffer: Vec<u8>,
 }
 
 pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize) -> ReedSolomon {
@@ -120,12 +130,19 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
 // TODO: how to handle fec? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L455-L469
 
 impl VideoDepayloader {
+    /// See [new](Self::new)
+    pub fn new_unencrypted(config: VideoDepayloaderConfig) -> Self {
+        Self::new(config, Arc::new(DisabledCryptoBackend))
+    }
+
     /// Creates a new VideoDepayloader
     ///
     /// Our FEC recovery code doesn't work properly until Gen 5
     /// <https://github.com/moonlight-stream/moonlight-common-c/blob/2a5a1f3e8a57cbbb316ed7dfff3a3965c2e77d25/src/RtpVideoQueue.c#L253-L258>
-    pub fn new(config: VideoDepayloaderConfig) -> Self {
+    pub fn new(config: VideoDepayloaderConfig, crypto_backend: DynCryptoBackend) -> Self {
         Self {
+            decrypt_buffer: vec![0; config.packet_size - EncryptedVideoHeader::SIZE],
+            crypto_backend,
             config,
             packets: Default::default(),
             frames: Default::default(),
@@ -133,7 +150,7 @@ impl VideoDepayloader {
     }
 
     fn payload_len(&self) -> usize {
-        self.config.packet_size - video_header_size(false)
+        self.config.packet_size - video_header_size(self.config.encryption.is_some())
     }
 
     pub fn is_frame_known(&self, frame_index: FrameIndex) -> bool {
@@ -598,37 +615,9 @@ impl VideoDepayloader {
     pub fn handle_packet(&mut self, packet: &[u8]) -> Result<(), VideoDepayloaderError> {
         // Wolf impl: https://github.com/games-on-whales/wolf/blob/2c15d61107e48ca2fe3d350a703546aecb3eab78/src/moonlight-server/gst-plugin/video.hpp#L234-L268
 
-        // TODO: encryption support?
-        // let data = if let Some(aes_key) = self.aes_key.as_ref() {
-        //     // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
-
-        //     let encryption_header = EncryptedVideoHeader::deserialize(
-        //         data[0..EncryptedVideoHeader::SIZE]
-        //             .as_array::<{ EncryptedVideoHeader::SIZE }>()
-        //             .unwrap(),
-        //     );
-
-        //     let mut decrypted = vec![0; data.len() - EncryptedVideoHeader::SIZE];
-
-        //     let size = self.crypto_backend.decrypt(
-        //         CipherAlgorithm::Aes128Gcm,
-        //         &aes_key,
-        //         &encryption_header.iv,
-        //         Some(&encryption_header.tag),
-        //         &data[32..],
-        //         &mut decrypted,
-        //     )?;
-        //     decrypted.resize(size, 0);
-
-        //     decrypted
-        // } else {
-        //     data.to_vec()
-        // };
-
         let packet_span = debug_span!("video packet");
         let _enter = packet_span.enter();
 
-        // TODO: for encrypted packets we should first verify the packet and then do any errors
         if packet.len() != self.config.packet_size {
             debug!(
                 got_len = packet.len(),
@@ -638,23 +627,54 @@ impl VideoDepayloader {
             return Ok(());
         }
 
+        let unencrypted_packet = if let Some(SunshineEncryption { aes_key, .. }) =
+            self.config.encryption.as_ref()
+        {
+            // https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/VideoStream.c#L184-L222
+
+            #[allow(clippy::unwrap_used)]
+            let encryption_header = EncryptedVideoHeader::deserialize(
+                packet[0..EncryptedVideoHeader::SIZE]
+                    .as_array::<{ EncryptedVideoHeader::SIZE }>()
+                    .unwrap(),
+            );
+
+            match self.crypto_backend.decrypt_aes_gcm(
+                aes_key,
+                &encryption_header.iv,
+                &packet[EncryptedVideoHeader::SIZE..],
+                &encryption_header.tag,
+                &mut self.decrypt_buffer,
+            ) {
+                Ok(_) => {}
+                Err(err) => {
+                    warn!(encryption_header = ?encryption_header, err = %err, "failed to decrypt packet");
+                }
+            };
+
+            &self.decrypt_buffer
+        } else {
+            packet
+        };
+
         #[allow(clippy::unwrap_used)]
         let rtp_header = RtpVideoHeader::deserialize(
-            packet[0..RtpVideoHeader::SIZE]
+            unencrypted_packet[0..RtpVideoHeader::SIZE]
                 .as_array::<{ RtpVideoHeader::SIZE }>()
                 .unwrap(),
         );
 
         #[allow(clippy::unwrap_used)]
         let video_header = VideoHeader::deserialize(
-            packet[RtpVideoHeader::SIZE..(RtpVideoHeader::SIZE + VideoHeader::SIZE)]
+            unencrypted_packet[RtpVideoHeader::SIZE..(RtpVideoHeader::SIZE + VideoHeader::SIZE)]
                 .as_array::<{ VideoHeader::SIZE }>()
                 .unwrap(),
         );
 
         // TODO: auto drop packets that have a higher frame index that we have
 
-        let data = &packet[(RtpVideoHeader::SIZE + VideoHeader::SIZE)..];
+        let payload = &unencrypted_packet[(RtpVideoHeader::SIZE + VideoHeader::SIZE)..];
+        debug_assert_eq!(payload.len(), self.payload_len());
 
         trace!(rtp_header = ?rtp_header, video_header = ?video_header, "received video packet");
 
@@ -677,7 +697,7 @@ impl VideoDepayloader {
             Packet {
                 rtp_header,
                 video_header,
-                data: data.to_vec(),
+                data: payload.to_vec(),
             },
         );
 

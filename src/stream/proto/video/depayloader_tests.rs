@@ -7,7 +7,7 @@ use crate::{
         proto::video::{
             depayloader::{VideoDepayloader, VideoDepayloaderConfig},
             frame::{VideoFrame, VideoFrameMetadata},
-            packet::{VideoFrameHeader, VideoHeader, video_header_size},
+            packet::{VideoFrameHeader, video_header_size},
             payloader::{VideoPayloader, VideoPayloaderConfig, VideoPayloaderFecConfig},
         },
         video::{
@@ -48,11 +48,12 @@ fn nofec_noparse() {
         )
         .unwrap();
 
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+    let mut depayloader = VideoDepayloader::new_unencrypted(VideoDepayloaderConfig {
         packet_size: payload_size + video_header_size(false),
         // av1 doesn't get parsed
         format: VideoFormat::Av1Main8,
         server_version: sunshine_gen_7_431(),
+        encryption: None,
     });
 
     // assert empty
@@ -143,10 +144,11 @@ fn nofec_h264() {
     let server_version = sunshine_gen_7_431();
     let payload_size = 10;
 
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+    let mut depayloader = VideoDepayloader::new_unencrypted(VideoDepayloaderConfig {
         packet_size: payload_size + video_header_size(false),
         format: VideoFormat::H264,
         server_version: sunshine_gen_7_431(),
+        encryption: None,
     });
 
     let expected_buffers = VideoDecodeUnitBuffers::from(vec![
@@ -248,10 +250,11 @@ fn nofec_h265() {
     let server_version = sunshine_gen_7_431();
     let payload_size = 15;
 
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+    let mut depayloader = VideoDepayloader::new_unencrypted(VideoDepayloaderConfig {
         packet_size: payload_size + video_header_size(false),
         format: VideoFormat::H265,
         server_version: sunshine_gen_7_431(),
+        encryption: None,
     });
 
     let expected_buffers = VideoDecodeUnitBuffers::from(vec![
@@ -384,11 +387,12 @@ fn fec_noparse() {
         )
         .unwrap();
 
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+    let mut depayloader = VideoDepayloader::new_unencrypted(VideoDepayloaderConfig {
         packet_size: payload_size + video_header_size(false),
         // av1 doesn't get parsed
         format: VideoFormat::Av1Main8,
         server_version: sunshine_gen_7_431(),
+        encryption: None,
     });
 
     // assert empty
@@ -502,10 +506,11 @@ fn nofec_multiple_blocks() {
     payloader.push_frame(0, None, frame_type, &data).unwrap();
 
     // Create and test Depayloader
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+    let mut depayloader = VideoDepayloader::new_unencrypted(VideoDepayloaderConfig {
         packet_size,
         format: VideoFormat::Av1Main8,
         server_version: sunshine_gen_7_431(),
+        encryption: None,
     });
 
     let mut packets = 0;
@@ -566,10 +571,11 @@ fn fec_multiple_blocks() {
     payloader.push_frame(0, None, frame_type, &data).unwrap();
 
     // Create and test Depayloader
-    let mut depayloader = VideoDepayloader::new(VideoDepayloaderConfig {
+    let mut depayloader = VideoDepayloader::new_unencrypted(VideoDepayloaderConfig {
         packet_size,
         format: VideoFormat::Av1Main8,
         server_version: sunshine_gen_7_431(),
+        encryption: None,
     });
 
     let mut packets = 0;
