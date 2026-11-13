@@ -87,6 +87,7 @@ pub struct VideoPayloader {
     packet_queue: VecDeque<Bytes>,
     /// If some encryption is enabled
     encryption: Option<Encryption>,
+    encryption_buffer: Vec<u8>,
     tmp_buffer: Vec<u8>,
 }
 
@@ -130,7 +131,8 @@ impl VideoPayloader {
             // Frame Index Starts at 1!
             frame_index: 1,
             packet_queue: VecDeque::default(),
-            tmp_buffer: vec![0; header_size + payload_len],
+            encryption_buffer: vec![0; header_size + payload_len],
+            tmp_buffer: vec![0; payload_len],
             encryption: config.encryption.map(|(aes_key, _)| Encryption {
                 aes_key,
                 iv_counter: 0,
@@ -215,7 +217,6 @@ impl VideoPayloader {
         block_data: &[u8],
     ) -> usize {
         let header_size = header_size(self.encryption.is_some());
-        let packet_size = self.payload_len + header_size;
 
         let frame_header_opt = if frame_header.is_some() {
             VideoFrameHeader::SIZE
@@ -254,9 +255,6 @@ impl VideoPayloader {
         let mut block_position = 0;
 
         while block_position < block_data.len() + frame_header_opt {
-            let mut packet = BytesMut::zeroed(packet_size);
-
-            // Serialize header
             let rtp_header = RtpVideoHeader {
                 header: 0x80 | VIDEO_FLAG_EXTENSION,
                 packet_type: 0,
@@ -265,10 +263,6 @@ impl VideoPayloader {
                 timestamp,
                 reserved: [0; _],
             };
-
-            // This is allowed
-            #[allow(clippy::unwrap_used)]
-            rtp_header.serialize(packet[0..RtpVideoHeader::SIZE].as_mut_array().unwrap());
 
             let video_header = VideoHeader {
                 stream_packet_index: (current_sequence_number as u32) << 8,
@@ -291,27 +285,20 @@ impl VideoPayloader {
                 },
             };
 
-            // This is allowed
-            #[allow(clippy::unwrap_used)]
-            video_header.serialize(
-                packet[RtpVideoHeader::SIZE..(RtpVideoHeader::SIZE + VideoHeader::SIZE)]
-                    .as_mut_array()
-                    .unwrap(),
-            );
-
             #[cfg(debug_assertions)]
             trace!(?rtp_header, ?video_header, "packet");
 
             // Serialize payload
-            if block_position == 0
+            let payload = if block_position == 0
                 && let Some(frame_header) = &frame_header
             {
                 // We're the first payload, we need the VideoFrameHeader
+                // Use the tmp buffer
 
                 // This cannot panic because of the range
                 #[allow(clippy::unwrap_used)]
                 frame_header.serialize(
-                    packet[header_size..(header_size + VideoFrameHeader::SIZE)]
+                    self.tmp_buffer[0..VideoFrameHeader::SIZE]
                         .as_mut_array()
                         .unwrap(),
                 );
@@ -321,32 +308,51 @@ impl VideoPayloader {
                     .min(block_data.len())
                     .saturating_sub(VideoFrameHeader::SIZE);
 
-                packet[(header_size + VideoFrameHeader::SIZE)
-                    ..(header_size + VideoFrameHeader::SIZE + frame_end)]
+                self.tmp_buffer[(VideoFrameHeader::SIZE)..(VideoFrameHeader::SIZE + frame_end)]
                     .copy_from_slice(&block_data[0..frame_end]);
 
                 block_position += VideoFrameHeader::SIZE + frame_end;
+
+                &self.tmp_buffer[0..self.payload_len]
             } else {
                 let frame_start = block_position - frame_header_opt;
                 let mut frame_end = frame_start + self.payload_len;
-                let mut payload_end = packet_size;
 
                 // Pad with zeros if we're the last packet
                 // Important for the fec generation
-                if frame_end > block_data.len() {
-                    payload_end = packet_size - (frame_end - block_data.len());
+                let payload = if frame_end > block_data.len() {
                     frame_end = block_data.len();
 
-                    packet[payload_end..].fill(0);
-                }
+                    // Use our tmp buffer
+                    let frame = &block_data[frame_start..frame_end];
+                    self.tmp_buffer[0..frame.len()].copy_from_slice(frame);
 
-                packet[header_size..payload_end]
-                    .copy_from_slice(&block_data[frame_start..frame_end]);
+                    self.tmp_buffer[frame.len()..].fill(0);
+
+                    &self.tmp_buffer[0..self.payload_len]
+                } else {
+                    &block_data[frame_start..frame_end]
+                };
 
                 block_position += frame_end - frame_start;
-            }
+                payload
+            };
 
-            self.packet_queue.push_back(packet.freeze());
+            let packet = match build_packet(
+                &rtp_header,
+                &video_header,
+                payload,
+                self.encryption.as_mut(),
+                &self.crypto_backend,
+                &mut self.encryption_buffer,
+            ) {
+                Ok(packet) => packet,
+                Err(err) => {
+                    warn!(?rtp_header, ?video_header, payload_len = payload, error = %err, "failed to build data packet");
+                    continue;
+                }
+            };
+            self.packet_queue.push_back(packet);
 
             current_sequence_number = current_sequence_number.wrapping_add(1);
             current_packet_count += 1;
@@ -415,11 +421,11 @@ impl VideoPayloader {
                     parity_shard,
                     self.encryption.as_mut(),
                     &self.crypto_backend,
-                    &mut self.tmp_buffer,
+                    &mut self.encryption_buffer,
                 ) {
                     Ok(packet) => packet,
                     Err(err) => {
-                        warn!(?rtp_header, ?video_header, payload_len = parity_shard.len(), error = %err, "failed to build packet");
+                        warn!(?rtp_header, ?video_header, payload_len = parity_shard.len(), error = %err, "failed to build fec packet");
                         continue;
                     }
                 };
@@ -442,14 +448,14 @@ fn build_packet(
     rtp_header: &RtpVideoHeader,
     video_header: &VideoHeader,
     payload: &[u8],
-    encrypted: Option<&mut Encryption>,
+    encryption: Option<&mut Encryption>,
     crypto_backend: &dyn CryptoBackend,
     tmp_buffer: &mut [u8],
 ) -> Result<Bytes, Error> {
-    let header_size = header_size(encrypted.is_some());
+    let header_size = header_size(encryption.is_some());
     let mut output = BytesMut::zeroed(header_size + payload.len());
 
-    let buffer = if encrypted.is_some() {
+    let buffer = if encryption.is_some() {
         &mut *tmp_buffer
     } else {
         &mut output
@@ -465,7 +471,7 @@ fn build_packet(
     );
     buffer[header_size..].copy_from_slice(payload);
 
-    if let Some(encryption) = encrypted {
+    if let Some(encryption) = encryption {
         let mut iv_array = [0; 12];
         iv_array[0..8].copy_from_slice(&encryption.iv_counter.to_le_bytes());
         iv_array[11] = b'V';
@@ -479,10 +485,17 @@ fn build_packet(
         crypto_backend.encrypt_aes_gcm(
             &encryption.aes_key,
             &iv_array,
-            &tmp_buffer[0..(header_size + payload.len())],
+            &tmp_buffer[0..(video_header_size(false) + payload.len())],
             &mut output[EncryptedVideoHeader::SIZE..],
-            &mut encrypted_header.iv,
+            &mut encrypted_header.tag,
         )?;
+
+        #[allow(clippy::unwrap_used)]
+        encrypted_header.serialize(
+            output[0..EncryptedVideoHeader::SIZE]
+                .as_mut_array()
+                .unwrap(),
+        );
 
         encryption.iv_counter = encryption.iv_counter.wrapping_add(1);
     }

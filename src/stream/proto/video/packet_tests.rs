@@ -2,10 +2,16 @@ use crate::stream::{
     proto::video::packet::{
         EncryptedVideoHeader, RtpVideoHeader, VIDEO_FLAG_EXTENSION, VideoFecInfo, VideoFrameHeader,
         VideoHeader, VideoHeaderExtraFlags, VideoHeaderFlags, VideoMultiFecBlocks,
-        fec_percentage_to_parity_shards,
+        fec_percentage_to_parity_shards, video_header_size,
     },
     video::ServerFrameType,
 };
+
+#[test]
+fn video_header_calculation() {
+    assert_eq!(video_header_size(false), 32);
+    assert_eq!(video_header_size(true), 64);
+}
 
 #[test]
 fn encrypted_header_serialization() {

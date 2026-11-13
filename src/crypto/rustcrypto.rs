@@ -295,7 +295,12 @@ mod proto {
                 "GCM nonce must be 12 or 16 bytes"
             );
             debug_assert_eq!(tag.len(), 16, "GCM tag must be 16 bytes");
-            debug_assert!(output.len() >= input.len(), "output buffer too small");
+            debug_assert!(
+                output.len() >= input.len(),
+                "output buffer too small: output({}), input({})",
+                output.len(),
+                input.len()
+            );
 
             let new_tag = if iv.len() == 12 {
                 let cipher = Aes128Gcm::new(key.into());
