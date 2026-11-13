@@ -16,7 +16,7 @@ use crate::{
                 packet::{
                     MAX_VIDEO_FEC_BLOCKS, MAX_VIDEO_SHARDS_PER_FEC_BLOCK, RtpVideoHeader,
                     VIDEO_FLAG_EXTENSION, VideoFrameHeader, VideoHeader, VideoHeaderFlags,
-                    fec_percentage_to_parity_shards,
+                    fec_percentage_to_parity_shards, video_header_size,
                 },
             },
         },
@@ -30,8 +30,6 @@ mod depayloader_tests;
 
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum VideoDepayloaderError {
-    #[error("a received video rtp packet doesn't have the configured packet size")]
-    PacketInvalidSize,
     #[error("reed solomon: {0}")]
     ReedSolomon(#[from] fec_rs::Error),
 }
@@ -44,14 +42,7 @@ impl From<VideoDepayloaderError> for Error {
 
 #[derive(Debug, Clone)]
 pub struct VideoDepayloaderConfig {
-    /// This is the size of each packet minus the RTP_HEADER_SIZE (16 bytes).
-    /// Each packet will have size [Self::packet_size] + 16.
-    ///
-    /// The actual packet consists of RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
-    /// This means PAYLOAD_SIZE = ACTUAL_PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = ACTUAL_PACKET_SIZE - 32.
-    ///
-    /// References:
-    /// - Games on Whales docs: <https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets>
+    /// This is the size of the incoming udp packets.
     pub packet_size: usize,
     pub format: VideoFormat,
     /// The version of the server.
@@ -142,7 +133,7 @@ impl VideoDepayloader {
     }
 
     fn payload_len(&self) -> usize {
-        self.config.packet_size - VideoHeader::SIZE
+        self.config.packet_size - video_header_size(false)
     }
 
     pub fn is_frame_known(&self, frame_index: FrameIndex) -> bool {
@@ -638,13 +629,13 @@ impl VideoDepayloader {
         let _enter = packet_span.enter();
 
         // TODO: for encrypted packets we should first verify the packet and then do any errors
-        if packet.len() != RtpVideoHeader::SIZE + self.config.packet_size {
+        if packet.len() != self.config.packet_size {
             debug!(
                 got_len = packet.len(),
                 expected_len = self.config.packet_size,
                 "received packet with invalid size"
             );
-            return Err(VideoDepayloaderError::PacketInvalidSize);
+            return Ok(());
         }
 
         #[allow(clippy::unwrap_used)]

@@ -47,7 +47,11 @@ use crate::{
                 client::{ClientSdp, MoonlightFeatureFlags, SunshineEncryptionFlags},
                 server::ServerSdp,
             },
-            video::{VideoStream, VideoStreamConfig, depayloader::VideoDepayloaderConfig},
+            video::{
+                VideoStream, VideoStreamConfig,
+                depayloader::VideoDepayloaderConfig,
+                packet::{EncryptedVideoHeader, RtpVideoHeader, video_header_size},
+            },
         },
         video::{
             DEFAULT_VIDEO_PORT, ServerCodecModeSupport, VideoCapabilities, VideoFormat,
@@ -469,15 +473,28 @@ impl MoonlightStreamSetup {
                             // Update sdp video port
                             sdp.client_sdp.video_port = Some(video_port);
 
+                            let encrypted = sdp
+                                .client_sdp
+                                .sunshine_encryption
+                                .unwrap_or(SunshineEncryptionFlags::empty())
+                                .contains(SunshineEncryptionFlags::VIDEO);
+
+                            #[allow(clippy::unwrap_used)]
+                            // Packet size will always exist
+                            let packet_size = sdp.client_sdp.packet_size.unwrap() as usize
+                                + if encrypted {
+                                    EncryptedVideoHeader::SIZE + RtpVideoHeader::SIZE
+                                } else {
+                                    RtpVideoHeader::SIZE
+                                };
+
                             let video_stream = VideoStream::new(
                                 self.last_now,
                                 VideoStreamConfig {
                                     addr,
                                     queue: VideoDepayloaderConfig {
                                         server_version: self.server_version,
-                                        // Packet size will always exist
-                                        #[allow(clippy::unwrap_used)]
-                                        packet_size: sdp.client_sdp.packet_size.unwrap() as usize,
+                                        packet_size,
                                         format: sdp.video_format,
                                     },
                                     fps: self.client_settings.fps,
@@ -871,7 +888,7 @@ impl MoonlightStreamSetup {
             {
                 sunshine_encryption |= SunshineEncryptionFlags::VIDEO;
                 warn!(
-                    "Server requested video encryption; enabling it even though the client disabled it"
+                    "server requested video encryption; enabling it even though the client disabled it"
                 );
             }
 
@@ -901,7 +918,7 @@ impl MoonlightStreamSetup {
             {
                 sunshine_encryption |= SunshineEncryptionFlags::AUDIO;
                 warn!(
-                    "Server requested audio encryption; enabling it even though the client disabled it"
+                    "server requested audio encryption; enabling it even though the client disabled it"
                 );
             }
 

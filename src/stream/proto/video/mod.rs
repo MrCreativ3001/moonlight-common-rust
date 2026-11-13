@@ -32,7 +32,7 @@ pub mod depayloader;
 pub mod frame;
 #[allow(unused)]
 mod nal;
-mod packet;
+pub(crate) mod packet;
 pub mod payloader;
 
 /// The time window a frame has for all packets to be received

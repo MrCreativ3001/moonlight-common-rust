@@ -30,10 +30,18 @@ pub const MAX_VIDEO_SHARDS_PER_FEC_BLOCK: usize = 255;
 /// - https://github.com/LizardByte/Sunshine/blob/69d7b6df27375c622db7e329f87dcd885efad76f/src/stream.cpp#L1351-L1352
 pub const MAX_VIDEO_FEC_BLOCKS: usize = 4;
 
+pub fn video_header_size(encrypted: bool) -> usize {
+    (if encrypted {
+        EncryptedVideoHeader::SIZE
+    } else {
+        0
+    }) + RtpVideoHeader::SIZE
+        + VideoHeader::SIZE
+}
+
 /// References:
 /// - Moonlight: https://github.com/moonlight-stream/moonlight-common-c/blob/b126e481a195fdc7152d211def17190e3434bcce/src/Video.h#L12-L19
-#[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct EncryptedVideoHeader {
     pub iv: [u8; 12],
     /// Note: This value is little endian
@@ -44,7 +52,6 @@ pub struct EncryptedVideoHeader {
     pub tag: [u8; 16],
 }
 
-#[allow(unused)]
 impl EncryptedVideoHeader {
     pub const SIZE: usize = 32;
 
@@ -62,6 +69,12 @@ impl EncryptedVideoHeader {
             frame_number,
             tag,
         }
+    }
+
+    pub fn serialize(&self, buffer: &mut [u8; Self::SIZE]) {
+        buffer[0..12].copy_from_slice(&self.iv);
+        buffer[12..16].copy_from_slice(&self.frame_number.to_le_bytes());
+        buffer[16..32].copy_from_slice(&self.tag);
     }
 }
 

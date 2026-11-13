@@ -81,9 +81,18 @@ pub struct ClientSdp {
     pub client_viewport_width: Option<u32>,
     pub client_viewport_height: Option<u32>,
     pub max_fps: Option<u32>,
+    // TODO: add encryption information
+    /// This is the size of each packet minus the RTP_HEADER_SIZE (16 bytes).
+    /// Each packet will have size [Self::packet_size] + 16.
+    ///
+    /// The actual packet consists of RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
+    /// This means PAYLOAD_SIZE = ACTUAL_PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = ACTUAL_PACKET_SIZE - 32.
+    ///
     /// default is 1024
     ///
-    /// See [VideoDepayloaderConfig::packet_size](crate::stream::proto::video::depayloader::VideoDepayloaderConfig::packet_size).
+    /// References:
+    /// - Games on Whales docs: <https://games-on-whales.github.io/wolf/stable/protocols/rtp-video.html#_rtp_packets>
+    /// - Moonlight packet size: <https://github.com/moonlight-stream/moonlight-common-c/blob/94c65fd364d17b223f00a8763c9a5d94a66cb8dd/src/VideoStream.c#L95-L100>
     pub packet_size: Option<u32>,
     /// default is 4
     pub rate_control_mode: Option<u32>,
