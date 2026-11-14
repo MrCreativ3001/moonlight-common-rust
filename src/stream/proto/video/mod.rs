@@ -12,7 +12,6 @@ use tracing::{Level, debug, info, instrument, trace};
 use crate::{
     error::Error,
     stream::{
-        AesKey,
         proto::{
             DynCryptoBackend,
             packet::SunshinePing,
@@ -21,7 +20,7 @@ use crate::{
             video::{
                 depayloader::{VideoDepayloader, VideoDepayloaderConfig},
                 frame::OwnedVideoFrame,
-                packet::{RtpVideoHeader, VIDEO_RECV_BUFFERED_PACKETS},
+                packet::VIDEO_RECV_BUFFERED_PACKETS,
             },
         },
         video::{FrameIndex, ServerFrameType},
@@ -32,7 +31,7 @@ pub mod depayloader;
 pub mod frame;
 #[allow(unused)]
 mod nal;
-mod packet;
+pub(crate) mod packet;
 pub mod payloader;
 
 /// The time window a frame has for all packets to be received
@@ -54,14 +53,9 @@ pub struct VideoStreamConfig {
     pub queue: VideoDepayloaderConfig,
     pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
-    pub sunshine_encryption: Option<AesKey>,
 }
 
 pub struct VideoStream {
-    #[allow(unused)]
-    crypto_backend: DynCryptoBackend,
-    #[allow(unused)]
-    aes_key: Option<AesKey>,
     addr: SocketAddr,
     last_now: Instant,
     ping_sender: PingSender,
@@ -80,11 +74,9 @@ impl VideoStream {
     pub fn new(now: Instant, config: VideoStreamConfig, crypto_backend: DynCryptoBackend) -> Self {
         debug!("new video stream");
 
-        let depayloader = VideoDepayloader::new(config.queue);
+        let depayloader = VideoDepayloader::new(config.queue, crypto_backend);
 
         Self {
-            crypto_backend,
-            aes_key: config.sunshine_encryption,
             addr: config.addr,
             last_now: now,
             ping_sender: PingSender::new(
@@ -321,6 +313,6 @@ impl UdpStream for VideoStream {
 
     fn recv_buffer_hint(&self) -> Option<usize> {
         // See https://github.com/moonlight-stream/moonlight-common-c/blob/435bc6a5a4852c90cfb037de1378c0334ed36d8e/src/VideoStream.c#L331-L333
-        Some(VIDEO_RECV_BUFFERED_PACKETS * (RtpVideoHeader::SIZE + self.depayloader.packet_size()))
+        Some(VIDEO_RECV_BUFFERED_PACKETS * self.depayloader.packet_size())
     }
 }

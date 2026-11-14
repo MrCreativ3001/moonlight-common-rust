@@ -8,7 +8,7 @@ use moonlight_common::{
     ServerVersion,
     crypto::rustcrypto::RustCryptoBackend,
     stream::{
-        AesKey,
+        SunshineEncryption,
         proto::{
             Instant,
             packet::SunshinePing,
@@ -34,7 +34,7 @@ pub struct VideoStreamConfig {
     pub server_version: ServerVersion,
     pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
-    pub sunshine_encryption: Option<AesKey>,
+    pub sunshine_encryption: Option<SunshineEncryption>,
 }
 
 custom_type!(FrameIndex, u32, {
@@ -137,8 +137,8 @@ impl VideoStream {
                         format: config.format,
                         packet_size: config.packet_size as usize,
                         server_version: config.server_version,
+                        encryption: config.sunshine_encryption,
                     },
-                    sunshine_encryption: config.sunshine_encryption,
                     sunshine_ping: config.sunshine_ping,
                 },
                 Arc::new(RustCryptoBackend) as _,
