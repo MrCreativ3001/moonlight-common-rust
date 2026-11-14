@@ -12,6 +12,7 @@ use tokio::{
     net::UdpSocket,
     time::{Instant, Sleep, sleep_until},
 };
+use tracing::warn;
 
 use crate::{
     error::Error,
@@ -79,6 +80,9 @@ pin_project! {
     }
 }
 
+/// The maximum amount of time the drive loop is allowed to loop
+const MAX_LOOP: usize = 50;
+
 impl<'a, Stream> Future for DriveFuture<'a, Stream>
 where
     Stream: UdpStream,
@@ -87,8 +91,17 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
+        let mut loops = 0;
 
         loop {
+            if loops > MAX_LOOP {
+                warn!(
+                    "tokio driver looped more than {MAX_LOOP} times. This hints at a performance issue or a bug!"
+                );
+                break;
+            }
+            loops += 1;
+
             // -- Write
             // Try to get next packet and write
             if this.driver.transmit.is_none()
