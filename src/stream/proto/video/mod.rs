@@ -12,7 +12,6 @@ use tracing::{Level, debug, info, instrument, trace};
 use crate::{
     error::Error,
     stream::{
-        AesKey,
         proto::{
             DynCryptoBackend,
             packet::SunshinePing,
@@ -54,7 +53,6 @@ pub struct VideoStreamConfig {
     pub queue: VideoDepayloaderConfig,
     pub fps: u32,
     pub sunshine_ping: Option<SunshinePing>,
-    pub sunshine_encryption: Option<AesKey>,
 }
 
 pub struct VideoStream {

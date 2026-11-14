@@ -501,7 +501,6 @@ impl MoonlightStreamSetup {
                                     },
                                     fps: self.client_settings.fps,
                                     sunshine_ping: video_setup.sunshine_ping.clone(),
-                                    sunshine_encryption: None, // TODO <--
                                 },
                                 self.crypto_backend.clone(),
                             );
