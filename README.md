@@ -34,7 +34,7 @@ This design allows the same protocol implementation to be reused across native a
 ||Long Term Reference Frames[^2]|❌|✅|
 |**Encryption**|RTSP Encryption|✅|✅|
 ||Audio Encryption|✅|✅|
-||Video Encryption|❌|✅|
+||Video Encryption|✅|✅|
 ||Control Encryption|✅|✅|
 
 [^1]: https://github.com/games-on-whales/wolf/issues/5
