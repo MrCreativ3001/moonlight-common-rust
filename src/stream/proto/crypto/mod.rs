@@ -5,6 +5,8 @@ use crate::error::Error;
 #[cfg(test)]
 pub(crate) mod test;
 
+// TODO: switch to in place encryption
+
 pub trait CryptoBackend: Debug + Send + Sync {
     /// Encrypt using AES-GCM.
     /// Writes ciphertext to `output` and authentication tag to `tag`.

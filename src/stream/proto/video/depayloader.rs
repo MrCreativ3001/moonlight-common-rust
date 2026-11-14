@@ -597,16 +597,18 @@ impl VideoDepayloader {
 
         // if the frame is complete
         if frame.current_block > frame.last_block_index {
-            trace!(frame_index = ?frame_index, "produced frame");
+            trace!(frame_index = ?frame_index, "completed frame");
 
             // drop all packets related to this frame
             self.packets
                 .retain(|_, packet| packet.video_header.frame_index != *frame_index);
 
             // parse the frame mainly to log information
-            let _ = self
+            let frame = self
                 .frame(frame_index)
                 .expect("failed to get frame after having successfully produced it");
+
+            trace!(metadata = ?frame.metadata, parsed_ty = ?frame.parsed_frame_type, "produced frame");
         }
 
         Ok(true)
@@ -649,6 +651,7 @@ impl VideoDepayloader {
                 Ok(_) => {}
                 Err(err) => {
                     warn!(encryption_header = ?encryption_header, err = %err, "failed to decrypt packet");
+                    return Ok(());
                 }
             };
 
