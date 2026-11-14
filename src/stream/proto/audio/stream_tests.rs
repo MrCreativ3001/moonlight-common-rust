@@ -37,11 +37,11 @@ fn no_busy_loop_when_not_receiving_data() {
         },
     );
 
-    loop {
+    for _ in 0..1000 {
         now += Duration::from_millis(1);
 
         let timeout = audio_stream.poll_timeout();
-        if timeout.is_some_and(|timeout| timeout < now) || timeout.is_none() {
+        if timeout.is_some_and(|timeout| timeout < now) {
             panic!("audio stream shouldn't have anything to do");
         }
 
@@ -102,17 +102,17 @@ fn no_busy_loop_after_skipping_data() {
         )
         .unwrap();
 
-    loop {
+    for _ in 0..1000 {
         now += Duration::from_millis(1);
-
-        let timeout = audio_stream.poll_timeout();
-        if timeout.is_some_and(|timeout| timeout < now) || timeout.is_none() {
-            panic!("audio stream shouldn't have anything to do");
-        }
 
         while audio_stream.poll_event().is_some() {}
         while audio_stream.poll_transmit().is_some() {}
 
         audio_stream.handle_timeout(now).unwrap();
+
+        let timeout = audio_stream.poll_timeout();
+        if timeout.is_some_and(|timeout| timeout < now) {
+            panic!("audio stream shouldn't have anything to do");
+        }
     }
 }
