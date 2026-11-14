@@ -32,6 +32,10 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+#[path = "stream_tests.rs"]
+mod tests;
+
 pub mod depayloader;
 mod packet;
 pub mod payloader;
@@ -157,6 +161,12 @@ impl UdpStream for AudioStream {
     }
 
     fn poll_timeout(&self) -> Option<Instant> {
+        // Wait for first packet
+        #[allow(clippy::question_mark)]
+        if self.first_packet.is_none() {
+            return None;
+        }
+
         if !self.dropped_frames {
             None
         } else {
@@ -199,8 +209,13 @@ impl UdpStream for AudioStream {
                 );
             }
 
-            self.dropped_frames = true;
+            // Wait another max_sample_wait before skipping again.
+            // Without this the deadline stays in the past while no packet arrives.
+            self.last_frame = now;
 
+            self.dropped_frames = true;
+        }
+        if self.dropped_frames {
             self.depayloader.try_skip_samples()?;
         }
 
