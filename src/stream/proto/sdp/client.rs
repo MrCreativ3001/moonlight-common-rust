@@ -81,12 +81,11 @@ pub struct ClientSdp {
     pub client_viewport_width: Option<u32>,
     pub client_viewport_height: Option<u32>,
     pub max_fps: Option<u32>,
-    // TODO: add encryption information
-    /// This is the size of each packet minus the RTP_HEADER_SIZE (16 bytes).
+    /// This is the size of each packet minus the RTP_HEADER_SIZE (16 bytes) and ENC_HEADER_SIZE (32 bytes, if present).
     /// Each packet will have size [Self::packet_size] + 16.
     ///
-    /// The actual packet consists of RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
-    /// This means PAYLOAD_SIZE = ACTUAL_PACKET_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = ACTUAL_PACKET_SIZE - 32.
+    /// The actual packet consists of ENC_HEADER_SIZE (if present) + RTP_HEADER_SIZE + VIDEO_HEADER_SIZE + PAYLOAD_SIZE.
+    /// This means PAYLOAD_SIZE = ACTUAL_PACKET_SIZE - ENC_HEADER_SIZE - RTP_HEADER_SIZE - VIDEO_HEADER_SIZE = ACTUAL_PACKET_SIZE - 32 (unencrypted) or 64 (encrypted).
     ///
     /// default is 1024
     ///

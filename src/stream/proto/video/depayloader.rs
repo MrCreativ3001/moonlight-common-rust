@@ -127,8 +127,6 @@ pub(crate) fn create_video_reed_solomon(data_shards: usize, parity_shards: usize
     ReedSolomon::new(data_shards, parity_shards).unwrap()
 }
 
-// TODO: how to handle fec? https://github.com/moonlight-stream/moonlight-common-c/blob/62687809b1f7410c3db4be2527503a54ae408d70/src/ControlStream.c#L455-L469
-
 impl VideoDepayloader {
     /// See [new](Self::new)
     pub fn new_unencrypted(config: VideoDepayloaderConfig) -> Self {

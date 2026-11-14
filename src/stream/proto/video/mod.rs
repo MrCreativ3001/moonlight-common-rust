@@ -21,7 +21,7 @@ use crate::{
             video::{
                 depayloader::{VideoDepayloader, VideoDepayloaderConfig},
                 frame::OwnedVideoFrame,
-                packet::{RtpVideoHeader, VIDEO_RECV_BUFFERED_PACKETS},
+                packet::VIDEO_RECV_BUFFERED_PACKETS,
             },
         },
         video::{FrameIndex, ServerFrameType},

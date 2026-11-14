@@ -431,15 +431,21 @@ impl VideoPayloader {
                     tag: [0; 16],
                 };
 
-                self.crypto_backend
-                    .encrypt_aes_gcm(
-                        &encryption.aes_key,
-                        &iv_array,
-                        &packet,
-                        &mut output[EncryptedVideoHeader::SIZE..],
-                        &mut encrypted_header.tag,
-                    )
-                    .unwrap();
+                if let Err(err) = self.crypto_backend.encrypt_aes_gcm(
+                    &encryption.aes_key,
+                    &iv_array,
+                    &packet,
+                    &mut output[EncryptedVideoHeader::SIZE..],
+                    &mut encrypted_header.tag,
+                ) {
+                    #[allow(clippy::unwrap_used)]
+                    let rtp_header = RtpVideoHeader::deserialize(
+                        packet[0..RtpVideoHeader::SIZE].as_array().unwrap(),
+                    );
+
+                    warn!(rtp_header = ?rtp_header, video_header = ?video_header, packet_len = %packet.len(), error = %err, "failed to encrypt video packet");
+                    continue;
+                }
 
                 #[allow(clippy::unwrap_used)]
                 encrypted_header.serialize(
