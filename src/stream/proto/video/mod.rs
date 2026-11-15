@@ -17,6 +17,7 @@ use crate::{
             packet::SunshinePing,
             ping::{PingSender, PingSenderConfig},
             runtime::{Receive, Transmit, UdpStream},
+            soonest,
             video::{
                 depayloader::{VideoDepayloader, VideoDepayloaderConfig},
                 frame::OwnedVideoFrame,
@@ -270,11 +271,9 @@ impl UdpStream for VideoStream {
     }
 
     fn poll_timeout(&self) -> Option<Instant> {
-        let stall = self.last_now + self.wait_until_idr();
-        Some(match self.ping_sender.poll_timeout() {
-            Some(ping) if ping < stall => ping,
-            _ => stall,
-        })
+        let idr_timeout = self.last_now + self.wait_until_idr();
+
+        soonest(idr_timeout, self.ping_sender.poll_timeout())
     }
 
     fn poll_event(&mut self) -> Option<Self::Event> {
