@@ -28,6 +28,10 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+#[path = "stream_tests.rs"]
+mod tests;
+
 pub mod depayloader;
 pub mod frame;
 #[allow(unused)]

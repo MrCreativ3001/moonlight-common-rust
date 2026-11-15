@@ -15,6 +15,7 @@ use crate::{
                 AudioStream, AudioStreamConfig,
                 payloader::{AudioPayloader, AudioPayloaderConfig},
             },
+            ping::{PingSender, PingSenderConfig},
             runtime::{Receive, UdpStream},
         },
     },
@@ -114,5 +115,48 @@ fn no_busy_loop_after_skipping_data() {
         if timeout.is_some_and(|timeout| timeout < now) {
             panic!("audio stream shouldn't have anything to do");
         }
+    }
+}
+
+#[test]
+fn ping_behavior_before_receiving_data() {
+    // While no data is received the audio stream should mimic the ping sender
+    let mut now = Instant::ZERO;
+
+    let mut stream = AudioStream::new_unencrypted(
+        now,
+        AudioStreamConfig {
+            addr: ADDR,
+            opus_config: OpusMultistreamConfig::STEREO,
+            audio_packet_duration: Duration::from_millis(5),
+            fec: false,
+            sunshine_ping: None,
+            sunshine_encryption: None,
+        },
+    );
+
+    let mut sender = PingSender::new(
+        now,
+        PingSenderConfig {
+            sunshine_ping: None,
+        },
+    );
+
+    for i in 0..10 {
+        let timeout = sender.poll_timeout();
+        let stream_timeout = stream.poll_timeout();
+
+        assert_eq!(timeout, stream_timeout, "iteration: {i}, now: {now}");
+        let timeout = timeout.unwrap();
+        assert!(timeout > now);
+
+        assert_eq!(
+            sender.poll_transmit(),
+            stream.poll_transmit().map(|x| x.data)
+        );
+
+        now = timeout;
+        sender.handle_timeout(now);
+        stream.handle_timeout(now).unwrap();
     }
 }

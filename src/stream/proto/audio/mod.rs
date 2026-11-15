@@ -28,6 +28,7 @@ use crate::{
             packet::SunshinePing,
             ping::{PingSender, PingSenderConfig},
             runtime::{Receive, Transmit, UdpStream},
+            soonest,
         },
     },
 };
@@ -161,17 +162,21 @@ impl UdpStream for AudioStream {
     }
 
     fn poll_timeout(&self) -> Option<Instant> {
-        // Wait for first packet
-        #[allow(clippy::question_mark)]
-        if self.first_packet.is_none() {
-            return None;
-        }
+        let timeout = {
+            // Wait for first packet
+            #[allow(clippy::question_mark)]
+            if self.first_packet.is_none() {
+                None
+            } else {
+                if !self.dropped_frames {
+                    None
+                } else {
+                    Some(self.last_frame + self.max_sample_wait)
+                }
+            }
+        };
 
-        if !self.dropped_frames {
-            None
-        } else {
-            Some(self.last_frame + self.max_sample_wait)
-        }
+        soonest(timeout, self.ping_sender.poll_timeout())
     }
 
     fn poll_event(&mut self) -> Option<Self::Event> {
