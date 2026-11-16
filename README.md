@@ -36,6 +36,9 @@ This design allows the same protocol implementation to be reused across native a
 ||Audio Encryption|✅|✅|
 ||Video Encryption|✅|✅|
 ||Control Encryption|✅|✅|
+|**Other Extensions**|Foundation Sunshine: Microphone (unencrypted and encrypted)|✅|🟡|
+
+**Legend:**  ✅ Supported | 🟡 Depends on fork | ❌ Unsupported
 
 [^1]: https://github.com/games-on-whales/wolf/issues/5
 [^2]: https://github.com/moonlight-stream/moonlight-common-c/issues/120
