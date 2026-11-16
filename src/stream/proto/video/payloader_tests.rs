@@ -921,6 +921,76 @@ fn nofec_packet_size_10() {
 }
 
 #[test]
+fn nofec_single_packet() {
+    let frame = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let frame_header = VideoFrameHeader {
+        header_type: 0x01,
+        host_processing_latency: 0,
+        frame_type: ServerFrameType::Idr,
+        last_payload_len: (VideoFrameHeader::SIZE + frame.len()) as u16,
+        reserved: [0; _],
+    };
+    let expected_packet = construct_packet(
+        RtpVideoHeader {
+            header: 0x80 | VIDEO_FLAG_EXTENSION,
+            packet_type: 0,
+            sequence_number: 0,
+            timestamp: 0,
+            ssrc: 0,
+            reserved: [0; _],
+        },
+        VideoHeader {
+            stream_packet_index: 0u32 << 8,
+            frame_index: 1,
+            flags: VideoHeaderFlags::CONTAINS_VIDEO_DATA
+                | VideoHeaderFlags::START_OF_FILE
+                | VideoHeaderFlags::END_OF_FILE,
+            extra_flags: VideoHeaderExtraFlags::empty(),
+            multi_fec_flags: 0x10,
+            multi_fec_blocks: VideoMultiFecBlocks {
+                last_block_index: 0,
+                current_block: 0,
+                unused: 0,
+            },
+            fec_info: VideoFecInfo {
+                data_shards_total: 1,
+                shard_index: 0,
+                fec_percentage: 0,
+                unused: 0,
+            },
+        },
+        &{
+            let mut data = Vec::default();
+            data.resize(VideoFrameHeader::SIZE + frame.len(), 0);
+
+            frame_header.serialize(data[0..VideoFrameHeader::SIZE].as_mut_array().unwrap());
+
+            data[VideoFrameHeader::SIZE..].copy_from_slice(&frame);
+
+            data
+        },
+    );
+
+    let mut payloader = VideoPayloader::new_unencrypted(VideoPayloaderConfig {
+        server_version: sunshine_gen_7_431(),
+        packet_size: expected_packet.len(),
+        fec: None,
+        max_data_shards_per_block: 100,
+        encryption: None,
+    });
+
+    payloader
+        .push_frame(0, None, ServerFrameType::Idr, &frame)
+        .unwrap();
+
+    assert_eq!(
+        payloader.poll_packet().as_deref(),
+        Some(expected_packet.as_slice())
+    );
+    assert_eq!(payloader.poll_packet().as_deref(), None);
+}
+
+#[test]
 fn fec_packet_size_10() {
     let payload_size = 10;
     let data_shards_total = 2u32;

@@ -41,8 +41,6 @@ pub mod payloader;
 
 /// The time window a frame has for all packets to be received
 const FULL_FRAME_RECEIVE_TIMEOUT: Duration = Duration::from_millis(100);
-/// A final timeout that is used when nothing happened
-const STALL_TIMEOUT: Duration = Duration::from_millis(2000);
 /// The time between each idr request
 const IDR_REQUEST_TIMEOUT: Duration = Duration::from_millis(1000);
 
@@ -70,7 +68,7 @@ pub struct VideoStream {
     last_frame: Instant,
     current_frame: Option<FrameIndex>,
     frames_first_seen: HashMap<FrameIndex, Instant>,
-    waiting_for_idr_since: Option<Instant>,
+    idr_deadline: Instant,
     events: VecDeque<VideoStreamEvent>,
 }
 
@@ -97,69 +95,25 @@ impl VideoStream {
             // the stream starts at frame index 1
             current_frame: None,
             last_frame: now,
-            waiting_for_idr_since: Some(now),
+            idr_deadline: now + IDR_REQUEST_TIMEOUT,
             events: Default::default(),
         }
     }
 
     fn do_idr_request(&mut self) -> Result<(), Error> {
-        // request an idr if needed
-        let timeout = self.wait_until_idr();
+        if self.last_now >= self.idr_deadline {
+            // move idr deadline forward
+            self.idr_deadline = self.last_now + IDR_REQUEST_TIMEOUT;
 
-        let mut request_idr = false;
+            // unsync video stream
+            self.current_frame = None;
 
-        if timeout.is_zero() {
-            if let Some(last_idr_request) = self.waiting_for_idr_since {
-                if self.last_now - last_idr_request >= IDR_REQUEST_TIMEOUT {
-                    request_idr = true;
-                }
-            } else {
-                request_idr = true;
-            }
-        }
-
-        if request_idr {
-            self.waiting_for_idr_since = Some(self.last_now);
-
-            info!(time_until_idr = ?timeout, now = ?self.last_now, waiting_for_idr_since = ?self.waiting_for_idr_since, "requesting idr and unsyncing depayloader");
+            info!(now = ?self.last_now, waiting_for_idr_since = ?self.idr_deadline, "requesting idr and unsyncing video stream");
 
             self.events.push_back(VideoStreamEvent::SignalIdr);
         }
 
         Ok(())
-    }
-    fn wait_until_idr(&self) -> Duration {
-        // Default when we're stuck
-        let mut timeout = STALL_TIMEOUT.saturating_sub(self.last_now - self.last_frame);
-
-        let Some(current) = self.current_frame else {
-            return timeout;
-        };
-        let highest = self.depayloader.known_frames().max().unwrap_or(current);
-
-        let frame_known = self.depayloader.is_frame_known(FrameIndex(0));
-
-        let current_frame_first_seen = self.frames_first_seen.get(&current);
-
-        // After which time the frame can be seen as lost based on current time
-        let current_frame_until_dropped =
-            current_frame_first_seen.map(|current_frame_first_seen| {
-                FULL_FRAME_RECEIVE_TIMEOUT.saturating_sub(self.last_now - *current_frame_first_seen)
-            });
-
-        // likely skipped frame
-        if highest > current
-            && let Some(current_frame_dropped) = current_frame_until_dropped
-        {
-            timeout = timeout.min(current_frame_dropped);
-        }
-
-        // incomplete frame
-        if frame_known && let Some(current_frame_until_dropped) = current_frame_until_dropped {
-            timeout = timeout.min(current_frame_until_dropped);
-        }
-
-        timeout
     }
 
     fn update(&mut self, now: Instant) -> Result<(), Error> {
@@ -198,9 +152,7 @@ impl VideoStream {
             if self.depayloader.is_frame_available(current_frame) {
                 frame_to_return = Some(current_frame);
             }
-        }
-
-        if self.waiting_for_idr_since.is_some() || self.current_frame.is_none() {
+        } else {
             // Search for idrs, if we're waiting for one, or we're not in sync
             for frame_index in self.depayloader.available_frames() {
                 let frame = self
@@ -210,7 +162,6 @@ impl VideoStream {
 
                 if frame.frame_type == ServerFrameType::Idr {
                     debug!(now = ?now, frame_metadata = ?frame, "received idr");
-                    self.waiting_for_idr_since = None;
 
                     frame_to_return = Some(frame.frame_index);
                 }
@@ -225,6 +176,7 @@ impl VideoStream {
             }
 
             self.last_frame = now;
+            self.idr_deadline = self.last_now + FULL_FRAME_RECEIVE_TIMEOUT;
 
             self.current_frame = Some(FrameIndex(frame_index.0 + 1));
 
@@ -275,9 +227,7 @@ impl UdpStream for VideoStream {
     }
 
     fn poll_timeout(&self) -> Option<Instant> {
-        let idr_timeout = self.last_now + self.wait_until_idr();
-
-        soonest(idr_timeout, self.ping_sender.poll_timeout())
+        soonest(self.idr_deadline, self.ping_sender.poll_timeout())
     }
 
     fn poll_event(&mut self) -> Option<Self::Event> {

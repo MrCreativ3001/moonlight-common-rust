@@ -35,3 +35,53 @@ pub trait UdpStream: Send + Sync {
         None
     }
 }
+
+#[cfg(test)]
+pub(crate) fn drive_until<Stream>(
+    stream: &mut Stream,
+    until: Instant,
+    expected_transmits: &[Transmit],
+) -> Vec<Stream::Event>
+where
+    Stream: UdpStream,
+{
+    let mut i = 0;
+
+    let mut transmits = Vec::default();
+    let mut events = Vec::default();
+
+    let mut now = stream.poll_timeout().unwrap();
+    loop {
+        stream.handle_timeout(now).unwrap();
+
+        while let Some(transmit) = stream.poll_transmit() {
+            transmits.push(transmit);
+        }
+        while let Some(event) = stream.poll_event() {
+            events.push(event);
+        }
+
+        if now >= until {
+            break;
+        }
+
+        i += 1;
+        if i > 100 {
+            panic!("iterated {i} times");
+        }
+
+        let timeout = stream.poll_timeout().unwrap();
+        assert!(timeout > now);
+
+        now = timeout;
+    }
+
+    for expected_transmit in expected_transmits {
+        assert!(
+            transmits.contains(expected_transmit),
+            "transmits, expected: {expected_transmit:?}, got: {transmits:?}"
+        );
+    }
+
+    events
+}

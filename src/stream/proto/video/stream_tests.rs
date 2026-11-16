@@ -11,11 +11,14 @@ use crate::{
     stream::{
         proto::{
             ping::{PingSender, PingSenderConfig},
-            runtime::UdpStream,
-            soonest,
-            video::{VideoStream, VideoStreamConfig, depayloader::VideoDepayloaderConfig},
+            runtime::{Receive, Transmit, UdpStream, drive_until},
+            video::{
+                FULL_FRAME_RECEIVE_TIMEOUT, VideoStream, VideoStreamConfig, VideoStreamEvent,
+                depayloader::VideoDepayloaderConfig,
+                payloader::{VideoPayloader, VideoPayloaderConfig},
+            },
         },
-        video::VideoFormat,
+        video::{FrameIndex, ServerFrameType, VideoFormat},
     },
 };
 
@@ -53,24 +56,107 @@ fn ping_behavior_before_receiving_data() {
         },
     );
 
-    for i in 0..100 {
-        let timeout = sender.poll_timeout();
-        let stream_timeout = stream.poll_timeout();
+    for _ in 0..10 {
+        now = sender.poll_timeout().unwrap();
+        let transmits = std::iter::from_fn(|| {
+            sender.poll_transmit().map(|data| Transmit {
+                destination: ADDR,
+                data,
+            })
+        })
+        .collect::<Vec<_>>();
 
-        if soonest(timeout, stream_timeout) == stream_timeout {
-            continue;
-        }
-        assert_eq!(timeout, stream_timeout, "iteration: {i}, now: {now}");
-        let timeout = timeout.unwrap();
-        assert!(timeout > now);
+        let _ = drive_until(&mut stream, now, &transmits);
 
-        assert_eq!(
-            sender.poll_transmit(),
-            stream.poll_transmit().map(|x| x.data)
-        );
-
-        now = timeout;
         sender.handle_timeout(now);
-        stream.handle_timeout(now).unwrap();
     }
+}
+
+#[test]
+fn request_idr_on_loss_and_recover() {
+    let mut now = Instant::ZERO;
+
+    let mut stream = VideoStream::new(
+        now,
+        VideoStreamConfig {
+            addr: ADDR,
+            queue: VideoDepayloaderConfig {
+                packet_size: 1024,
+                format: VideoFormat::Av1Main8,
+                server_version: sunshine_gen_7_431(),
+                encryption: None,
+            },
+            fps: 60,
+            sunshine_ping: None,
+        },
+        Arc::new(DisabledCryptoBackend),
+    );
+
+    let mut payloader = VideoPayloader::new(
+        VideoPayloaderConfig {
+            server_version: sunshine_gen_7_431(),
+            packet_size: 1024,
+            max_data_shards_per_block: 100,
+            fec: None,
+            encryption: None,
+        },
+        Arc::new(DisabledCryptoBackend),
+    );
+
+    // send the first packet
+    payloader
+        .push_frame(0, None, ServerFrameType::Idr, &[0, 1, 2, 3, 4])
+        .unwrap();
+    stream
+        .handle_receive(
+            now,
+            Receive {
+                source: ADDR,
+                data: &payloader.poll_packet().unwrap(),
+            },
+        )
+        .unwrap();
+    assert_eq!(payloader.poll_packet(), None);
+
+    // Simulate dropping packets
+    for _ in 0..3 {
+        payloader
+            .push_frame(0, None, ServerFrameType::PFrame, &[0, 1, 2, 3, 4])
+            .unwrap();
+        assert!(payloader.poll_packet().is_some());
+        assert_eq!(payloader.poll_packet(), None);
+    }
+
+    // Wait until an idr request
+    now += FULL_FRAME_RECEIVE_TIMEOUT;
+    let events = drive_until(&mut stream, now, &[]);
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, VideoStreamEvent::SignalIdr)),
+        "no idr request: {events:?}"
+    );
+
+    // Insert the next Idr and test for receive
+    payloader
+        .push_frame(0, None, ServerFrameType::Idr, &[0, 1, 2, 3, 4])
+        .unwrap();
+    stream
+        .handle_receive(
+            now,
+            Receive {
+                source: ADDR,
+                data: &payloader.poll_packet().unwrap(),
+            },
+        )
+        .unwrap();
+    assert_eq!(payloader.poll_packet(), None);
+
+    let events = drive_until(&mut stream, now, &[]);
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, VideoStreamEvent::OnFrame(frame) if frame.metadata().frame_index == FrameIndex(5))),
+        "no frame: {events:?}"
+    );
 }

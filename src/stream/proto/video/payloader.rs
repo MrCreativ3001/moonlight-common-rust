@@ -308,8 +308,8 @@ impl VideoPayloader {
 
                 let frame_end = self
                     .payload_len
-                    .min(block_data.len())
-                    .saturating_sub(VideoFrameHeader::SIZE);
+                    .saturating_sub(VideoFrameHeader::SIZE)
+                    .min(block_data.len());
 
                 packet[(unenc_header_size + VideoFrameHeader::SIZE)
                     ..(unenc_header_size + VideoFrameHeader::SIZE + frame_end)]
@@ -325,7 +325,6 @@ impl VideoPayloader {
                 if frame_end > block_data.len() {
                     frame_end = block_data.len();
 
-                    // Use our tmp buffer
                     let frame = &block_data[frame_start..frame_end];
                     packet[unenc_header_size..(unenc_header_size + frame.len())]
                         .copy_from_slice(frame);

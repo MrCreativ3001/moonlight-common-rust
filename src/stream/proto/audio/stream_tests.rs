@@ -16,7 +16,7 @@ use crate::{
                 payloader::{AudioPayloader, AudioPayloaderConfig},
             },
             ping::{PingSender, PingSenderConfig},
-            runtime::{Receive, UdpStream},
+            runtime::{Receive, Transmit, UdpStream, drive_until},
         },
     },
 };
@@ -142,21 +142,18 @@ fn ping_behavior_before_receiving_data() {
         },
     );
 
-    for i in 0..10 {
-        let timeout = sender.poll_timeout();
-        let stream_timeout = stream.poll_timeout();
+    for _ in 0..10 {
+        now = sender.poll_timeout().unwrap();
+        let transmits = std::iter::from_fn(|| {
+            sender.poll_transmit().map(|data| Transmit {
+                destination: ADDR,
+                data,
+            })
+        })
+        .collect::<Vec<_>>();
 
-        assert_eq!(timeout, stream_timeout, "iteration: {i}, now: {now}");
-        let timeout = timeout.unwrap();
-        assert!(timeout > now);
+        let _ = drive_until(&mut stream, now, &transmits);
 
-        assert_eq!(
-            sender.poll_transmit(),
-            stream.poll_transmit().map(|x| x.data)
-        );
-
-        now = timeout;
         sender.handle_timeout(now);
-        stream.handle_timeout(now).unwrap();
     }
 }
