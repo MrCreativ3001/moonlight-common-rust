@@ -280,7 +280,7 @@ impl MoonlightStreamSettings {
                 .contains(!VideoFormats::MASK_H264)
         {
             return Err(Error::Setting4kNotSupportedCodecMissing);
-        } else if self.height > 2160 && supports_4k_gfe {
+        } else if self.height > 2160 && !supports_4k_gfe {
             return Err(Error::Setting4kNotSupportedUpdateGfe);
         }
 
