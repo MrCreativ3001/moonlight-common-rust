@@ -174,6 +174,7 @@ pub struct MoonlightStreamConfig {
     /// If the foundation microphone should be enabled.
     ///
     /// Only enable this if the server supports foundation's microphone protocol.
+    /// First known version which supports this is `v2025.722.165726`
     ///
     /// See also:
     /// - [Foundation Microphone Module](crate::stream::proto::microphone::foundation)
@@ -181,7 +182,7 @@ pub struct MoonlightStreamConfig {
     ///
     /// References:
     /// - <https://github.com/Yundi339/moonlight-common-c/blob/f59424a9f7ad86f2b6278a4e2b07fb2902d8b090/src/Limelight.h#L105-L106>
-    // TODO: find out a specific version (Foundation Sunshine Version in the serverinfo response?) at which this is supported
+    /// - first version with mic support: <https://github.com/AlkaidLab/foundation-sunshine/releases/tag/v2025.722.165726.%E6%9D%82%E9%B1%BC>
     pub foundation_enable_mic: bool,
 }
 
