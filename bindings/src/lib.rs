@@ -21,7 +21,6 @@ pub mod audio_stream;
 pub mod control_host;
 pub mod control_packet;
 pub mod control_serialization;
-pub mod control_stream;
 pub mod input_batcher;
 pub mod video_stream;
 pub mod webrtc;

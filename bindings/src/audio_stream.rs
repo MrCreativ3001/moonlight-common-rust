@@ -13,7 +13,7 @@ use moonlight_common::{
         audio::{AudioFrame as AudioFrame2, OpusMultistreamConfig as OpusMultistreamConfig2},
         proto::{
             Instant,
-            audio::{
+            audio::stream::{
                 AudioStream as AudioStream2, AudioStreamConfig as AudioStreamConfig2,
                 AudioStreamEvent as AudioStreamEvent2,
             },

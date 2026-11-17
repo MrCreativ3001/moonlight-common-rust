@@ -14,9 +14,12 @@ use moonlight_common::{
             packet::SunshinePing,
             runtime::{Receive, UdpStream},
             video::{
-                VideoStream as VideoStream2, VideoStreamConfig as VideoStreamConfig2,
-                VideoStreamEvent as VideoStreamEvent2, depayloader::VideoDepayloaderConfig,
+                depayloader::VideoDepayloaderConfig,
                 frame::OwnedVideoFrame,
+                stream::{
+                    VideoStream as VideoStream2, VideoStreamConfig as VideoStreamConfig2,
+                    VideoStreamEvent as VideoStreamEvent2,
+                },
             },
         },
         video::{BufferType, ColorSpace, FrameIndex, FrameType, VideoFormat},

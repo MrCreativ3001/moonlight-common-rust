@@ -7,16 +7,17 @@ use std::{
 use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     stream::{
+        AesKey,
         control::EstimatedRttInfo,
         proto::{
             Instant,
             control::{
                 packet::{ControlPacketConfig, EnetChannel},
                 peer::{
-                    ControlConnectConfig as ControlConnectConfig2, ControlHost as ControlHost2,
-                    ControlHostConfig as ControlHostConfig2, ControlHostEvent as ControlHostEvent2,
-                    ControlPeerConfig as ControlPeerConfig2, ControlPeerId, ControlPeerRole,
-                    PacketKind,
+                    ControlConnectConfig as ControlConnectConfig2, ControlEncryptionMethod,
+                    ControlHost as ControlHost2, ControlHostConfig as ControlHostConfig2,
+                    ControlHostEvent as ControlHostEvent2, ControlPeerConfig as ControlPeerConfig2,
+                    ControlPeerId, ControlPeerRole, PacketKind,
                 },
             },
             runtime::{Receive, UdpStream},
@@ -25,9 +26,25 @@ use moonlight_common::{
 };
 use uniffi::{Enum, Object, Record, custom_type, deps::anyhow::Error, export, remote};
 
-use crate::{
-    MoonlightError, UdpTransmit, control_packet::ControlPacket, control_stream::ControlEncryption,
-};
+use crate::{MoonlightError, UdpTransmit, control_packet::ControlPacket};
+
+#[remote(Enum)]
+pub enum ControlEncryptionMethod {
+    Nvidia,
+    Sunshine,
+}
+
+#[derive(Debug, Record)]
+pub struct ControlEncryption {
+    pub method: ControlEncryptionMethod,
+    pub aes_key: AesKey,
+}
+
+#[remote(Record)]
+pub struct EstimatedRttInfo {
+    pub rtt: Duration,
+    pub rtt_variance: Duration,
+}
 
 custom_type!(ControlPeerId, u32, {
     remote,
