@@ -16,7 +16,7 @@ use moonlight_common::{
         control::ActiveGamepads,
         proto::{
             MoonlightStreamSetup,
-            audio::AudioStreamEvent,
+            audio::stream::AudioStreamEvent,
             control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
             video::VideoStreamEvent,
         },

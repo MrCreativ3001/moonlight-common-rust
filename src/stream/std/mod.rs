@@ -24,7 +24,7 @@ use crate::{
         proto::{
             DEFAULT_RTSP_PORT, DynCryptoBackend, MOONLIGHT_STREAM_SETUP_TCP_CONNECT_TIMEOUT,
             MoonlightStreamInput, MoonlightStreamSetup, MoonlightStreamSetupOutput,
-            audio::{AudioStream, AudioStreamEvent},
+            audio::stream::{AudioStream, AudioStreamEvent},
             control::{
                 ControlStream, ControlStreamEvent,
                 input_batcher::ClientInputEvent,

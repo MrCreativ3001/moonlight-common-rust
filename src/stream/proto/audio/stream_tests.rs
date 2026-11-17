@@ -12,8 +12,8 @@ use crate::{
         audio::OpusMultistreamConfig,
         proto::{
             audio::{
-                AudioStream, AudioStreamConfig,
                 payloader::{AudioPayloader, AudioPayloaderConfig},
+                stream::{AudioStream, AudioStreamConfig},
             },
             ping::{PingSender, PingSenderConfig},
             runtime::{Receive, Transmit, UdpStream, drive_until},

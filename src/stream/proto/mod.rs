@@ -22,7 +22,7 @@ use crate::{
         RawHostFeatures, StreamingConfig,
         audio::{AudioConfig, OpusMultistreamConfig},
         proto::{
-            audio::{AudioStream, AudioStreamConfig},
+            audio::stream::{AudioStream, AudioStreamConfig},
             control::{
                 ControlStream, ControlStreamConfig, packet::ControlPacket,
                 peer::ControlEncryptionMethod,
