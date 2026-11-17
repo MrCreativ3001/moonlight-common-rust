@@ -48,9 +48,9 @@ use crate::{
                 server::ServerSdp,
             },
             video::{
-                VideoStream, VideoStreamConfig,
                 depayloader::VideoDepayloaderConfig,
-                packet::{EncryptedVideoHeader, RtpVideoHeader},
+                sdp_packet_size_into_actual_packet_size,
+                stream::{VideoStream, VideoStreamConfig},
             },
         },
         video::{
@@ -481,12 +481,10 @@ impl MoonlightStreamSetup {
 
                             #[allow(clippy::unwrap_used)]
                             // Packet size will always exist
-                            let packet_size = sdp.client_sdp.packet_size.unwrap() as usize
-                                + if encrypted {
-                                    EncryptedVideoHeader::SIZE + RtpVideoHeader::SIZE
-                                } else {
-                                    RtpVideoHeader::SIZE
-                                };
+                            let packet_size = sdp_packet_size_into_actual_packet_size(
+                                encrypted,
+                                sdp.client_sdp.packet_size.unwrap() as usize,
+                            );
 
                             let video_stream = VideoStream::new(
                                 self.last_now,

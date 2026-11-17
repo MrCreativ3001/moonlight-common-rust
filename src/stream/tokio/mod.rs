@@ -24,7 +24,7 @@ use crate::{
                 packet::ControlPacket,
             },
             microphone::foundation::FoundationMicStream,
-            video::{VideoStream, VideoStreamEvent},
+            video::stream::{VideoStream, VideoStreamEvent},
         },
         tokio::driver::StreamDriver,
         video::{VideoCapabilities, VideoSetup},

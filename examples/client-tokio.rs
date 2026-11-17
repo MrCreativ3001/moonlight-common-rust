@@ -18,7 +18,7 @@ use moonlight_common::{
             MoonlightStreamSetup,
             audio::stream::AudioStreamEvent,
             control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
-            video::VideoStreamEvent,
+            video::stream::VideoStreamEvent,
         },
         tokio::{MoonlightStream, MoonlightStreamEvent},
         video::{ColorRange, ColorSpace, VideoCapabilities, VideoDecoder, VideoFormats},

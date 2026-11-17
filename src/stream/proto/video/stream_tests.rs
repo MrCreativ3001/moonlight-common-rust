@@ -13,9 +13,11 @@ use crate::{
             ping::{PingSender, PingSenderConfig},
             runtime::{Receive, Transmit, UdpStream, drive_sleep, drive_until},
             video::{
-                FULL_FRAME_RECEIVE_TIMEOUT, VideoStream, VideoStreamConfig, VideoStreamEvent,
                 depayloader::VideoDepayloaderConfig,
                 payloader::{VideoPayloader, VideoPayloaderConfig},
+                stream::{
+                    FULL_FRAME_RECEIVE_TIMEOUT, VideoStream, VideoStreamConfig, VideoStreamEvent,
+                },
             },
         },
         video::{FrameIndex, ServerFrameType, VideoFormat},

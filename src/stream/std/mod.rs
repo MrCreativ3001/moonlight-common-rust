@@ -32,7 +32,7 @@ use crate::{
             },
             crypto::CryptoBackend,
             microphone::foundation::FoundationMicStream,
-            video::{VideoStream, VideoStreamEvent},
+            video::stream::{VideoStream, VideoStreamEvent},
         },
         std::driver::SyncUdpDriver,
         video::VideoDecoder,
