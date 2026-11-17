@@ -54,7 +54,6 @@ fn no_busy_loop_when_not_receiving_data() {
 }
 
 #[test]
-
 fn no_busy_loop_after_skipping_data() {
     let mut now = Instant::ZERO;
     let mut audio_stream = AudioStream::new_unencrypted(
