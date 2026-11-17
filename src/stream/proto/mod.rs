@@ -24,8 +24,9 @@ use crate::{
         proto::{
             audio::stream::{AudioStream, AudioStreamConfig},
             control::{
-                ControlStream, ControlStreamConfig, packet::ControlPacket,
+                packet::ControlPacket,
                 peer::ControlEncryptionMethod,
+                stream::{ControlStream, ControlStreamConfig},
             },
             crypto::CryptoBackend,
             ip_addr::is_private_network_address,

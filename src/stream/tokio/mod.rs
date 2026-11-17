@@ -20,8 +20,9 @@ use crate::{
             MoonlightStreamSetupOutput,
             audio::stream::{AudioStream, AudioStreamEvent},
             control::{
-                ControlStream, ControlStreamEvent, input_batcher::ClientInputEvent,
+                input_batcher::ClientInputEvent,
                 packet::ControlPacket,
+                stream::{ControlStream, ControlStreamEvent},
             },
             microphone::foundation::FoundationMicStream,
             video::stream::{VideoStream, VideoStreamEvent},

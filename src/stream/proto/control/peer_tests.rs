@@ -8,12 +8,12 @@ use crate::{
     crypto::disabled::DisabledCryptoBackend,
     stream::proto::{
         control::{
-            ControlStream, ControlStreamConfig, ControlStreamEvent,
             packet::{ControlPacket, ControlPacketConfig, EnetChannel, TerminationReason},
             peer::{
                 ControlHost, ControlHostConfig, ControlHostEvent, ControlPeerConfig,
                 ControlPeerRole,
             },
+            stream::{ControlStream, ControlStreamConfig, ControlStreamEvent},
         },
         runtime::{Receive, UdpStream},
     },

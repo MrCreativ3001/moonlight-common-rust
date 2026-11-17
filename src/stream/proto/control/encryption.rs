@@ -7,11 +7,11 @@ use crate::{
         AesKey,
         proto::{
             control::{
-                ControlEncryptionMethod,
                 packet::{
                     ENCRYPTED_CONTROL_PACKET_AES_GCM_TAG_LENGTH, ENCRYPTED_CONTROL_PACKET_TYPE,
                     EncryptedControlHeader,
                 },
+                peer::ControlEncryptionMethod,
             },
             crypto::CryptoBackend,
         },
@@ -274,13 +274,13 @@ mod test {
         AesIv, AesKey,
         proto::{
             control::{
-                ControlEncryptionMethod,
                 encryption::{
                     decrypt_clientbound_control_packet_into,
                     decrypt_serverbound_control_packet_into,
                     encrypt_clientbound_control_packet_into,
                     encrypt_serverbound_control_packet_into, generate_iv,
                 },
+                peer::ControlEncryptionMethod,
             },
             crypto::CryptoBackend,
         },

@@ -17,7 +17,9 @@ use moonlight_common::{
         proto::{
             MoonlightStreamSetup,
             audio::stream::AudioStreamEvent,
-            control::{ControlStreamEvent, input_batcher::ClientInputEvent, packet::ControlPacket},
+            control::{
+                input_batcher::ClientInputEvent, packet::ControlPacket, stream::ControlStreamEvent,
+            },
             video::stream::VideoStreamEvent,
         },
         tokio::{MoonlightStream, MoonlightStreamEvent},

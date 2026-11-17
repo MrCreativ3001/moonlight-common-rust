@@ -26,9 +26,9 @@ use crate::{
             MoonlightStreamInput, MoonlightStreamSetup, MoonlightStreamSetupOutput,
             audio::stream::{AudioStream, AudioStreamEvent},
             control::{
-                ControlStream, ControlStreamEvent,
                 input_batcher::ClientInputEvent,
                 packet::{ControlPacket, TerminationReason},
+                stream::{ControlStream, ControlStreamEvent},
             },
             crypto::CryptoBackend,
             microphone::foundation::FoundationMicStream,
