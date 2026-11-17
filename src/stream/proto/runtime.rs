@@ -37,9 +37,23 @@ pub trait UdpStream: Send + Sync {
 }
 
 #[cfg(test)]
+pub(crate) fn drive_sleep<Stream>(
+    stream: &mut Stream,
+    now: &mut Instant,
+    timeout: std::time::Duration,
+    expected_transmits: &[Transmit],
+) -> Vec<Stream::Event>
+where
+    Stream: UdpStream,
+{
+    drive_until(stream, *now + timeout, now, expected_transmits)
+}
+
+#[cfg(test)]
 pub(crate) fn drive_until<Stream>(
     stream: &mut Stream,
     until: Instant,
+    now: &mut Instant,
     expected_transmits: &[Transmit],
 ) -> Vec<Stream::Event>
 where
@@ -50,9 +64,8 @@ where
     let mut transmits = Vec::default();
     let mut events = Vec::default();
 
-    let mut now = stream.poll_timeout().unwrap();
     loop {
-        stream.handle_timeout(now).unwrap();
+        stream.handle_timeout(*now).unwrap();
 
         while let Some(transmit) = stream.poll_transmit() {
             transmits.push(transmit);
@@ -61,7 +74,7 @@ where
             events.push(event);
         }
 
-        if now >= until {
+        if *now >= until {
             break;
         }
 
@@ -71,9 +84,9 @@ where
         }
 
         let timeout = stream.poll_timeout().unwrap();
-        assert!(timeout > now);
+        assert!(timeout > *now);
 
-        now = timeout;
+        *now = until.min(timeout);
     }
 
     for expected_transmit in expected_transmits {

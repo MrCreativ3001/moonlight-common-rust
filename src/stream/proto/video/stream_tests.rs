@@ -11,7 +11,7 @@ use crate::{
     stream::{
         proto::{
             ping::{PingSender, PingSenderConfig},
-            runtime::{Receive, Transmit, UdpStream, drive_until},
+            runtime::{Receive, Transmit, UdpStream, drive_sleep, drive_until},
             video::{
                 FULL_FRAME_RECEIVE_TIMEOUT, VideoStream, VideoStreamConfig, VideoStreamEvent,
                 depayloader::VideoDepayloaderConfig,
@@ -33,6 +33,7 @@ fn ping_behavior_before_receiving_data() {
     // While no data is received the audio stream should mimic the ping sender
     let mut now = Instant::ZERO;
 
+    let mut stream_now = now;
     let mut stream = VideoStream::new(
         now,
         VideoStreamConfig {
@@ -66,7 +67,7 @@ fn ping_behavior_before_receiving_data() {
         })
         .collect::<Vec<_>>();
 
-        let _ = drive_until(&mut stream, now, &transmits);
+        let _ = drive_until(&mut stream, now, &mut stream_now, &transmits);
 
         sender.handle_timeout(now);
     }
@@ -128,8 +129,7 @@ fn request_idr_on_loss_and_recover() {
     }
 
     // Wait until an idr request
-    now += FULL_FRAME_RECEIVE_TIMEOUT;
-    let events = drive_until(&mut stream, now, &[]);
+    let events = drive_sleep(&mut stream, &mut now, FULL_FRAME_RECEIVE_TIMEOUT, &[]);
     assert!(
         events
             .iter()
@@ -152,7 +152,7 @@ fn request_idr_on_loss_and_recover() {
         .unwrap();
     assert_eq!(payloader.poll_packet(), None);
 
-    let events = drive_until(&mut stream, now, &[]);
+    let events = drive_until(&mut stream, now, &mut now, &[]);
     assert!(
         events
             .iter()

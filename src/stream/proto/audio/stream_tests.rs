@@ -123,6 +123,7 @@ fn ping_behavior_before_receiving_data() {
     // While no data is received the audio stream should mimic the ping sender
     let mut now = Instant::ZERO;
 
+    let mut stream_now = now;
     let mut stream = AudioStream::new_unencrypted(
         now,
         AudioStreamConfig {
@@ -152,7 +153,7 @@ fn ping_behavior_before_receiving_data() {
         })
         .collect::<Vec<_>>();
 
-        let _ = drive_until(&mut stream, now, &transmits);
+        let _ = drive_until(&mut stream, now, &mut stream_now, &transmits);
 
         sender.handle_timeout(now);
     }
