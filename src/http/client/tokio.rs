@@ -6,6 +6,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, lookup_host},
     select,
+    time::sleep,
 };
 use tracing::{Level, instrument};
 
@@ -138,15 +139,19 @@ impl RequestClient for TokioClient {
     {
         let uri = build_url::<E>(false, client_info, hostport, request)?;
 
-        let response = make_request(
-            &HttpsConfig::http(),
-            http::Request::builder()
-                .method(Method::GET)
-                .uri(uri)
-                .body(Bytes::new())
-                .expect("failed to create http request"),
-        )
-        .await?;
+        let request = http::Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .body(Bytes::new())
+            .expect("failed to create http request");
+        let config = HttpsConfig::http();
+
+        let response = select! {
+            response = make_request(&config, request) => response?,
+            _ = sleep(self.timeout) => {
+                return Err(Error::ConnectionTimeout);
+            }
+        };
 
         let text = String::from_utf8(response.into_body().into()).map_err(Error::other)?;
 
@@ -167,15 +172,19 @@ impl RequestClient for TokioClient {
     {
         let uri = build_url::<E>(false, client_info, hostport, request)?;
 
-        let response = make_request(
-            &self.config,
-            http::Request::builder()
-                .method(Method::GET)
-                .uri(uri)
-                .body(Bytes::new())
-                .expect("failed to create http request"),
-        )
-        .await?;
+        let request = http::Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .body(Bytes::new())
+            .expect("failed to create http request");
+        let config = HttpsConfig::http();
+
+        let response = select! {
+            response = make_request(&config, request) => response?,
+            _ = sleep(self.timeout) => {
+                return Err(Error::ConnectionTimeout);
+            }
+        };
 
         let text = String::from_utf8(response.into_body().into()).map_err(Error::other)?;
 
@@ -195,15 +204,19 @@ impl RequestClient for TokioClient {
     {
         let uri = build_url::<E>(false, client_info, hostport, request)?;
 
-        let response = make_request(
-            &self.config,
-            http::Request::builder()
-                .method(Method::GET)
-                .uri(uri)
-                .body(Bytes::new())
-                .expect("failed to create http request"),
-        )
-        .await?;
+        let request = http::Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .body(Bytes::new())
+            .expect("failed to create http request");
+        let config = HttpsConfig::http();
+
+        let response = select! {
+            response = make_request(&config, request) => response?,
+            _ = sleep(self.timeout) => {
+                return Err(Error::ConnectionTimeout);
+            }
+        };
 
         let body = response.into_body();
         Ok(body.into())

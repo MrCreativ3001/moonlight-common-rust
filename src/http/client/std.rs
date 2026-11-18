@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use pem::Pem;
 use tracing::{debug, instrument, trace};
@@ -7,19 +7,31 @@ use crate::{
     error::Error,
     http::{
         ClientInfo, Endpoint, TextResponse,
-        client::{DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT, blocking_client::RequestClient},
+        client::{
+            DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT, blocking_client::RequestClient,
+            rustls::HttpsConfig,
+        },
     },
 };
 
 #[derive(Debug, Clone)]
-pub struct StdClient {}
+pub struct StdClient {
+    timeout: Duration,
+    config: HttpsConfig,
+}
 
 impl RequestClient for StdClient {
     fn with_defaults() -> Result<Self, Error> {
-        todo!()
+        Ok(Self {
+            timeout: DEFAULT_TIMEOUT,
+            config: HttpsConfig::http(),
+        })
     }
     fn with_defaults_long_timeout() -> Result<Self, Error> {
-        todo!()
+        Ok(Self {
+            timeout: DEFAULT_LONG_TIMEOUT,
+            config: HttpsConfig::http(),
+        })
     }
 
     #[cfg_attr(
@@ -35,7 +47,10 @@ impl RequestClient for StdClient {
         client_certificate: &Pem,
         server_certificate: &Pem,
     ) -> Result<Self, Error> {
-        todo!()
+        Ok(Self {
+            timeout: DEFAULT_TIMEOUT,
+            config: (),
+        })
     }
 
     #[instrument(target = "moonlight::client::ureq", skip(self, request), fields(path = E::path()), err)]

@@ -203,6 +203,10 @@ impl HttpsConfig {
             config: Some(Arc::new(config)),
         })
     }
+
+    pub fn is_https(&self) -> bool {
+        self.config.is_some()
+    }
 }
 
 /// Simple Sans-IO Http or Https Client
