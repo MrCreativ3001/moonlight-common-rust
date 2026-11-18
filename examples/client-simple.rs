@@ -7,7 +7,7 @@ use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     high::std::MoonlightHost,
     http::{
-        client::ureq::UreqClient,
+        client::std::StdClient,
         pair::{PairPin, PairingCryptoBackend},
     },
 };
@@ -26,9 +26,9 @@ fn main() {
         unique_id,
     } = Args::parse();
 
-    // Create a new client that'll use the [UreqClient] in the background to make requests
+    // Create a new client that'll use the [StdClient] in the background to make requests
     let client =
-        MoonlightHost::<UreqClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
+        MoonlightHost::<StdClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_backend = RustCryptoBackend;

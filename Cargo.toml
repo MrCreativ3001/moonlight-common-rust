@@ -65,27 +65,15 @@ tokio = { version = "1.52.3", default-features = false, features = [
 pin-project-lite = "0.2"
 
 # -- Request clients
-http = { version = "1.4.0", default-features = false, optional = true }
-hyper = { version = "1.8.1", features = [
-    "client",
-    "http1",
-], default-features = false, optional = true }
-
-# ureq
-ureq = { version = "3.2.0", features = [
-    "rustls",
-], default-features = false, optional = true }
-
-# Hyper Client
-rustls = { version = "0.23.37", default-features = false, optional = true }
-hyper-util = { version = "0.1.20", features = [
-    "client",
-    "tracing",
-], default-features = false, optional = true }
-http-body-util = { version = "0.1.3", optional = true }
-hyper-rustls = { version = "0.27.7", features = [
-    "http1",
-], default-features = false, optional = true }
+http = { version = "1.5.0", default-features = false, features = [
+    "std",
+], optional = true }
+httparse = { version = "1.10.0", default-features = false, features = [
+    "std",
+], optional = true }
+rustls = { version = "0.23.46", default-features = false, features = [
+    "std",
+], optional = true }
 
 # -- Crypto Backends
 # OpenSSL
@@ -140,13 +128,28 @@ sdp-types = "0.1.8"
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 [features]
-default = ["ureq", "std", "rustcrypto"]
+default = ["std", "rustcrypto"]
 
 serde = ["dep:serde"]
 
 # Different "runtimes"
-std = ["stream-proto", "dep:socket2"]
-tokio = ["dep:tokio", "stream-proto", "dep:socket2"]
+std = [
+    "stream-proto",
+    "dep:socket2",
+    # Https
+    "dep:rustls",
+    "dep:http",
+    "dep:httparse",
+]
+tokio = [
+    "dep:tokio",
+    "stream-proto",
+    "dep:socket2",
+    # Https
+    "dep:rustls",
+    "dep:http",
+    "dep:httparse",
+]
 
 # Stream implementations
 stream-proto = ["dep:fec-rs", "dep:rusty_enet"]
@@ -167,18 +170,6 @@ rustcrypto = [
     "dep:pkcs8",
     "dep:aes-gcm",
     "dep:cbc",
-]
-
-# Request implementations
-ureq = ["dep:http", "dep:hyper", "dep:ureq"]
-tokio-hyper = [
-    "dep:http",
-    "dep:rustls",
-    "dep:hyper",
-    "dep:hyper-util",
-    "dep:http-body-util",
-    "dep:hyper-rustls",
-    "tokio",
 ]
 
 # Logs sensitive information: e.g. private keys and sensitive values used in encryption / decryption
@@ -216,22 +207,22 @@ ignored = [
 [[example]]
 name = "client-simple"
 path = "examples/client-simple.rs"
-required-features = ["ureq", "std", "rustcrypto"]
+required-features = ["std", "rustls/ring", "rustcrypto"]
 
 [[example]]
 name = "client-stream"
 path = "examples/client-stream.rs"
-required-features = ["ureq", "std", "rustcrypto"]
+required-features = ["std", "rustls/ring", "rustcrypto"]
 
 [[example]]
 name = "client-common-c"
 path = "examples/client-common-c.rs"
-required-features = ["ureq", "std", "openssl", "stream-c"]
+required-features = ["std", "openssl", "stream-c"]
 
 [[example]]
 name = "client-tokio"
 path = "examples/client-tokio.rs"
-required-features = ["tokio-hyper", "tokio", "rustcrypto"]
+required-features = ["tokio", "rustls/ring", "rustcrypto"]
 
 [lib]
 doctest = false

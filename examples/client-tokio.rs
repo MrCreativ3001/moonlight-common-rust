@@ -7,7 +7,7 @@ use moonlight_common::{
     crypto::rustcrypto::RustCryptoBackend,
     high::tokio::MoonlightHost,
     http::{
-        client::tokio_hyper::TokioHyperClient,
+        client::tokio::TokioClient,
         pair::{PairPin, PairingCryptoBackend},
     },
     stream::{
@@ -26,6 +26,7 @@ use moonlight_common::{
         video::{ColorRange, ColorSpace, VideoCapabilities, VideoDecoder, VideoFormats},
     },
 };
+use rustls::crypto::CryptoProvider;
 use tokio::{
     select,
     time::{interval, sleep},
@@ -49,9 +50,9 @@ async fn main() {
         unique_id,
     } = Args::parse();
 
-    // Create a new client that'll use the [TokioHyperClient] in the background to make requests
+    // Create a new client that'll use the [TokioClient] in the background to make requests
     let client =
-        MoonlightHost::<TokioHyperClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
+        MoonlightHost::<TokioClient>::new(address.to_string(), port, Some(unique_id)).unwrap();
 
     // Create a Crypto Backend
     let crypto_backend = RustCryptoBackend;
