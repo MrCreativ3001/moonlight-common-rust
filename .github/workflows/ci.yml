@@ -20,17 +20,16 @@ jobs:
         # base features
         - ""
         - "std"
-        - "ureq"
         - "tokio"
-        - "tokio-hyper"
         - "stream-proto"
         - "stream-c"
         - "openssl"
         - "rustcrypto"
         # common feature combinations
-        - "ureq openssl stream-c"
-        - "ureq rustcrypto std"
-        - "ureq std openssl stream-c rustcrypto std tokio tokio-hyper"
+        - "std openssl stream-c"
+        - "std rustcrypto"
+        - "tokio rustcrypto"
+        - "std openssl stream-c std tokio rustcrypto"
   
     steps:
       - uses: actions/checkout@v5
