@@ -93,7 +93,7 @@ async fn make_request(
     if let Some(response) = client.poll_output()? {
         Ok(response)
     } else {
-        return Err(err.into());
+        Err(err.into())
     }
 }
 
@@ -177,10 +177,9 @@ impl RequestClient for TokioClient {
             .uri(uri)
             .body(Bytes::new())
             .expect("failed to create http request");
-        let config = HttpsConfig::http();
 
         let response = select! {
-            response = make_request(&config, request) => response?,
+            response = make_request(&self.config, request) => response?,
             _ = sleep(self.timeout) => {
                 return Err(Error::ConnectionTimeout);
             }
@@ -209,10 +208,9 @@ impl RequestClient for TokioClient {
             .uri(uri)
             .body(Bytes::new())
             .expect("failed to create http request");
-        let config = HttpsConfig::http();
 
         let response = select! {
-            response = make_request(&config, request) => response?,
+            response = make_request(&self.config, request) => response?,
             _ = sleep(self.timeout) => {
                 return Err(Error::ConnectionTimeout);
             }
