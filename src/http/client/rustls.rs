@@ -23,7 +23,10 @@ use tracing::{debug, warn};
 
 use crate::{
     error::Error,
-    http::{ClientInfo, Endpoint, QueryBuilder, QueryBuilderError, QueryParam, helper::u32_to_str},
+    http::{
+        ClientInfo, Endpoint, QueryBuilder, QueryBuilderError, QueryParam,
+        client::InvalidPrivateKey, helper::u32_to_str,
+    },
 };
 
 #[cfg(test)]
@@ -174,12 +177,12 @@ impl HttpsConfig {
 
         let server_certificate =
             CertificateDer::from_slice(server_certificate.contents()).into_owned();
-        cert_store.add(server_certificate).unwrap();
+        cert_store.add(server_certificate).map_err(Error::other)?;
 
         let server_verifier = WebPkiServerVerifier::builder(Arc::new(cert_store))
             .allow_unknown_revocation_status()
             .build()
-            .unwrap();
+            .map_err(Error::other)?;
         let server_verifier = NoServerNameVerification::new(server_verifier);
 
         let client_certificate =
@@ -188,13 +191,13 @@ impl HttpsConfig {
             SectionKind::PrivateKey,
             client_private_key.contents().to_vec(),
         )
-        .unwrap();
+        .ok_or_else(|| Error::other(InvalidPrivateKey))?;
 
         let mut config = ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(server_verifier))
             .with_client_auth_cert(vec![client_certificate], client_private_key)
-            .unwrap();
+            .map_err(Error::other)?;
 
         // Disable resumption, Sunshine cannot handle them
         config.resumption = Resumption::disabled();

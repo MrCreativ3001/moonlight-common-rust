@@ -15,7 +15,7 @@ use crate::{
     http::{
         ClientInfo, Endpoint, TextResponse,
         client::{
-            DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT,
+            AuthorityMissing, DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT,
             async_client::RequestClient,
             rustls::{HttpsClient, HttpsConfig, build_url},
         },
@@ -35,7 +35,9 @@ async fn make_request(
     request: http::Request<Bytes>,
 ) -> Result<http::Response<Bytes>, Error> {
     // Connect via Tcp
-    let authority = request.uri().authority().unwrap();
+    let Some(authority) = request.uri().authority() else {
+        return Err(Error::other(AuthorityMissing));
+    };
 
     let mut addrs = lookup_host(authority.as_str()).await?;
 
@@ -170,7 +172,11 @@ impl RequestClient for TokioClient {
         E::Request: Sync,
         E::Response: TextResponse,
     {
-        let uri = build_url::<E>(false, client_info, hostport, request)?;
+        if !self.config.is_https() {
+            return Err(Error::NotPaired);
+        }
+
+        let uri = build_url::<E>(true, client_info, hostport, request)?;
 
         let request = http::Request::builder()
             .method(Method::GET)
@@ -201,7 +207,11 @@ impl RequestClient for TokioClient {
         E: Endpoint<Response = Vec<u8>>,
         E::Request: Sync,
     {
-        let uri = build_url::<E>(false, client_info, hostport, request)?;
+        if !self.config.is_https() {
+            return Err(Error::NotPaired);
+        }
+
+        let uri = build_url::<E>(true, client_info, hostport, request)?;
 
         let request = http::Request::builder()
             .method(Method::GET)

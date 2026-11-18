@@ -15,7 +15,7 @@ use crate::{
     http::{
         ClientInfo, Endpoint, TextResponse,
         client::{
-            DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT,
+            AuthorityMissing, DEFAULT_LONG_TIMEOUT, DEFAULT_TIMEOUT,
             blocking_client::RequestClient,
             rustls::{HttpsClient, HttpsConfig, build_url},
         },
@@ -48,7 +48,9 @@ fn make_request(
     let max_timeout = || until.saturating_duration_since(Instant::now());
 
     // Connect via Tcp
-    let authority = request.uri().authority().unwrap();
+    let Some(authority) = request.uri().authority() else {
+        return Err(Error::other(AuthorityMissing));
+    };
 
     let mut addrs = authority.as_str().to_socket_addrs()?;
 
@@ -213,7 +215,11 @@ impl RequestClient for StdClient {
         E: Endpoint,
         E::Response: TextResponse,
     {
-        let uri = build_url::<E>(false, client_info, hostport, request)?;
+        if !self.config.is_https() {
+            return Err(Error::NotPaired);
+        }
+
+        let uri = build_url::<E>(true, client_info, hostport, request)?;
 
         let request = http::Request::builder()
             .method(Method::GET)
@@ -238,7 +244,11 @@ impl RequestClient for StdClient {
     where
         E: Endpoint<Response = Vec<u8>>,
     {
-        let uri = build_url::<E>(false, client_info, hostport, request)?;
+        if !self.config.is_https() {
+            return Err(Error::NotPaired);
+        }
+
+        let uri = build_url::<E>(true, client_info, hostport, request)?;
 
         let request = http::Request::builder()
             .method(Method::GET)

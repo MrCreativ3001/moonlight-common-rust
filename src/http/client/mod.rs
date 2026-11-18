@@ -1,5 +1,7 @@
 use ::std::time::Duration;
 
+use thiserror::Error;
+
 pub mod async_client;
 pub mod blocking_client;
 
@@ -14,3 +16,11 @@ mod rustls;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_LONG_TIMEOUT: Duration = Duration::from_secs(90);
+
+#[derive(Debug, Error)]
+#[error("the authority is missing from the uri")]
+struct AuthorityMissing;
+
+#[derive(Debug, Error)]
+#[error("the given private key is not valid")]
+struct InvalidPrivateKey;
