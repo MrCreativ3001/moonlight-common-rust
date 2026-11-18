@@ -58,7 +58,7 @@ async fn make_request(
 
     let mut client = HttpsClient::new(config, request)?;
 
-    loop {
+    let err = loop {
         if write_range.is_empty() {
             let len = client.poll_write(&mut write_buffer);
             write_range = 0..len;
@@ -72,7 +72,7 @@ async fn make_request(
             result = reader.read(&mut read_buffer) => {
                 let len = match result {
                     Ok(value) => value,
-                    Err(err) if matches!(err.kind(), std::io::ErrorKind::ConnectionReset) => break,
+                    Err(err) if matches!(err.kind(), std::io::ErrorKind::ConnectionReset) => break err,
                     Err(err) => return Err(err.into()),
                 };
 
@@ -81,19 +81,19 @@ async fn make_request(
             result = writer.write(&write_buffer[write_range.clone()]) => {
                 let len = match result {
                     Ok(value) => value,
-                    Err(err) if matches!(err.kind(), std::io::ErrorKind::ConnectionReset) => break,
+                    Err(err) if matches!(err.kind(), std::io::ErrorKind::ConnectionReset) => break err,
                     Err(err) => return Err(err.into()),
                 };
 
                 write_range = (write_range.start + len)..write_range.end;
             }
         }
-    }
+    };
 
     if let Some(response) = client.poll_output()? {
         Ok(response)
     } else {
-        todo!()
+        return Err(err.into());
     }
 }
 
