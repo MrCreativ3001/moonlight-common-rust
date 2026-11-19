@@ -12,7 +12,7 @@ use tokio::{
     net::UdpSocket,
     time::{Instant, Sleep, sleep_until},
 };
-use tracing::warn;
+use tracing::{Instrument, debug_span, warn};
 
 use crate::{
     error::Error,
@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub struct StreamDriver<Stream> {
+    name: &'static str,
     pub(crate) base_time: Instant,
     pub(crate) inner: Stream,
     pub(crate) socket: UdpSocket,
@@ -34,13 +35,18 @@ impl<Stream> StreamDriver<Stream>
 where
     Stream: UdpStream,
 {
-    pub async fn new(base_time: Instant, stream: Stream) -> Result<Self, Error> {
+    pub async fn new(
+        name: &'static str,
+        base_time: Instant,
+        stream: Stream,
+    ) -> Result<Self, Error> {
         let socket = new_udp_socket(false, stream.recv_buffer_hint())?;
 
         socket.set_nonblocking(true)?;
         let socket = UdpSocket::from_std(socket)?;
 
         Ok(Self {
+            name,
             base_time,
             inner: stream,
             socket,
@@ -49,18 +55,20 @@ where
         })
     }
 
-    pub fn drive(&mut self) -> DriveFuture<'_, Stream> {
+    pub fn drive(&mut self) -> impl Future<Output = Result<Stream::Event, Error>> + '_ {
         let deadline = self
             .inner
             .poll_timeout()
             .map(|x| x.to_std(self.base_time.into_std()).into())
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(1));
 
+        let span_name = self.name;
         DriveFuture {
             driver: self,
             old_deadline: deadline,
             sleep: sleep_until(deadline),
         }
+        .instrument(debug_span!("{}", span_name))
     }
 
     pub fn stream(&self) -> &Stream {

@@ -192,12 +192,16 @@ impl MoonlightStream {
 
         debug!("binding all streams");
         let (audio_stream, video_stream, mut control_stream, foundation_mic_stream) = try_join!(
-            StreamDriver::new(base_time, audio_stream.expect("audio stream")),
-            StreamDriver::new(base_time, video_stream.expect("video stream")),
-            StreamDriver::new(base_time, control_stream.expect("control stream")),
+            StreamDriver::new("audio", base_time, audio_stream.expect("audio stream")),
+            StreamDriver::new("video", base_time, video_stream.expect("video stream")),
+            StreamDriver::new(
+                "control",
+                base_time,
+                control_stream.expect("control stream")
+            ),
             async {
                 if let Some(foundation_mic_stream) = foundation_mic_stream {
-                    StreamDriver::new(base_time, foundation_mic_stream)
+                    StreamDriver::new("foundation_mic", base_time, foundation_mic_stream)
                         .await
                         .map(Some)
                 } else {
