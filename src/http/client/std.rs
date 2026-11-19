@@ -78,7 +78,7 @@ fn make_request(
 
         // Write data
         'write: loop {
-            let len = client.poll_write(&mut buffer);
+            let len = client.poll_write(&mut buffer)?;
             if len == 0 {
                 break;
             }
@@ -124,7 +124,7 @@ fn make_request(
             break 'outer Error::ConnectionFailed;
         }
 
-        client.handle_read(&buffer[0..len]);
+        client.handle_read(&buffer[0..len])?;
 
         if let Some(response) = client.poll_output()? {
             return Ok(response);

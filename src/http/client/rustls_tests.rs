@@ -78,14 +78,14 @@ fn http_request_response() {
     let mut client = HttpsClient::new(&HttpsConfig::http(), request.clone()).unwrap();
 
     let mut buffer = [0; 1024];
-    let len = client.poll_write(&mut buffer);
+    let len = client.poll_write(&mut buffer).unwrap();
     let buffer = &buffer[0..len];
 
     assert_eq!(buffer, serialize_request(request).as_slice());
 
     client.handle_read(
         "HTTP/1.1 401 Unauthorized\r\nTest-Header: test\r\nContent-Type: text/xml\r\nContent-Length: 13\r\n\r\nhello payload".as_bytes()
-    );
+    ).unwrap();
 
     let response = client
         .poll_output()

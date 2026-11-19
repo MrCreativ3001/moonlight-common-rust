@@ -238,47 +238,48 @@ impl HttpsClient {
         })
     }
 
-    pub fn poll_write(&mut self, buffer: &mut [u8]) -> usize {
+    pub fn poll_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         if let Some(tls) = &mut self.tls {
             // Try to write the plaintext
-            let Ok(len) = tls.writer().write(&self.request_buffer) else {
-                return 0;
-            };
+            let len = tls.writer().write(&self.request_buffer)?;
             self.request_buffer.drain(0..len);
 
             // Return the ciphertext
             let mut writer = Cursor::new(buffer);
-            let Ok(len) = tls.write_tls(&mut writer) else {
-                return 0;
-            };
+            let len = tls.write_tls(&mut writer).map_err(Error::other)?;
 
-            len
+            Ok(len)
         } else {
             let min_len = buffer.len().min(self.request_buffer.len());
 
             buffer[0..min_len].copy_from_slice(&self.request_buffer[0..min_len]);
 
-            min_len
+            Ok(min_len)
         }
     }
-    pub fn handle_read(&mut self, data: &[u8]) {
+    pub fn handle_read(&mut self, data: &[u8]) -> Result<(), Error> {
         if let Some(tls) = &mut self.tls {
             let mut reader = Cursor::new(&data);
 
             let mut written = 0;
             while written < data.len() {
-                let Ok(len) = tls.read_tls(&mut reader) else {
-                    return;
-                };
+                let len = tls.read_tls(&mut reader)?;
                 written += len;
-                debug_assert_eq!(written, data.len());
 
-                let _ = tls.process_new_packets();
+                tls.process_new_packets().map_err(Error::other)?;
 
-                let _ = tls.reader().read_to_end(&mut self.response_buffer);
+                match tls.reader().read_to_end(&mut self.response_buffer) {
+                    Ok(_) => {}
+                    Err(err) if matches!(err.kind(), std::io::ErrorKind::WouldBlock) => {}
+                    Err(err) => return Err(err.into()),
+                }
             }
+
+            Ok(())
         } else {
             self.response_buffer.extend_from_slice(data);
+
+            Ok(())
         }
     }
 

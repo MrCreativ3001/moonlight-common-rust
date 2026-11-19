@@ -26,7 +26,6 @@ use moonlight_common::{
         video::{ColorRange, ColorSpace, VideoCapabilities, VideoDecoder, VideoFormats},
     },
 };
-use rustls::crypto::CryptoProvider;
 use tokio::{
     select,
     time::{interval, sleep},

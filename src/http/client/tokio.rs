@@ -62,7 +62,7 @@ async fn make_request(
 
     let err = loop {
         if write_range.is_empty() {
-            let len = client.poll_write(&mut write_buffer);
+            let len = client.poll_write(&mut write_buffer)?;
             write_range = 0..len;
         }
 
@@ -73,18 +73,30 @@ async fn make_request(
         select! {
             result = reader.read(&mut read_buffer) => {
                 let len = match result {
-                    Ok(value) => value,
-                    Err(err) if matches!(err.kind(), std::io::ErrorKind::ConnectionReset) => break err,
-                    Err(err) => return Err(err.into()),
+                    Ok(0) => {
+                        break std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "connection closed before response completed",
+                        );
+                    }
+                    Ok(len) => len,
+                    Err(err) => break err,
                 };
 
-                client.handle_read(&read_buffer[0..len]);
+                client.handle_read(&read_buffer[..len])?;
             },
-            result = writer.write(&write_buffer[write_range.clone()]) => {
+
+            result = writer.write(&write_buffer[write_range.clone()]),
+                if !write_range.is_empty() => {
                 let len = match result {
-                    Ok(value) => value,
-                    Err(err) if matches!(err.kind(), std::io::ErrorKind::ConnectionReset) => break err,
-                    Err(err) => return Err(err.into()),
+                    Ok(0) => {
+                        break std::io::Error::new(
+                            std::io::ErrorKind::WriteZero,
+                            "failed to write to socket",
+                        );
+                    }
+                    Ok(len) => len,
+                    Err(err) => break err,
                 };
 
                 write_range = (write_range.start + len)..write_range.end;
