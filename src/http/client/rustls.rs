@@ -19,7 +19,7 @@ use rustls::{
         pem::{PemObject, SectionKind},
     },
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{
     error::Error,
@@ -287,6 +287,8 @@ impl HttpsClient {
         if let Some(tls) = &mut self.tls {
             tls.process_new_packets().map_err(Error::other)?;
         }
+
+        trace!(request_buffer = ?self.request_buffer, response_buffer = ?self.response_buffer, "http(s) state");
 
         let Some(response) = deserialize_response(&self.response_buffer)? else {
             return Ok(None);
