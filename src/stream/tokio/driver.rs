@@ -89,7 +89,7 @@ pin_project! {
 }
 
 /// The maximum amount of time the drive loop is allowed to loop
-const MAX_LOOP: usize = 50;
+const MAX_LOOP: usize = 300;
 
 impl<'a, Stream> Future for DriveFuture<'a, Stream>
 where
