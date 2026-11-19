@@ -77,7 +77,7 @@ async fn handle_timeout() {
         timeout: Some(SansInstant::ZERO + duration),
         ..Default::default()
     };
-    let mut driver = StreamDriver::new(base_time, stream).await.unwrap();
+    let mut driver = StreamDriver::new("test", base_time, stream).await.unwrap();
 
     select! {
         _ = sleep(Duration::from_millis(200)) => {
@@ -112,7 +112,7 @@ async fn handle_receive() {
         timeout: Some(SansInstant::ZERO + Duration::from_millis(200)),
         ..Default::default()
     };
-    let mut driver = StreamDriver::new(base_time, stream).await.unwrap();
+    let mut driver = StreamDriver::new("test", base_time, stream).await.unwrap();
 
     let driver_addr = driver.socket.local_addr().unwrap();
     println!("driver_addr = {driver_addr}");
@@ -160,7 +160,7 @@ async fn handle_mixed() {
         timeout: Some(SansInstant::ZERO + timeout_duration),
         ..Default::default()
     };
-    let mut driver = StreamDriver::new(base_time, stream).await.unwrap();
+    let mut driver = StreamDriver::new("test", base_time, stream).await.unwrap();
 
     // 1. Wait 100ms, then send a packet to the driver
     sleep(packet_delay).await;
@@ -216,7 +216,7 @@ async fn handle_mixed() {
 #[tokio::test]
 async fn deliver_events_before_error() {
     // -- Create Stream + Driver
-    let mut driver = StreamDriver::new(Instant::now(), TestStream::default())
+    let mut driver = StreamDriver::new("test", Instant::now(), TestStream::default())
         .await
         .unwrap();
     let mut address = driver.socket.local_addr().unwrap();
