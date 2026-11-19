@@ -288,7 +288,11 @@ impl HttpsClient {
             tls.process_new_packets().map_err(Error::other)?;
         }
 
-        trace!(request_buffer = ?self.request_buffer, response_buffer = ?self.response_buffer, "http(s) state");
+        trace!(
+            request_buffer = ?String::from_utf8_lossy(&self.request_buffer),
+            response_buffer = ?String::from_utf8_lossy(&self.response_buffer),
+            "http(s) state"
+        );
 
         let Some(response) = deserialize_response(&self.response_buffer)? else {
             return Ok(None);
