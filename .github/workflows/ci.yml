@@ -38,7 +38,6 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: nightly
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
 
@@ -59,16 +58,6 @@ jobs:
       # Clippy
       - name: Clippy
         run: cargo clippy --all-targets --no-default-features --features "${{ matrix.features }}" -- -D warnings
-
-      # Binstall
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@main
-
-      # Cargo Shear
-      - name: Install cargo-shear
-        run: cargo binstall --force --no-confirm cargo-shear
-      - name: Cargo Shear
-        run: cargo shear --expand
   
       # Test
       - name: Test
