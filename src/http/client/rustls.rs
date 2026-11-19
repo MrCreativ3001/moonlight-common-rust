@@ -253,6 +253,7 @@ impl HttpsClient {
             let min_len = buffer.len().min(self.request_buffer.len());
 
             buffer[0..min_len].copy_from_slice(&self.request_buffer[0..min_len]);
+            self.request_buffer.drain(0..min_len);
 
             Ok(min_len)
         }

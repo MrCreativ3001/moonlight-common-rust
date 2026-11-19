@@ -95,3 +95,34 @@ fn http_request_response() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(response.body(), "hello payload".as_bytes());
 }
+
+#[test]
+fn http_request_small_buffer() {
+    let request = Request::builder()
+        .uri(
+            Uri::builder()
+                .scheme("http")
+                .authority("sunshine")
+                .path_and_query("/serverinfo")
+                .build()
+                .unwrap(),
+        )
+        .body(Bytes::new())
+        .unwrap();
+
+    let mut client = HttpsClient::new(&HttpsConfig::http(), request.clone()).unwrap();
+
+    let mut full = vec![];
+    let mut buffer = [0; 10];
+
+    for _ in 0..1000 {
+        let len = client.poll_write(&mut buffer).unwrap();
+        if len == 0 {
+            break;
+        }
+
+        full.extend_from_slice(&buffer[0..len]);
+    }
+
+    assert_eq!(full.as_slice(), serialize_request(request).as_slice());
+}
